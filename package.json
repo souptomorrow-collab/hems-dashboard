@@ -1,0 +1,23 @@
+{
+  "name": "hems-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "description": "基於發電量預測之家用儲能調度系統 — 顯示及操作介面 (HEMS UI)",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "dev:host": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host"
+  },
+  "dependencies": {
+    "echarts": "^5.5.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11"
+  }
+}
