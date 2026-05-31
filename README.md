@@ -3,7 +3,7 @@
 > 《基於發電量預測之家用儲能調度系統》
 
 以 **React + Vite** 製作的能源管理儀表板前端，對應計畫書第三章「顯示及操作頁面」。
-目前以**模擬資料**驅動，並預留 API 接口，日後可接後端（LSTM 太陽能/負載預測、GA 最佳化排程）。
+目前以**模擬資料**驅動，並預留 API 接口，日後可接後端（太陽能發電 LSTM 預測、家庭負載 RF 隨機森林預測、GA 最佳化排程）。
 
 ## 三個頁面
 
@@ -65,7 +65,7 @@ src/
   lib/
     constants.js       ← 時間解析度(15min)、電池、設備、配色
     tou.js             ← 台電時間電價
-    simulate.js        ← 能源模擬引擎（PV/負載預測、排程、電池調度）
+    simulate.js        ← 能源模擬引擎（太陽能 LSTM／負載 RF 預測、排程、電池調度）
     charts.js          ← ECharts 共用設定
     format.js          ← 格式化工具
   components/          ← Layout / Panel / StatCard / EChart / EnergyFlow

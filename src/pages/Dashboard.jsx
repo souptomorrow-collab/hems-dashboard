@@ -275,7 +275,7 @@ export default function Dashboard() {
 
       {/* 隔日預測 + 最佳化結果 */}
       <div className="grid cols-2 mt-16">
-        <Panel title="隔日預測：發電 vs 負載" sub="LSTM 預測太陽能發電與家庭負載（明日，淨負載呈鴨子曲線）">
+        <Panel title="隔日預測：發電 vs 負載" sub="太陽能發電 LSTM／家庭負載 RF（隨機森林）預測｜明日（淨負載呈鴨子曲線）">
           <EChart option={forecastOption} height={260} />
         </Panel>
         <Panel title="隔日最佳化結果" sub="GA 排程摘要（省錢模式）">
