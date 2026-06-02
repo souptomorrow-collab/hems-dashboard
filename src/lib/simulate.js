@@ -215,6 +215,16 @@ export function dispatch(date, mode, pv, load) {
 
   let soc = cap * 0.3 // 初始 SOC 30%
 
+  // 預充上限：保留白天「預期太陽能剩餘」可充入的空間，
+  // 避免半夜用電網把電池充滿、導致白天太陽能無處可存（只能逆送）。
+  // 夏季太陽能多 → 幾乎不從電網預充，改由太陽能日充、傍晚尖峰夜放。
+  let expectedSurplus = 0
+  for (let s = 0; s < SLOTS_PER_DAY; s++) {
+    expectedSurplus += Math.max(0, pv[s] - load[s]) * SLOT_HOURS
+  }
+  const reserve = Math.min(expectedSurplus, maxKwh - minKwh)
+  const prechargeCeiling = Math.max(minKwh, maxKwh - reserve)
+
   const pvToLoad = [], pvToBatt = [], pvToGrid = []
   const battToLoad = [], gridToLoad = [], gridToBatt = []
   const socPct = []
@@ -253,7 +263,7 @@ export function dispatch(date, mode, pv, load) {
       } else {
         g2l = deficit
         if (shouldPrecharge(mode, s)) {
-          const chg = Math.min(maxE - p2b, maxKwh - soc)
+          const chg = Math.min(maxE - p2b, prechargeCeiling - soc)
           if (chg > 0) { g2b = chg; soc += chg }
         }
       }
