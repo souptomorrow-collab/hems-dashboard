@@ -95,7 +95,7 @@ function fixedOn(id, slot, summer, weather) {
 function devicePowerWhenOn(dev, slot, weather) {
   let p = dev.ratedW / 1000
   if (dev.id === 'fridge') {
-    p *= 0.4 + 0.6 * Math.abs(Math.sin(slot / 2)) // 壓縮機循環
+    p *= 0.7 + 0.3 * Math.abs(Math.sin(slot)) // 壓縮機循環（小幅起伏）
   } else if (dev.id === 'ac') {
     const t = weather?.tempSlots?.[slot] ?? 28
     const f = Math.max(0.5, Math.min(1.35, (t - 24) / 9 + 0.7)) // 越熱功率越高
@@ -115,7 +115,8 @@ const SHIFTABLE_DURATION = {
 }
 
 // 在所有起始點中，依模式選出最佳的連續運轉視窗
-function bestWindow(durSlots, mode, price, pv, tier) {
+// occupancy：各時段已被其他可轉移設備佔用的數量，用來避免多台同時運轉
+function bestWindow(durSlots, mode, price, pv, tier, occupancy) {
   let best = { start: 0, score: Infinity }
   for (let start = 0; start + durSlots <= SLOTS_PER_DAY; start++) {
     let score = 0
@@ -124,6 +125,7 @@ function bestWindow(durSlots, mode, price, pv, tier) {
       if (mode === 'self') score += -pv[i] // 自用率最大：放在太陽能最多時
       else if (mode === 'peak') score += (tier[i] === 'peak' ? 100 : 0) + price[i] // 避開尖峰
       else score += price[i] // 省錢：最便宜時段
+      score += (occupancy?.[i] ?? 0) * 1.0 // 避免多台設備同時運轉（分散負載）
     }
     if (score < best.score) best = { start, score }
   }
@@ -150,11 +152,18 @@ export function buildSchedule(
       schedule[dev.id][s] = fixedOn(dev.id, s, summer, weather)
     }
   }
-  // 可轉移設備：放到最佳視窗
-  for (const dev of DEVICES.filter((d) => d.category === 'shiftable')) {
+  // 可轉移設備：放到最佳視窗（長的先放，並避免互相重疊→分散負載，不會全擠在同一時刻）
+  const occupancy = new Array(SLOTS_PER_DAY).fill(0)
+  const shiftables = DEVICES.filter((d) => d.category === 'shiftable').sort(
+    (a, b) => (SHIFTABLE_DURATION[b.id] ?? 4) - (SHIFTABLE_DURATION[a.id] ?? 4)
+  )
+  for (const dev of shiftables) {
     const dur = SHIFTABLE_DURATION[dev.id] ?? 4
-    const start = bestWindow(dur, mode, price, pv, tier)
-    for (let k = 0; k < dur; k++) schedule[dev.id][start + k] = true
+    const start = bestWindow(dur, mode, price, pv, tier, occupancy)
+    for (let k = 0; k < dur; k++) {
+      schedule[dev.id][start + k] = true
+      occupancy[start + k]++
+    }
   }
   return schedule
 }
