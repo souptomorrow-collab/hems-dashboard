@@ -74,3 +74,26 @@ export function peakMarkArea(tier) {
     data: areas,
   }
 }
+
+/** 把天氣中的降雨時段標成淡藍底（標注在預測圖上） */
+export function rainMarkArea(weather) {
+  if (!weather?.hourly) return undefined
+  const wet = (c) => c.key === 'rain' || c.key === 'heavyRain' || c.key === 'typhoon'
+  const areas = []
+  let start = null
+  for (let h = 0; h < 24; h++) {
+    const isWet = wet(weather.hourly[h])
+    if (isWet && start === null) start = h
+    if ((!isWet || h === 23) && start !== null) {
+      const end = isWet ? h : h - 1
+      areas.push([
+        { xAxis: slotLabels[start * 4] },
+        { xAxis: slotLabels[Math.min(SLOTS_PER_DAY - 1, end * 4 + 3)] },
+      ])
+      start = null
+    }
+  }
+  return areas.length
+    ? { silent: true, itemStyle: { color: 'rgba(56,189,248,0.10)' }, data: areas }
+    : undefined
+}

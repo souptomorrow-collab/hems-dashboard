@@ -17,6 +17,7 @@
 import { liveSnapshot, simulateDay, simulateWithSchedule } from '../lib/simulate.js'
 import { tomorrow } from '../lib/format.js'
 import { nowTaipei } from '../lib/time.js'
+import { simulateWeather } from '../lib/weather.js'
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms))
 
@@ -54,4 +55,20 @@ export async function runOptimization(mode = 'cost', baseDate = nowTaipei()) {
 export async function recomputeSchedule(schedule, mode = 'cost', baseDate = nowTaipei()) {
   await delay(120)
   return simulateWithSchedule(tomorrow(baseDate), mode, schedule)
+}
+
+/**
+ * 取得某日台北天氣（餵給太陽能/負載預測）。
+ *
+ * 目前回傳「模擬天氣」。真實系統建議由 Python 後端整合：
+ *   1) 後端以 CWA（中央氣象署）開放資料 API 取得台北實際/預報天氣
+ *      （需免費金鑰；瀏覽器直接呼叫多會被 CORS 擋，故放後端）
+ *   2) 把日照／溫度／濕度餵入 LSTM（太陽能）、RF（負載）模型
+ *   3) 後端把天氣 + 預測結果一起回傳，前端只負責顯示
+ * 屆時改成：const r = await fetch(`${API_BASE}/api/weather?date=...`); return r.json()
+ * 回傳格式比照 src/lib/weather.js 的 simulateWeather() 輸出。
+ */
+export async function fetchWeather(date = tomorrow(nowTaipei())) {
+  await delay(120)
+  return simulateWeather(date)
 }

@@ -3,6 +3,7 @@ import Panel from '../components/Panel.jsx'
 import StatCard from '../components/StatCard.jsx'
 import EChart from '../components/EChart.jsx'
 import EnergyFlow from '../components/EnergyFlow.jsx'
+import WeatherStrip from '../components/WeatherStrip.jsx'
 import { fetchLive, fetchToday, fetchPlanning } from '../api/client.js'
 import { COLORS, BATTERY } from '../lib/constants.js'
 import {
@@ -12,6 +13,7 @@ import {
   baseLegend,
   baseGrid,
   peakMarkArea,
+  rainMarkArea,
 } from '../lib/charts.js'
 
 export default function Dashboard() {
@@ -154,6 +156,7 @@ export default function Dashboard() {
               ],
             },
           },
+          markArea: rainMarkArea(plan.weather),
         },
         {
           name: '家庭負載預測',
@@ -277,7 +280,30 @@ export default function Dashboard() {
 
       {/* 隔日預測 + 最佳化結果 */}
       <div className="grid cols-2 mt-16">
-        <Panel title="隔日預測：發電 vs 負載" sub="太陽能發電 LSTM／家庭負載 RF（隨機森林）預測｜明日（淨負載呈鴨子曲線）">
+        <Panel
+          title="隔日預測：發電 vs 負載"
+          sub="太陽能 LSTM／負載 RF 預測｜明日（淨負載呈鴨子曲線）"
+          right={
+            plan?.weather && (
+              <span className="badge" title="天氣資料來源">
+                {plan.weather.source === 'cwa' ? '🌐 CWA 即時天氣' : '🧪 模擬天氣'}
+              </span>
+            )
+          }
+        >
+          {plan?.weather && (
+            <div className="wx-head">
+              <span className="wx-big">{plan.weather.summary.icon}</span>
+              <div>
+                <div className="wx-title">明日天氣：{plan.weather.summary.label}</div>
+                <div className="dim" style={{ fontSize: 12 }}>
+                  {plan.weather.summary.tempMin}–{plan.weather.summary.tempMax}°C・
+                  降雨機率最高 {plan.weather.summary.popMax}%
+                </div>
+              </div>
+            </div>
+          )}
+          <WeatherStrip weather={plan?.weather} />
           <EChart option={forecastOption} height={260} />
         </Panel>
         <Panel title="隔日最佳化結果" sub="GA 排程摘要（省錢模式）">

@@ -2,9 +2,13 @@
    能源模擬引擎（以 15 分鐘為單位，一天 96 時段）
 
    說明：這是「模擬資料」，用來讓 UI 有真實感。
-   實際系統會由 LSTM（太陽能發電預測）、RF 隨機森林（家庭負載預測）與基因演算法（GA 最佳化排程）
-   產生這些數值；之後只要把 api/client.js 換成呼叫後端 API 即可，
-   本檔案的輸出格式就是 UI 期望的資料結構。
+   實際系統會由 LSTM（太陽能發電預測）、RF 隨機森林（家庭負載預測）
+   與基因演算法（GA 最佳化排程）產生這些數值；之後只要把 api/client.js
+   換成呼叫後端 API 即可，本檔案的輸出格式就是 UI 期望的資料結構。
+
+   天氣（src/lib/weather.js）會影響：
+   - 太陽能發電：雲量越多、發電越低（陰雨/颱風驟降）
+   - 家庭負載：氣溫越高、冷氣用電越多；陰雨天白天也開燈
    ============================================================ */
 import {
   SLOTS_PER_DAY,
@@ -15,35 +19,19 @@ import {
 } from './constants.js'
 import { isSummer, getPriceSlots, getTierSlots } from './tou.js'
 import { nowTaipei } from './time.js'
-
-/* ---- 種子亂數：讓同一天的資料穩定、不會每次 render 都亂跳 ---- */
-function mulberry32(a) {
-  return function () {
-    a |= 0
-    a = (a + 0x6d2b79f5) | 0
-    let t = Math.imul(a ^ (a >>> 15), 1 | a)
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-}
-function seedFromDate(date) {
-  const start = new Date(date.getFullYear(), 0, 0)
-  const day = Math.floor((date - start) / 86400000)
-  return date.getFullYear() * 1000 + day
-}
+import { mulberry32, seedFromDate, dayOfYear } from './rng.js'
+import { simulateWeather } from './weather.js'
 
 /* ============================================================
-   1) 太陽能發電預測（kW/時段，鐘形曲線，夜間為 0）
+   1) 太陽能發電預測（kW/時段）= 晴空鐘形曲線 × 天氣衰減
    ============================================================ */
-export function pvForecastKw(date) {
+export function pvForecastKw(date, weather = simulateWeather(date)) {
   const rng = mulberry32(seedFromDate(date) + 7)
   const summer = isSummer(date)
-  const peakKw = summer ? 4.6 : 3.6 // 系統尖峰發電
-  const clearness = 0.72 + rng() * 0.28 // 當日晴朗度
+  const peakKw = summer ? 4.6 : 3.6 // 系統晴空尖峰發電
 
   // 台北（約 25°N）的季節日照：夏至約 13.4h、冬至約 10.6h
-  const start = new Date(date.getFullYear(), 0, 0)
-  const doy = Math.floor((date - start) / 86400000) // 一年中的第幾天
+  const doy = dayOfYear(date)
   const daylight = 12 + 1.45 * Math.sin((2 * Math.PI * (doy - 81)) / 365)
   const noon = 12.1 // 台北太陽正午約 12:06
   const sunrise = noon - daylight / 2
@@ -52,11 +40,13 @@ export function pvForecastKw(date) {
 
   const out = []
   for (let s = 0; s < SLOTS_PER_DAY; s++) {
-    const h = (s * 15) / 60 // 小時（含小數）
+    const h = (s * 15) / 60
     let kw = 0
     if (h > sunrise && h < sunset) {
       const x = (h - noon) / sigma
-      kw = peakKw * clearness * Math.exp(-x * x) * (0.9 + rng() * 0.2) // 雲層擾動
+      const clearSky = peakKw * Math.exp(-x * x) // 晴空理論發電
+      const atten = weather.attenSlots[s] ?? 1 // 天氣衰減（雲量/降雨）
+      kw = clearSky * atten * (0.97 + rng() * 0.06)
     }
     out.push(Math.max(0, +kw.toFixed(3)))
   }
@@ -67,14 +57,19 @@ export function pvForecastKw(date) {
    2) 設備排程與功率
    ============================================================ */
 
-// 不可轉移設備在某小時是否運作
-function fixedOn(id, h, summer) {
+// 不可轉移設備在某時段是否運作（受天氣影響：高溫→冷氣多、陰雨→白天開燈）
+function fixedOn(id, slot, summer, weather) {
+  const h = (slot * 15) / 60
+  const tmax = weather?.summary?.tempMax ?? (summer ? 33 : 22)
+  const dark = (weather?.attenSlots?.[slot] ?? 1) < 0.45 // 陰雨天白天偏暗
   switch (id) {
     case 'security':
     case 'fridge':
       return true // 24h 常時
     case 'lighting':
-      return (h >= 6 && h < 7.5) || h >= 18
+      if ((h >= 6 && h < 7.5) || h >= 18) return true
+      if (dark && h >= 8 && h < 18) return true // 陰雨天白天也開燈
+      return false
     case 'tv':
       return h >= 19 && h < 23
     case 'computer':
@@ -82,17 +77,32 @@ function fixedOn(id, h, summer) {
     case 'microwave':
       return (h >= 7 && h < 7.5) || (h >= 12 && h < 12.5) || (h >= 18 && h < 18.75)
     case 'ac':
-      return summer ? (h >= 13 && h < 17) || h >= 20 : h >= 20 && h < 23.5
+      if (summer) {
+        let on = (h >= 13 && h < 17) || h >= 20
+        if (tmax > 32) on = on || (h >= 11 && h < 13) || (h >= 17 && h < 20) // 高溫日延長冷氣
+        return on
+      } else {
+        let on = h >= 20 && h < 23.5
+        if (tmax > 28) on = on || (h >= 14 && h < 17) // 暖日午後也開冷氣
+        return on
+      }
     default:
       return false
   }
 }
 
-// 設備運轉時的功率（kW），「依排程重算」時也用這個 → 確保可重現
-function devicePowerWhenOn(dev, slot) {
+// 設備運轉時的功率（kW）；冷氣會隨氣溫提高
+function devicePowerWhenOn(dev, slot, weather) {
   let p = dev.ratedW / 1000
-  if (dev.id === 'fridge') p *= 0.4 + 0.6 * Math.abs(Math.sin(slot / 2)) // 壓縮機循環
-  else if (dev.category === 'fixed') p *= 0.9
+  if (dev.id === 'fridge') {
+    p *= 0.4 + 0.6 * Math.abs(Math.sin(slot / 2)) // 壓縮機循環
+  } else if (dev.id === 'ac') {
+    const t = weather?.tempSlots?.[slot] ?? 28
+    const f = Math.max(0.5, Math.min(1.35, (t - 24) / 9 + 0.7)) // 越熱功率越高
+    p *= f
+  } else if (dev.category === 'fixed') {
+    p *= 0.9
+  }
   return +p.toFixed(3)
 }
 
@@ -121,11 +131,15 @@ function bestWindow(durSlots, mode, price, pv, tier) {
 }
 
 /** 由演算法產生排程（mode 決定可轉移設備擺放位置） */
-export function buildSchedule(date, mode = 'cost') {
+export function buildSchedule(
+  date,
+  mode = 'cost',
+  pv = pvForecastKw(date),
+  weather = simulateWeather(date)
+) {
   const summer = isSummer(date)
   const price = getPriceSlots(date)
   const tier = getTierSlots(date)
-  const pv = pvForecastKw(date)
 
   const schedule = {}
   for (const dev of DEVICES) schedule[dev.id] = new Array(SLOTS_PER_DAY).fill(false)
@@ -133,7 +147,7 @@ export function buildSchedule(date, mode = 'cost') {
   // 不可轉移設備
   for (const dev of DEVICES.filter((d) => d.category === 'fixed')) {
     for (let s = 0; s < SLOTS_PER_DAY; s++) {
-      schedule[dev.id][s] = fixedOn(dev.id, (s * 15) / 60, summer)
+      schedule[dev.id][s] = fixedOn(dev.id, s, summer, weather)
     }
   }
   // 可轉移設備：放到最佳視窗
@@ -146,14 +160,14 @@ export function buildSchedule(date, mode = 'cost') {
 }
 
 /** 由排程算出各設備功率與總負載（手動調整後重算用） */
-export function powerAndLoadFromSchedule(schedule) {
+export function powerAndLoadFromSchedule(schedule, weather = null) {
   const power = {}
   const total = new Array(SLOTS_PER_DAY).fill(0)
   for (const dev of DEVICES) {
     power[dev.id] = new Array(SLOTS_PER_DAY).fill(0)
     for (let s = 0; s < SLOTS_PER_DAY; s++) {
       if (schedule[dev.id]?.[s]) {
-        const p = devicePowerWhenOn(dev, s)
+        const p = devicePowerWhenOn(dev, s, weather)
         power[dev.id][s] = p
         total[s] += p
       }
@@ -277,28 +291,29 @@ export function dispatch(date, mode, pv, load) {
   }
 }
 
-/** 完整模擬一天（演算法排程 + 調度） */
-export function simulateDay(date, mode = 'cost') {
-  const schedule = buildSchedule(date, mode)
-  const { power, total } = powerAndLoadFromSchedule(schedule)
-  const pv = pvForecastKw(date)
+/** 完整模擬一天（演算法排程 + 調度），含天氣 */
+export function simulateDay(date, mode = 'cost', weather = simulateWeather(date)) {
+  const pv = pvForecastKw(date, weather)
+  const schedule = buildSchedule(date, mode, pv, weather)
+  const { power, total } = powerAndLoadFromSchedule(schedule, weather)
   const res = dispatch(date, mode, pv, total)
-  return { ...res, schedule, devicePower: power }
+  return { ...res, schedule, devicePower: power, weather }
 }
 
 /** 依「指定排程」模擬（手動調整後即時重算） */
-export function simulateWithSchedule(date, mode, schedule) {
-  const { power, total } = powerAndLoadFromSchedule(schedule)
-  const pv = pvForecastKw(date)
+export function simulateWithSchedule(date, mode, schedule, weather = simulateWeather(date)) {
+  const pv = pvForecastKw(date, weather)
+  const { power, total } = powerAndLoadFromSchedule(schedule, weather)
   const res = dispatch(date, mode, pv, total)
-  return { ...res, schedule, devicePower: power }
+  return { ...res, schedule, devicePower: power, weather }
 }
 
 /* ============================================================
    4) 即時快照（給主頁面 KPI / 頁面二設備卡用）
    ============================================================ */
 export function liveSnapshot(now = nowTaipei()) {
-  const day = simulateDay(now, 'cost')
+  const weather = simulateWeather(now)
+  const day = simulateDay(now, 'cost', weather)
   const slot = Math.min(
     SLOTS_PER_DAY - 1,
     Math.floor((now.getHours() * 60 + now.getMinutes()) / 15)
@@ -331,5 +346,7 @@ export function liveSnapshot(now = nowTaipei()) {
     devices,
     savingsToday: day.summary.savings,
     summary: day.summary,
+    weather: day.weather.hourly[now.getHours()],
+    weatherSummary: day.weather.summary,
   }
 }
