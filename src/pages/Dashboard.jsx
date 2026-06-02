@@ -42,6 +42,7 @@ export default function Dashboard() {
     if (!today) return {}
     return {
       tooltip: { ...baseTooltip, valueFormatter: (v) => `${(+v).toFixed(2)} kW` },
+      color: [COLORS.solar, COLORS.load, COLORS.grid, 'rgba(34,197,94,0.55)', 'rgba(249,115,22,0.6)'],
       legend: { ...baseLegend, data: ['太陽能發電', '家庭負載', '電網購電', '電池充電', '電池放電'] },
       grid: baseGrid,
       xAxis: slotXAxis(),
@@ -130,6 +131,7 @@ export default function Dashboard() {
     const netLoad = plan.load.map((v, i) => +(v - plan.pv[i]).toFixed(3))
     return {
       tooltip: { ...baseTooltip, valueFormatter: (v) => `${(+v).toFixed(2)} kW` },
+      color: [COLORS.solar, COLORS.load, '#06b6d4'],
       legend: { ...baseLegend, data: ['太陽能發電預測', '家庭負載預測', '淨負載'] },
       grid: baseGrid,
       xAxis: slotXAxis(),

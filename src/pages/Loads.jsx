@@ -95,6 +95,7 @@ export default function Loads() {
     if (!today) return {}
     return {
       tooltip: { ...baseTooltip, valueFormatter: (v) => `${(+v).toFixed(2)} kW` },
+      color: DEVICES.map((d) => DEVICE_COLORS[d.id]),
       legend: { ...baseLegend, type: 'scroll', data: DEVICES.map((d) => d.name) },
       grid: { ...baseGrid, top: 50 },
       xAxis: slotXAxis(),

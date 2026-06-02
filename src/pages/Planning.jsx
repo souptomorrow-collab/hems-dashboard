@@ -68,6 +68,7 @@ export default function Planning() {
     if (!plan) return {}
     return {
       tooltip: { ...baseTooltip, valueFormatter: (v) => `${(+v).toFixed(2)}` },
+      color: ['#ffb020', '#f97316', '#3b82f6', '#e8edf7', COLORS.battery],
       legend: { ...baseLegend, data: ['太陽能供電', '電池放電', '電網供電', '負載預測', 'SOC'] },
       grid: { ...baseGrid, right: 48 },
       xAxis: slotXAxis(),
@@ -99,6 +100,7 @@ export default function Planning() {
     if (!plan) return {}
     return {
       tooltip: { ...baseTooltip, valueFormatter: (v) => `${(+v).toFixed(2)} kW` },
+      color: ['rgba(34,197,94,0.8)', 'rgba(20,184,166,0.8)', 'rgba(249,115,22,0.85)', COLORS.battery],
       legend: { ...baseLegend, data: ['太陽能充電', '電網充電', '電池放電', 'SOC'] },
       grid: { ...baseGrid, right: 48 },
       xAxis: slotXAxis(),
