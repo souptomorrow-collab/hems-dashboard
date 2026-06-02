@@ -168,10 +168,13 @@ export function buildSchedule(
   return schedule
 }
 
-/** 由排程算出各設備功率與總負載（手動調整後重算用） */
+/** 由排程算出各設備功率與總負載（手動調整後重算用）
+   並分開「不可轉移（RF 預測對象）」與「可轉移（排程決定）」兩部分。 */
 export function powerAndLoadFromSchedule(schedule, weather = null) {
   const power = {}
   const total = new Array(SLOTS_PER_DAY).fill(0)
+  const fixed = new Array(SLOTS_PER_DAY).fill(0) // 不可轉移：RF 預測
+  const shiftable = new Array(SLOTS_PER_DAY).fill(0) // 可轉移：排程決定
   for (const dev of DEVICES) {
     power[dev.id] = new Array(SLOTS_PER_DAY).fill(0)
     for (let s = 0; s < SLOTS_PER_DAY; s++) {
@@ -179,11 +182,17 @@ export function powerAndLoadFromSchedule(schedule, weather = null) {
         const p = devicePowerWhenOn(dev, s, weather)
         power[dev.id][s] = p
         total[s] += p
+        if (dev.category === 'fixed') fixed[s] += p
+        else shiftable[s] += p
       }
     }
   }
-  for (let s = 0; s < SLOTS_PER_DAY; s++) total[s] = +total[s].toFixed(3)
-  return { power, total }
+  for (let s = 0; s < SLOTS_PER_DAY; s++) {
+    total[s] = +total[s].toFixed(3)
+    fixed[s] = +fixed[s].toFixed(3)
+    shiftable[s] = +shiftable[s].toFixed(3)
+  }
+  return { power, total, fixed, shiftable }
 }
 
 /* ============================================================
@@ -304,17 +313,17 @@ export function dispatch(date, mode, pv, load) {
 export function simulateDay(date, mode = 'cost', weather = simulateWeather(date)) {
   const pv = pvForecastKw(date, weather)
   const schedule = buildSchedule(date, mode, pv, weather)
-  const { power, total } = powerAndLoadFromSchedule(schedule, weather)
+  const { power, total, fixed, shiftable } = powerAndLoadFromSchedule(schedule, weather)
   const res = dispatch(date, mode, pv, total)
-  return { ...res, schedule, devicePower: power, weather }
+  return { ...res, schedule, devicePower: power, fixedLoad: fixed, shiftableLoad: shiftable, weather }
 }
 
 /** 依「指定排程」模擬（手動調整後即時重算） */
 export function simulateWithSchedule(date, mode, schedule, weather = simulateWeather(date)) {
   const pv = pvForecastKw(date, weather)
-  const { power, total } = powerAndLoadFromSchedule(schedule, weather)
+  const { power, total, fixed, shiftable } = powerAndLoadFromSchedule(schedule, weather)
   const res = dispatch(date, mode, pv, total)
-  return { ...res, schedule, devicePower: power, weather }
+  return { ...res, schedule, devicePower: power, fixedLoad: fixed, shiftableLoad: shiftable, weather }
 }
 
 /* ============================================================

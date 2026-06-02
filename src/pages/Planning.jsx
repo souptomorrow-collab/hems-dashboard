@@ -69,7 +69,7 @@ export default function Planning() {
     return {
       tooltip: { ...baseTooltip, valueFormatter: (v) => `${(+v).toFixed(2)}` },
       color: ['#ffb020', '#f97316', '#3b82f6', '#e8edf7', COLORS.battery],
-      legend: { ...baseLegend, data: ['太陽能供電', '電池放電', '電網供電', '負載預測', 'SOC'] },
+      legend: { ...baseLegend, data: ['太陽能供電', '電池放電', '電網供電', '總負載', 'SOC'] },
       grid: { ...baseGrid, right: 48 },
       xAxis: slotXAxis(),
       yAxis: [
@@ -87,7 +87,7 @@ export default function Planning() {
           areaStyle: { color: 'rgba(249,115,22,0.7)' }, data: plan.battToLoad },
         { name: '電網供電', type: 'line', stack: 'sup', symbol: 'none', lineStyle: { width: 0 },
           areaStyle: { color: 'rgba(59,130,246,0.6)' }, data: plan.gridToLoad },
-        { name: '負載預測', type: 'line', symbol: 'none', smooth: true,
+        { name: '總負載', type: 'line', symbol: 'none', smooth: true,
           lineStyle: { width: 2, color: '#e8edf7', type: 'dashed' }, data: plan.load },
         { name: 'SOC', type: 'line', yAxisIndex: 1, symbol: 'none', smooth: true,
           lineStyle: { width: 2, color: COLORS.battery }, data: plan.socPct },

@@ -130,11 +130,12 @@ export default function Dashboard() {
   // ---- 隔日預測：太陽能發電 + 家庭負載 + 淨負載（鴨子曲線）----
   const forecastOption = useMemo(() => {
     if (!plan) return {}
-    const netLoad = plan.load.map((v, i) => +(v - plan.pv[i]).toFixed(3))
+    const fixedLoad = plan.fixedLoad ?? plan.load
+    const netLoad = fixedLoad.map((v, i) => +(v - plan.pv[i]).toFixed(3))
     return {
       tooltip: { ...baseTooltip, valueFormatter: (v) => `${(+v).toFixed(2)} kW` },
       color: [COLORS.solar, COLORS.load, '#06b6d4'],
-      legend: { ...baseLegend, data: ['太陽能發電預測', '家庭負載預測', '淨負載'] },
+      legend: { ...baseLegend, data: ['太陽能發電預測', '不可轉移負載預測', '淨負載'] },
       grid: baseGrid,
       xAxis: slotXAxis(),
       yAxis: valueYAxis('kW'),
@@ -159,11 +160,11 @@ export default function Dashboard() {
           markArea: rainMarkArea(plan.weather),
         },
         {
-          name: '家庭負載預測',
+          name: '不可轉移負載預測',
           type: 'line',
           smooth: true,
           symbol: 'none',
-          data: plan.load,
+          data: fixedLoad,
           lineStyle: { width: 2, color: COLORS.load },
         },
         {
@@ -282,7 +283,7 @@ export default function Dashboard() {
       <div className="grid cols-2 mt-16">
         <Panel
           title="隔日預測：發電 vs 負載"
-          sub="太陽能 LSTM／負載 RF 預測｜明日（淨負載呈鴨子曲線）"
+          sub="太陽能 LSTM／不可轉移負載 RF 預測；可轉移負載由排程決定（見用電規劃）"
           right={
             plan?.weather && (
               <span className="badge" title="天氣資料來源">
