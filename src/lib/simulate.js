@@ -14,6 +14,7 @@ import {
   slotToHour,
 } from './constants.js'
 import { isSummer, getPriceSlots, getTierSlots } from './tou.js'
+import { nowTaipei } from './time.js'
 
 /* ---- 種子亂數：讓同一天的資料穩定、不會每次 render 都亂跳 ---- */
 function mulberry32(a) {
@@ -39,14 +40,24 @@ export function pvForecastKw(date) {
   const summer = isSummer(date)
   const peakKw = summer ? 4.6 : 3.6 // 系統尖峰發電
   const clearness = 0.72 + rng() * 0.28 // 當日晴朗度
+
+  // 台北（約 25°N）的季節日照：夏至約 13.4h、冬至約 10.6h
+  const start = new Date(date.getFullYear(), 0, 0)
+  const doy = Math.floor((date - start) / 86400000) // 一年中的第幾天
+  const daylight = 12 + 1.45 * Math.sin((2 * Math.PI * (doy - 81)) / 365)
+  const noon = 12.1 // 台北太陽正午約 12:06
+  const sunrise = noon - daylight / 2
+  const sunset = noon + daylight / 2
+  const sigma = daylight / 4.8
+
   const out = []
   for (let s = 0; s < SLOTS_PER_DAY; s++) {
     const h = (s * 15) / 60 // 小時（含小數）
-    const x = (h - 12.75) / 3.6
-    let g = Math.exp(-x * x)
-    if (h < 5.5 || h > 18.9) g = 0
-    let kw = peakKw * clearness * g
-    kw *= 0.9 + rng() * 0.2 // 雲層擾動
+    let kw = 0
+    if (h > sunrise && h < sunset) {
+      const x = (h - noon) / sigma
+      kw = peakKw * clearness * Math.exp(-x * x) * (0.9 + rng() * 0.2) // 雲層擾動
+    }
     out.push(Math.max(0, +kw.toFixed(3)))
   }
   return out
@@ -286,7 +297,7 @@ export function simulateWithSchedule(date, mode, schedule) {
 /* ============================================================
    4) 即時快照（給主頁面 KPI / 頁面二設備卡用）
    ============================================================ */
-export function liveSnapshot(now = new Date()) {
+export function liveSnapshot(now = nowTaipei()) {
   const day = simulateDay(now, 'cost')
   const slot = Math.min(
     SLOTS_PER_DAY - 1,

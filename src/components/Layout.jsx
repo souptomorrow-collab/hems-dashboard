@@ -2,6 +2,7 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useClock } from '../hooks/useClock.js'
 import { fmtClock, fmtDate } from '../lib/format.js'
 import { getCurrentTier, isSummer, TIER_LABEL } from '../lib/tou.js'
+import { LOCATION } from '../lib/time.js'
 
 const NAV = [
   { to: '/', label: '主頁面', icon: '🏠', end: true },
@@ -62,6 +63,9 @@ export default function Layout() {
           </div>
 
           <div className="topbar-right">
+            <span className="badge" title={`情境地點・${LOCATION.utc}`}>
+              📍 {LOCATION.label}
+            </span>
             <span className={`badge ${summer ? 'summer' : ''}`}>
               {summer ? '夏月' : '非夏月'}
             </span>
