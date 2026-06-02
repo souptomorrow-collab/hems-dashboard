@@ -67,25 +67,25 @@ function fixedOn(id, slot, summer, weather) {
     case 'fridge':
       return true // 24h 常時
     case 'lighting':
-      if ((h >= 6 && h < 7.5) || h >= 18) return true
-      if (dark && h >= 8 && h < 18) return true // 陰雨天白天也開燈
+      if ((h >= 6 && h < 8) || h >= 18) return true
+      if (dark && h >= 8 && h < 18) return true // 陰雨天白天留一盞燈
       return false
     case 'tv':
       return h >= 19 && h < 23
     case 'computer':
-      return (h >= 9 && h < 12) || (h >= 20 && h < 23.5)
+      return h >= 20 && h < 23.5 // 晚上在家才用
     case 'microwave':
-      return (h >= 7 && h < 7.5) || (h >= 12 && h < 12.5) || (h >= 18 && h < 18.75)
+      return (h >= 7 && h < 7.5) || (h >= 18 && h < 18.75) // 早餐、晚餐
     case 'ac':
       if (summer) {
-        let on = (h >= 13 && h < 17) || h >= 20
-        if (tmax > 32) on = on || (h >= 11 && h < 13) || (h >= 17 && h < 20) // 高溫日延長冷氣
-        return on
-      } else {
-        let on = h >= 20 && h < 23.5
-        if (tmax > 28) on = on || (h >= 14 && h < 17) // 暖日午後也開冷氣
+        // 雙薪外出型：白天沒人，傍晚回家才開冷氣
+        let on = h >= 18 && h < 24
+        if (tmax > 34) on = on || (h >= 16 && h < 18) // 特別熱才提早開
         return on
       }
+      // 非夏季：僅較暖的日子，傍晚才開
+      if (tmax <= 26) return false
+      return h >= 19 && h < 24
     default:
       return false
   }
