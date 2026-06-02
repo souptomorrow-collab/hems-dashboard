@@ -14,6 +14,7 @@ import {
   baseGrid,
   peakMarkArea,
   rainMarkArea,
+  AXIS_TEXT,
 } from '../lib/charts.js'
 
 export default function Dashboard() {
@@ -43,12 +44,38 @@ export default function Dashboard() {
   const overviewOption = useMemo(() => {
     if (!today) return {}
     return {
-      tooltip: { ...baseTooltip, valueFormatter: (v) => `${(+v).toFixed(2)} kW` },
-      color: [COLORS.solar, COLORS.load, COLORS.grid, 'rgba(34,197,94,0.55)', 'rgba(249,115,22,0.6)'],
-      legend: { ...baseLegend, data: ['太陽能發電', '家庭負載', '電網購電', '電池充電', '電池放電'] },
-      grid: baseGrid,
+      tooltip: {
+        ...baseTooltip,
+        formatter: (ps) =>
+          `${ps[0].axisValueLabel}<br/>` +
+          ps
+            .map((p) => {
+              const val =
+                p.seriesName === 'SOC'
+                  ? `${Math.round(p.value)}%`
+                  : `${(+p.value).toFixed(2)} kW`
+              return `${p.marker}${p.seriesName}: ${val}`
+            })
+            .join('<br/>'),
+      },
+      color: [COLORS.solar, COLORS.load, COLORS.grid, 'rgba(34,197,94,0.55)', 'rgba(249,115,22,0.6)', COLORS.battery],
+      legend: { ...baseLegend, data: ['太陽能發電', '家庭負載', '電網購電', '電池充電', '電池放電', 'SOC'] },
+      grid: { ...baseGrid, right: 48 },
       xAxis: slotXAxis(),
-      yAxis: valueYAxis('kW'),
+      yAxis: [
+        valueYAxis('kW'),
+        {
+          type: 'value',
+          name: 'SOC %',
+          min: 0,
+          max: 100,
+          position: 'right',
+          nameTextStyle: { color: AXIS_TEXT, fontSize: 11 },
+          axisLabel: { color: AXIS_TEXT, fontSize: 11, formatter: '{value}%' },
+          axisLine: { show: false },
+          splitLine: { show: false },
+        },
+      ],
       series: [
         {
           name: '太陽能發電',
@@ -89,6 +116,22 @@ export default function Dashboard() {
           stack: 'batt',
           data: today.dischargeKw.map((v) => -v),
           itemStyle: { color: 'rgba(249,115,22,0.6)' },
+        },
+        {
+          name: 'SOC',
+          type: 'line',
+          yAxisIndex: 1,
+          smooth: true,
+          symbol: 'none',
+          data: today.socPct,
+          lineStyle: { width: 2.5, color: COLORS.battery },
+          markLine: {
+            silent: true,
+            symbol: 'none',
+            label: { color: AXIS_TEXT, fontSize: 10, formatter: '{c}%' },
+            lineStyle: { color: 'rgba(255,255,255,0.18)', type: 'dashed' },
+            data: [{ yAxis: 90 }, { yAxis: 10 }],
+          },
         },
       ],
     }
@@ -273,7 +316,7 @@ export default function Dashboard() {
       {/* 今日總覽 */}
       <Panel
         title="今日功率總覽"
-        sub="太陽能・負載・電網・電池充放電（紅底為尖峰時段）"
+        sub="太陽能・負載・電網・電池充放電・SOC（右軸；紅底為尖峰時段）"
         className="mt-16"
       >
         <EChart option={overviewOption} height={340} />
