@@ -403,37 +403,94 @@ h1, h2, h3, h4 {
 .status-pill.standby { color: #fbbf24; background: rgba(251, 191, 36, 0.12); }
 
 /* ============================================================
-   能源流向圖 (頁面一)
+   能源流向圖 (頁面一) — 動態流向
    ============================================================ */
 .flow {
-  display: grid;
-  grid-template-columns: 1fr 1.2fr 1fr;
-  align-items: center;
-  gap: 8px;
-  min-height: 240px;
+  position: relative;
+  width: 100%;
+  min-height: 280px;
 }
+.flow-empty { opacity: 0.45; }
+
+.flow-svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+.flow-rail {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.07);
+  stroke-width: 2;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.flow-line {
+  fill: none;
+  stroke-linecap: round;
+  stroke-dasharray: 2 6;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 5px currentColor);
+  animation: flow-move 0.7s linear infinite;
+}
+@keyframes flow-move {
+  to { stroke-dashoffset: -8; }
+}
+
+.flow-edge-val {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  z-index: 1;
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(10, 14, 26, 0.86);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .flow-node {
+  position: absolute;
+  z-index: 2;
+  transform: translate(-50%, -50%);
+  width: 106px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 14px 10px;
+  gap: 2px;
+  padding: 10px 8px;
   border-radius: var(--radius-sm);
-  background: var(--bg-panel-2);
+  background: linear-gradient(180deg, var(--bg-elevated), var(--bg-panel-2));
   border: 1px solid var(--border);
   text-align: center;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
 }
 .flow-node .fn-icon {
-  font-size: 30px;
+  font-size: 23px;
+  line-height: 1;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.4));
 }
-.flow-node .fn-label { font-size: 12.5px; color: var(--text-muted); }
-.flow-node .fn-value { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.flow-center { display: grid; gap: 10px; }
-.flow-side { display: grid; gap: 18px; }
-.flow-node.pv { border-color: rgba(255, 176, 32, 0.4); }
-.flow-node.batt { border-color: rgba(34, 197, 94, 0.4); }
-.flow-node.grid { border-color: rgba(59, 130, 246, 0.4); }
-.flow-node.home { border-color: rgba(168, 85, 247, 0.4); }
+.flow-node .fn-label { font-size: 11.5px; color: var(--text-muted); }
+.flow-node .fn-value { font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.flow-node .fn-sub { font-size: 10px; color: var(--text-dim); }
+
+.flow-node.pv { border-color: rgba(255, 176, 32, 0.45); box-shadow: 0 0 0 1px rgba(255, 176, 32, 0.12), 0 10px 24px rgba(255, 176, 32, 0.1); }
+.flow-node.batt { border-color: rgba(34, 197, 94, 0.45); box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.12), 0 10px 24px rgba(34, 197, 94, 0.1); }
+.flow-node.grid { border-color: rgba(59, 130, 246, 0.45); box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.12), 0 10px 24px rgba(59, 130, 246, 0.1); }
+.flow-node.home {
+  width: 120px;
+  padding: 13px 10px;
+  border-color: rgba(168, 85, 247, 0.5);
+  background: linear-gradient(180deg, #241a3d, var(--bg-panel-2));
+  box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.18), 0 0 38px rgba(168, 85, 247, 0.18);
+}
+.flow-node.home .fn-icon { font-size: 28px; }
+.flow-node.home .fn-value { font-size: 19px; }
 
 /* ============================================================
    控制元件 (頁面三)
@@ -610,3 +667,130 @@ h1, h2, h3, h4 {
 .right { text-align: right; }
 .mt-16 { margin-top: 16px; }
 .mt-24 { margin-top: 24px; }
+
+/* ============================================================
+   視覺強化（美化層）
+   ============================================================ */
+
+/* 環境光：整體加一點深度與色溫 */
+body {
+  background:
+    radial-gradient(1200px 620px at 82% -12%, rgba(56, 189, 248, 0.09), transparent 60%),
+    radial-gradient(1000px 540px at -5% 108%, rgba(168, 85, 247, 0.07), transparent 55%),
+    var(--bg-app);
+  background-attachment: fixed;
+}
+
+/* 捲軸 */
+* { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.16) transparent; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.13);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.24);
+  background-clip: padding-box;
+}
+
+/* 頁面內容進場 */
+.content > * { animation: rise 0.4s ease both; }
+.content > *:nth-child(2) { animation-delay: 0.05s; }
+.content > *:nth-child(3) { animation-delay: 0.1s; }
+.content > *:nth-child(4) { animation-delay: 0.15s; }
+.content > *:nth-child(5) { animation-delay: 0.2s; }
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* 品牌 logo 微呼吸 */
+.brand .logo { animation: logo-glow 3.4s ease-in-out infinite; }
+@keyframes logo-glow {
+  0%, 100% { box-shadow: 0 6px 18px rgba(255, 122, 69, 0.35); }
+  50% { box-shadow: 0 6px 28px rgba(255, 122, 69, 0.62); }
+}
+
+/* 側欄目前頁面標示 */
+.nav-link { position: relative; }
+.nav-link.active::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 18px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--accent);
+}
+
+/* 面板：漸層底、標題前的色塊、hover 邊框 */
+.panel {
+  background: linear-gradient(180deg, var(--bg-panel), var(--bg-panel-2) 160%);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.panel:hover { border-color: rgba(255, 255, 255, 0.13); }
+.panel-head h3 {
+  display: inline-flex;
+  align-items: center;
+  letter-spacing: 0.2px;
+}
+.panel-head h3::before {
+  content: "";
+  width: 3px;
+  height: 14px;
+  margin-right: 9px;
+  border-radius: 2px;
+  background: var(--accent);
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
+}
+
+/* KPI 統計卡：漸層、角落光暈、hover 浮起、圖示底板 */
+.stat-card {
+  background: linear-gradient(160deg, var(--bg-panel-2), var(--bg-panel) 62%);
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.stat-card::before {
+  width: 3px;
+  box-shadow: 0 0 14px var(--accent-color, var(--accent));
+}
+.stat-card::after {
+  content: "";
+  position: absolute;
+  top: -38%;
+  right: -12%;
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--accent-color, var(--accent)), transparent 70%);
+  opacity: 0.1;
+  pointer-events: none;
+}
+.stat-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--border-strong);
+  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.42);
+}
+.stat-card .sc-icon {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+}
+
+/* 尊重減少動態偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
