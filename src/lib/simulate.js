@@ -421,16 +421,50 @@ export function liveSnapshot(now = nowTaipei(), fixedOverride = null) {
     return { ...dev, watt, status }
   })
 
-  const totalLoadKw = devices.reduce((a, d) => a + d.watt / 1000, 0)
+  const totalLoadKwRaw = devices.reduce((a, d) => a + d.watt / 1000, 0)
+
+  /* ----------------------------------------------------------
+     能量平衡：PV + 電池放電 + 電網購電 = 家庭負載 + 電池充電
+
+     PV 與各設備負載都各自帶了隨機擾動（模擬量測誤差），若電網側
+     也獨立乘一次擾動，畫面上四個數字就會加不起來。電網是系統中
+     吸收不平衡的一端，因此必須「由平衡式推得」，不能自己抖。
+
+     電池充放電維持排程的指令值不抖動（電池是追隨設定點的）。
+     ---------------------------------------------------------- */
+  const r2 = (v) => Math.round(v * 100) / 100
+  const loadKw = r2(totalLoadKwRaw)
+  const chargeKw = r2(day.chargeKw[slot])
+  let dischargeKw = r2(day.dischargeKw[slot])
+  const pvPotentialKw = r2(day.pv[slot] * jitter()) // 未削減前的可發電量
+  let pvKw = pvPotentialKw
+  let gridKw = r2(loadKw + chargeKw - pvKw - dischargeKw)
+
+  /* 防逆送：不可將多餘電力送回台電電網，過剩時由實時運轉層吸收。
+     吸收順序有先後 —— 先削減太陽能，不夠再收斂電池放電。
+     順序寫反（或只削太陽能）會在「電池放電量大於負載」的時刻
+     把太陽能減成負值。 */
+  let curtailKw = 0
+  if (gridKw < 0) {
+    let surplus = -gridKw
+    const cut = Math.min(surplus, pvKw) // 太陽能最多只能削到 0
+    pvKw = r2(pvKw - cut)
+    curtailKw = r2(cut)
+    surplus = r2(surplus - cut)
+    if (surplus > 0) dischargeKw = r2(Math.max(0, dischargeKw - surplus))
+    gridKw = 0
+  }
 
   return {
     slot,
-    pvKw: +(day.pv[slot] * jitter()).toFixed(2),
-    loadKw: +totalLoadKw.toFixed(2),
-    chargeKw: day.chargeKw[slot],
-    dischargeKw: day.dischargeKw[slot],
+    pvKw,
+    pvPotentialKw,
+    loadKw,
+    chargeKw,
+    dischargeKw,
+    curtailKw,
     battNetKw: day.battNetKw[slot],
-    gridKw: +(day.gridKw[slot] * jitter()).toFixed(2),
+    gridKw,
     socPct: day.socPct[slot],
     socKwh: +((day.socPct[slot] / 100) * BATTERY.capacityKwh).toFixed(2),
     price: day.price[slot],

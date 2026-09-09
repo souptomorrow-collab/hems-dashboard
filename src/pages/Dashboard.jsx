@@ -239,7 +239,13 @@ export default function Dashboard() {
           label="太陽能即時發電"
           value={live ? live.pvKw.toFixed(2) : '—'}
           unit="kW"
-          sub={s ? `今日累積發電 ${s.pvKwh} 度` : ' '}
+          sub={
+            live && live.curtailKw > 0.02
+              ? `防逆送削減 ${live.curtailKw.toFixed(2)} kW（可發 ${live.pvPotentialKw.toFixed(2)}）`
+              : s
+              ? `今日累積發電 ${s.pvKwh} 度`
+              : ' '
+          }
         />
         <StatCard
           icon="🔋"
