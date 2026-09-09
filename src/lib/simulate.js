@@ -169,8 +169,14 @@ export function buildSchedule(
 }
 
 /** 由排程算出各設備功率與總負載（手動調整後重算用）
-   並分開「不可轉移（RF 預測對象）」與「可轉移（排程決定）」兩部分。 */
-export function powerAndLoadFromSchedule(schedule, weather = null) {
+   並分開「不可轉移（RF 預測對象）」與「可轉移（排程決定）」兩部分。
+
+   fixedOverride：96 格的**真實 RF 預測**（kW）。給了就用它取代模擬的
+   不可轉移負載，各不可轉移設備依比例縮放以吻合該總量。
+   RF 模型預測的是不可轉移負載的「總量」，本來就拆不出各設備；
+   這裡的比例縮放只是為了讓頁面二的設備堆疊圖仍加總得起來，
+   屬於顯示用的分解，不是模型輸出。 */
+export function powerAndLoadFromSchedule(schedule, weather = null, fixedOverride = null) {
   const power = {}
   const total = new Array(SLOTS_PER_DAY).fill(0)
   const fixed = new Array(SLOTS_PER_DAY).fill(0) // 不可轉移：RF 預測
@@ -187,6 +193,28 @@ export function powerAndLoadFromSchedule(schedule, weather = null) {
       }
     }
   }
+
+  // 以真實預測取代模擬的不可轉移負載
+  if (fixedOverride?.length === SLOTS_PER_DAY) {
+    const fixedDevs = DEVICES.filter((d) => d.category === 'fixed')
+    for (let s = 0; s < SLOTS_PER_DAY; s++) {
+      const target = Math.max(0, +fixedOverride[s])
+      if (!Number.isFinite(target)) continue
+      const sim = fixed[s]
+      if (sim > 0.01) {
+        const k = target / sim
+        for (const dev of fixedDevs) power[dev.id][s] = +(power[dev.id][s] * k).toFixed(4)
+      } else {
+        // 理論上不會發生（冰箱/監控 24h 常開），保險起見平均攤給常時設備
+        const alwaysOn = fixedDevs.filter((d) => d.id === 'fridge' || d.id === 'security')
+        const share = target / (alwaysOn.length || 1)
+        for (const dev of alwaysOn) power[dev.id][s] = +share.toFixed(4)
+      }
+      total[s] = total[s] - sim + target
+      fixed[s] = target
+    }
+  }
+
   for (let s = 0; s < SLOTS_PER_DAY; s++) {
     total[s] = +total[s].toFixed(3)
     fixed[s] = +fixed[s].toFixed(3)
@@ -319,29 +347,65 @@ export function dispatch(date, mode, pv, load) {
   }
 }
 
-/** 完整模擬一天（演算法排程 + 調度），含天氣 */
-export function simulateDay(date, mode = 'cost', weather = simulateWeather(date)) {
+/** 完整模擬一天（演算法排程 + 調度），含天氣
+   fixedOverride：真實 RF 不可轉移負載預測（96 格 kW），沒給就用模擬值 */
+export function simulateDay(
+  date,
+  mode = 'cost',
+  weather = simulateWeather(date),
+  fixedOverride = null
+) {
   const pv = pvForecastKw(date, weather)
   const schedule = buildSchedule(date, mode, pv, weather)
-  const { power, total, fixed, shiftable } = powerAndLoadFromSchedule(schedule, weather)
+  const { power, total, fixed, shiftable } = powerAndLoadFromSchedule(
+    schedule,
+    weather,
+    fixedOverride
+  )
   const res = dispatch(date, mode, pv, total)
-  return { ...res, schedule, devicePower: power, fixedLoad: fixed, shiftableLoad: shiftable, weather }
+  return {
+    ...res,
+    schedule,
+    devicePower: power,
+    fixedLoad: fixed,
+    shiftableLoad: shiftable,
+    weather,
+    loadSource: fixedOverride ? 'rf' : 'sim',
+  }
 }
 
 /** 依「指定排程」模擬（手動調整後即時重算） */
-export function simulateWithSchedule(date, mode, schedule, weather = simulateWeather(date)) {
+export function simulateWithSchedule(
+  date,
+  mode,
+  schedule,
+  weather = simulateWeather(date),
+  fixedOverride = null
+) {
   const pv = pvForecastKw(date, weather)
-  const { power, total, fixed, shiftable } = powerAndLoadFromSchedule(schedule, weather)
+  const { power, total, fixed, shiftable } = powerAndLoadFromSchedule(
+    schedule,
+    weather,
+    fixedOverride
+  )
   const res = dispatch(date, mode, pv, total)
-  return { ...res, schedule, devicePower: power, fixedLoad: fixed, shiftableLoad: shiftable, weather }
+  return {
+    ...res,
+    schedule,
+    devicePower: power,
+    fixedLoad: fixed,
+    shiftableLoad: shiftable,
+    weather,
+    loadSource: fixedOverride ? 'rf' : 'sim',
+  }
 }
 
 /* ============================================================
    4) 即時快照（給主頁面 KPI / 頁面二設備卡用）
    ============================================================ */
-export function liveSnapshot(now = nowTaipei()) {
+export function liveSnapshot(now = nowTaipei(), fixedOverride = null) {
   const weather = simulateWeather(now)
-  const day = simulateDay(now, 'cost', weather)
+  const day = simulateDay(now, 'cost', weather, fixedOverride)
   const slot = Math.min(
     SLOTS_PER_DAY - 1,
     Math.floor((now.getHours() * 60 + now.getMinutes()) / 15)
@@ -374,6 +438,7 @@ export function liveSnapshot(now = nowTaipei()) {
     devices,
     savingsToday: day.summary.savings,
     summary: day.summary,
+    loadSource: day.loadSource,
     weather: day.weather.hourly[now.getHours()],
     weatherSummary: day.weather.summary,
   }

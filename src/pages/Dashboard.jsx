@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import Panel from '../components/Panel.jsx'
 import StatCard from '../components/StatCard.jsx'
 import EChart from '../components/EChart.jsx'
 import EnergyFlow from '../components/EnergyFlow.jsx'
 import WeatherStrip from '../components/WeatherStrip.jsx'
-import { fetchLive, fetchToday, fetchPlanning } from '../api/client.js'
+import { fetchLive, fetchToday, fetchPlanning, loadForecastMeta } from '../api/client.js'
 import { COLORS, BATTERY } from '../lib/constants.js'
 import {
   slotXAxis,
@@ -21,6 +22,7 @@ export default function Dashboard() {
   const [live, setLive] = useState(null)
   const [today, setToday] = useState(null)
   const [plan, setPlan] = useState(null)
+  const [loadMeta, setLoadMeta] = useState(null) // 負載預測的資料來源
 
   // 即時快照：每 5 秒更新一次
   useEffect(() => {
@@ -37,7 +39,10 @@ export default function Dashboard() {
   // 今日整日 + 隔日預測：載入一次
   useEffect(() => {
     fetchToday().then(setToday)
-    fetchPlanning('cost').then(setPlan)
+    fetchPlanning('cost').then((d) => {
+      setPlan(d)
+      setLoadMeta(loadForecastMeta())
+    })
   }, [])
 
   // ---- 主圖：今日功率總覽 ----
@@ -287,13 +292,14 @@ export default function Dashboard() {
         <Panel
           title="電池狀態"
           sub={`Tesla Powerwall 2・${BATTERY.capacityKwh} kWh`}
+          style={{ display: 'flex', flexDirection: 'column' }}
           right={
             <span className="badge">
               上下限 {BATTERY.socMin * 100}–{BATTERY.socMax * 100}%
             </span>
           }
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
             <EChart option={gaugeOption} height={210} style={{ flex: 1 }} />
             <div style={{ flex: 1, display: 'grid', gap: 12 }}>
               <InfoRow label="即時電量" value={`${live ? live.socKwh.toFixed(1) : '—'} 度`} />
@@ -326,13 +332,32 @@ export default function Dashboard() {
       <div className="grid cols-2 mt-16">
         <Panel
           title="隔日預測：發電 vs 負載"
-          sub="太陽能 LSTM／不可轉移負載 RF 預測；可轉移負載由排程決定（見用電規劃）"
+          sub={
+            '太陽能 LSTM／不可轉移負載 RF 預測；可轉移負載由排程決定（見用電規劃）' +
+            (loadMeta?.datasetDate ? `・負載取自資料集 ${loadMeta.datasetDate}` : '')
+          }
           right={
-            plan?.weather && (
-              <span className="badge" title="天氣資料來源">
-                {plan.weather.source === 'cwa' ? '🌐 CWA 即時天氣' : '🧪 模擬天氣'}
-              </span>
-            )
+            <div style={{ display: 'flex', gap: 6 }}>
+              {plan && (
+                <Link
+                  to="/forecast"
+                  className="badge"
+                  style={{ color: 'inherit', textDecoration: 'none' }}
+                  title={
+                    plan.loadSource === 'rf'
+                      ? `不可轉移負載＝RF 真實預測\n刷新時刻 ${loadMeta?.refresh ?? '—'}\n依一日中的時段對齊到畫面日期\n點擊看預測 vs 真實驗證`
+                      : '雲端連不上，暫時使用模擬負載'
+                  }
+                >
+                  {plan.loadSource === 'rf' ? '🌐 RF 雲端預測' : '🧪 模擬負載'}
+                </Link>
+              )}
+              {plan?.weather && (
+                <span className="badge" title="天氣資料來源">
+                  {plan.weather.source === 'cwa' ? '🌐 CWA 即時天氣' : '🧪 模擬天氣'}
+                </span>
+              )}
+            </div>
           }
         >
           {plan?.weather && (
