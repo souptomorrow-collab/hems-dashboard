@@ -24,8 +24,9 @@ export function slotToHour(slot) {
 export const BATTERY = {
   capacityKwh: 13.5, // 可用電量
   maxPowerKw: 5, // 最大連續充放電功率
-  socMin: 0.1, // 下限 10%
+  socMin: 0.15, // 下限 15%（計畫書更新版：由 10% 上修以延長壽命）
   socMax: 0.9, // 上限 90%
+  socInit: 0.15, // 初始電量 15%
   roundTrip: 0.9, // 往返效率
 }
 

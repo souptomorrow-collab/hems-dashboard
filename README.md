@@ -1,6 +1,6 @@
-# 家用儲能調度系統 — 顯示與操作介面（HEMS UI）
+# 家庭能源管理系統 — 顯示與操作介面（HEMS UI）
 
-> 《基於發電量預測之家用儲能調度系統》
+> 《基於發電量與負載預測之家庭能源管理系統》（組別 A04-1151）
 
 以 **React + Vite** 製作的能源管理儀表板前端，對應計畫書第三章「顯示及操作頁面」。
 
@@ -90,7 +90,7 @@ VITE_SUPABASE_KEY=<anon key>
 - react-router-dom（HashRouter）
 - ECharts 5（圖表）
 - 時間電價：台電 114 年簡易二段式
-- 電池規格：Tesla Powerwall 2（13.5 kWh、5 kW、SOC 10–90%）
+- 電池規格：Tesla Powerwall 2（13.5 kWh、5 kW、SOC 15–90%，初始 15%）
 
 ## 專案結構
 

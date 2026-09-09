@@ -241,7 +241,7 @@ export function dispatch(date, mode, pv, load) {
   const maxKwh = cap * BATTERY.socMax
   const maxE = BATTERY.maxPowerKw * SLOT_HOURS // 每時段最大充放電能量(kWh)
 
-  let soc = cap * 0.3 // 初始 SOC 30%
+  let soc = cap * BATTERY.socInit // 初始 SOC（計畫書更新版：15%）
 
   // 預充上限：保留白天「預期太陽能剩餘」可充入的空間，
   // 避免半夜用電網把電池充滿、導致白天太陽能無處可存（只能逆送）。

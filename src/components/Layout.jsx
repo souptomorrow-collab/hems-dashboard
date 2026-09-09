@@ -30,7 +30,7 @@ export default function Layout() {
           <div className="logo">⚡</div>
           <div className="brand-text">
             <strong>HEMS</strong>
-            <span>家用儲能調度系統</span>
+            <span>家庭能源管理系統</span>
           </div>
         </div>
 
@@ -49,9 +49,9 @@ export default function Layout() {
         </nav>
 
         <div className="sidebar-foot">
-          基於發電量預測之
+          基於發電量與負載預測之
           <br />
-          家用儲能調度系統
+          家庭能源管理系統
         </div>
       </aside>
 
