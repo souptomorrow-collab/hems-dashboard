@@ -8,17 +8,12 @@ const NAV = [
   { to: '/', label: '主頁面', icon: '🏠', end: true },
   { to: '/loads', label: '各負載功率', icon: '🔌', end: false },
   { to: '/planning', label: '用電規劃', icon: '📅', end: false },
-  { to: '/forecast', label: '負載預測', icon: '📈', end: false },
 ]
 
 const PAGE_META = {
   '/': { title: '主頁面', sub: '太陽能・電池・負載・電網 即時總覽' },
   '/loads': { title: '各負載即時功率', sub: '家中各設備即時消耗與分布' },
   '/planning': { title: '用電規劃', sub: '隔日 24 小時最佳化排程（以 15 分鐘為單位）' },
-  '/forecast': {
-    title: '負載預測',
-    sub: 'RF 隨機森林・不可轉移負載滾動預測與誤差驗證',
-  },
 }
 
 export default function Layout() {

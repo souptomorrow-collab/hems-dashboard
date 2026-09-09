@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
 import Panel from '../components/Panel.jsx'
 import StatCard from '../components/StatCard.jsx'
 import EChart from '../components/EChart.jsx'
@@ -339,18 +338,16 @@ export default function Dashboard() {
           right={
             <div style={{ display: 'flex', gap: 6 }}>
               {plan && (
-                <Link
-                  to="/forecast"
+                <span
                   className="badge"
-                  style={{ color: 'inherit', textDecoration: 'none' }}
                   title={
                     plan.loadSource === 'rf'
-                      ? `不可轉移負載＝RF 真實預測\n刷新時刻 ${loadMeta?.refresh ?? '—'}\n依一日中的時段對齊到畫面日期\n點擊看預測 vs 真實驗證`
+                      ? `不可轉移負載＝RF 真實預測\n刷新時刻 ${loadMeta?.refresh ?? '—'}\n依一日中的時段對齊到畫面日期`
                       : '雲端連不上，暫時使用模擬負載'
                   }
                 >
                   {plan.loadSource === 'rf' ? '🌐 RF 雲端預測' : '🧪 模擬負載'}
-                </Link>
+                </span>
               )}
               {plan?.weather && (
                 <span className="badge" title="天氣資料來源">
