@@ -114,17 +114,15 @@ const SHIFTABLE_DURATION = {
   dishwasher: 4, // 1.0 h
 }
 
-// 在所有起始點中，依模式選出最佳的連續運轉視窗
+// 在所有起始點中選出最便宜的連續運轉視窗
 // occupancy：各時段已被其他可轉移設備佔用的數量，用來避免多台同時運轉
-function bestWindow(durSlots, mode, price, pv, tier, occupancy) {
+function bestWindow(durSlots, price, occupancy) {
   let best = { start: 0, score: Infinity }
   for (let start = 0; start + durSlots <= SLOTS_PER_DAY; start++) {
     let score = 0
     for (let k = 0; k < durSlots; k++) {
       const i = start + k
-      if (mode === 'self') score += -pv[i] // 自用率最大：放在太陽能最多時
-      else if (mode === 'peak') score += (tier[i] === 'peak' ? 100 : 0) + price[i] // 避開尖峰
-      else score += price[i] // 省錢：最便宜時段
+      score += price[i] // 電費最小化：挑最便宜的時段
       score += (occupancy?.[i] ?? 0) * 1.0 // 避免多台設備同時運轉（分散負載）
     }
     if (score < best.score) best = { start, score }
@@ -132,16 +130,10 @@ function bestWindow(durSlots, mode, price, pv, tier, occupancy) {
   return best.start
 }
 
-/** 由演算法產生排程（mode 決定可轉移設備擺放位置） */
-export function buildSchedule(
-  date,
-  mode = 'cost',
-  pv = pvForecastKw(date),
-  weather = simulateWeather(date)
-) {
+/** 由演算法產生排程：把可轉移設備排到電價最低的時段 */
+export function buildSchedule(date, weather = simulateWeather(date)) {
   const summer = isSummer(date)
   const price = getPriceSlots(date)
-  const tier = getTierSlots(date)
 
   const schedule = {}
   for (const dev of DEVICES) schedule[dev.id] = new Array(SLOTS_PER_DAY).fill(false)
@@ -159,7 +151,7 @@ export function buildSchedule(
   )
   for (const dev of shiftables) {
     const dur = SHIFTABLE_DURATION[dev.id] ?? 4
-    const start = bestWindow(dur, mode, price, pv, tier, occupancy)
+    const start = bestWindow(dur, price, occupancy)
     for (let k = 0; k < dur; k++) {
       schedule[dev.id][start + k] = true
       occupancy[start + k]++
@@ -226,13 +218,12 @@ export function powerAndLoadFromSchedule(schedule, weather = null, fixedOverride
 /* ============================================================
    3) 電池 + 電網 調度（核心最佳化模擬）
    ============================================================ */
-function shouldPrecharge(mode, slot) {
-  if (mode === 'self') return false // 自用率模式不從電網充電
-  return slotToHour(slot) < 6 // 省錢 / 舒緩尖峰：深夜離峰預充
+function shouldPrecharge(slot) {
+  return slotToHour(slot) < 6 // 深夜離峰電價最低，先把電池充起來
 }
 
 /** 給定 pv 與 load，計算電池/電網最佳調度 */
-export function dispatch(date, mode, pv, load) {
+export function dispatch(date, pv, load) {
   const price = getPriceSlots(date)
   const tier = getTierSlots(date)
 
@@ -290,12 +281,12 @@ export function dispatch(date, mode, pv, load) {
         g2l = deficit - dis
       } else {
         g2l = deficit
-        if (shouldPrecharge(mode, s)) {
+        if (shouldPrecharge(s)) {
           const chg = Math.min(maxE - p2b, prechargeCeiling - soc)
           if (chg > 0) { g2b = chg; soc += chg }
         }
       }
-    } else if (shouldPrecharge(mode, s)) {
+    } else if (shouldPrecharge(s)) {
       const chg = Math.min(maxE - p2b, maxKwh - soc)
       if (chg > 0) { g2b = chg; soc += chg }
     }
@@ -324,7 +315,7 @@ export function dispatch(date, mode, pv, load) {
   const selfUseRate = tPv > 0 ? ((tPv - tReverse) / tPv) * 100 : 0
 
   return {
-    date, mode, slots: SLOTS_PER_DAY,
+    date, slots: SLOTS_PER_DAY,
     pv, load, price, tier,
     pvToLoad, pvToBatt, pvToGrid, battToLoad, gridToLoad, gridToBatt,
     chargeKw, dischargeKw, gridKw, battNetKw, socPct,
@@ -351,18 +342,17 @@ export function dispatch(date, mode, pv, load) {
    fixedOverride：真實 RF 不可轉移負載預測（96 格 kW），沒給就用模擬值 */
 export function simulateDay(
   date,
-  mode = 'cost',
   weather = simulateWeather(date),
   fixedOverride = null
 ) {
   const pv = pvForecastKw(date, weather)
-  const schedule = buildSchedule(date, mode, pv, weather)
+  const schedule = buildSchedule(date, weather)
   const { power, total, fixed, shiftable } = powerAndLoadFromSchedule(
     schedule,
     weather,
     fixedOverride
   )
-  const res = dispatch(date, mode, pv, total)
+  const res = dispatch(date, pv, total)
   return {
     ...res,
     schedule,
@@ -377,7 +367,6 @@ export function simulateDay(
 /** 依「指定排程」模擬（手動調整後即時重算） */
 export function simulateWithSchedule(
   date,
-  mode,
   schedule,
   weather = simulateWeather(date),
   fixedOverride = null
@@ -388,7 +377,7 @@ export function simulateWithSchedule(
     weather,
     fixedOverride
   )
-  const res = dispatch(date, mode, pv, total)
+  const res = dispatch(date, pv, total)
   return {
     ...res,
     schedule,
@@ -405,7 +394,7 @@ export function simulateWithSchedule(
    ============================================================ */
 export function liveSnapshot(now = nowTaipei(), fixedOverride = null) {
   const weather = simulateWeather(now)
-  const day = simulateDay(now, 'cost', weather, fixedOverride)
+  const day = simulateDay(now, weather, fixedOverride)
   const slot = Math.min(
     SLOTS_PER_DAY - 1,
     Math.floor((now.getHours() * 60 + now.getMinutes()) / 15)

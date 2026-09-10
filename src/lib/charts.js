@@ -1,8 +1,81 @@
-/* ECharts 共用設定：深色主題、15 分鐘時間軸 */
+/* ECharts 共用設定：15 分鐘時間軸、隨主題切換的座標軸顏色 */
 import { SLOTS_PER_DAY, slotToTime } from './constants.js'
 
-export const AXIS_TEXT = '#9aa4bd'
-export const SPLIT_LINE = 'rgba(255,255,255,0.06)'
+/* ------------------------------------------------------------
+   主題色
+
+   ECharts 的顏色是寫進 option 物件的字串，不吃 CSS 變數，所以頁面
+   換主題時得另外把這幾個值換掉。這裡宣告成 let 並由 applyChartTheme()
+   改寫 —— ES module 的匯出是「即時繫結」，import 端看到的一定是最新值。
+
+   換完值還要讓 option 重算才會生效：各頁的 useMemo 相依陣列裡都放了
+   useTheme()，主題一變就會重跑（useMemo 重算不會重置元件狀態，
+   所以使用者在頁面三手動調過的排程不會被清掉）。
+   ------------------------------------------------------------ */
+const PALETTE = {
+  dark: {
+    axis: '#9aa4bd',
+    split: 'rgba(255,255,255,0.06)',
+    tipBg: 'rgba(20,26,46,0.95)',
+    tipBorder: 'rgba(255,255,255,0.12)',
+    tipText: '#e8edf7',
+    pointer: 'rgba(255,255,255,0.25)',
+    pageInactive: 'rgba(255,255,255,0.2)',
+    text: '#e8edf7',
+    track: 'rgba(255,255,255,0.08)',
+    trackLine: 'rgba(255,255,255,0.15)',
+  },
+  light: {
+    axis: '#5a6478',
+    split: 'rgba(15,23,42,0.10)',
+    tipBg: 'rgba(255,255,255,0.97)',
+    tipBorder: 'rgba(15,23,42,0.12)',
+    tipText: '#1a2233',
+    pointer: 'rgba(15,23,42,0.25)',
+    pageInactive: 'rgba(15,23,42,0.2)',
+    text: '#1a2233',
+    track: 'rgba(15,23,42,0.10)',
+    trackLine: 'rgba(15,23,42,0.18)',
+  },
+}
+
+export let AXIS_TEXT = PALETTE.dark.axis
+export let SPLIT_LINE = PALETTE.dark.split
+export let TEXT_MAIN = PALETTE.dark.text        // 圖上的主要數字（例如儀表中央的百分比）
+export let TRACK = PALETTE.dark.track           // 儀表底環
+export let TRACK_LINE = PALETTE.dark.trackLine  // 儀表刻度線
+export let baseTooltip = {}
+export let baseLegend = {}
+
+export function applyChartTheme(theme) {
+  const c = PALETTE[theme] ?? PALETTE.dark
+  AXIS_TEXT = c.axis
+  SPLIT_LINE = c.split
+  TEXT_MAIN = c.text
+  TRACK = c.track
+  TRACK_LINE = c.trackLine
+  baseTooltip = {
+    trigger: 'axis',
+    backgroundColor: c.tipBg,
+    borderColor: c.tipBorder,
+    textStyle: { color: c.tipText, fontSize: 12 },
+    axisPointer: { type: 'line', lineStyle: { color: c.pointer } },
+  }
+  baseLegend = {
+    textStyle: { color: c.axis, fontSize: 12 },
+    icon: 'roundRect',
+    itemWidth: 14,
+    itemHeight: 8,
+    top: 0,
+    // 窄螢幕下圖例若折成兩行，會往下壓到座標軸標籤；改用可捲動的單行圖例。
+    type: 'scroll',
+    pageIconColor: c.axis,
+    pageIconInactiveColor: c.pageInactive,
+    pageTextStyle: { color: c.axis, fontSize: 11 },
+  }
+}
+
+applyChartTheme('dark') // 先給預設值；theme.js 載入時會依實際主題再套一次
 
 /** 96 個時段的時間標籤 "HH:MM" */
 export const slotLabels = Array.from({ length: SLOTS_PER_DAY }, (_, s) =>
@@ -36,27 +109,6 @@ export function valueYAxis(name, extra = {}) {
     splitLine: { lineStyle: { color: SPLIT_LINE } },
     ...extra,
   }
-}
-
-export const baseTooltip = {
-  trigger: 'axis',
-  backgroundColor: 'rgba(20,26,46,0.95)',
-  borderColor: 'rgba(255,255,255,0.12)',
-  textStyle: { color: '#e8edf7', fontSize: 12 },
-  axisPointer: { type: 'line', lineStyle: { color: 'rgba(255,255,255,0.25)' } },
-}
-
-export const baseLegend = {
-  textStyle: { color: AXIS_TEXT, fontSize: 12 },
-  icon: 'roundRect',
-  itemWidth: 14,
-  itemHeight: 8,
-  top: 0,
-  // 窄螢幕下圖例若折成兩行，會往下壓到座標軸標籤；改用可捲動的單行圖例。
-  type: 'scroll',
-  pageIconColor: AXIS_TEXT,
-  pageIconInactiveColor: 'rgba(255,255,255,0.2)',
-  pageTextStyle: { color: AXIS_TEXT, fontSize: 11 },
 }
 
 // top 需留給圖例（top:0）與 Y 軸軸名兩層，否則窄螢幕下軸名會疊在圖例上

@@ -3,6 +3,7 @@ import { useClock } from '../hooks/useClock.js'
 import { fmtClock, fmtDate } from '../lib/format.js'
 import { getCurrentTier, isSummer, TIER_LABEL } from '../lib/tou.js'
 import { LOCATION } from '../lib/time.js'
+import { useTheme, toggleTheme } from '../lib/theme.js'
 
 const NAV = [
   { to: '/', label: '主頁面', icon: '🏠', end: true },
@@ -22,6 +23,7 @@ export default function Layout() {
   const meta = PAGE_META[pathname] ?? PAGE_META['/']
   const tier = getCurrentTier(now)
   const summer = isSummer(now)
+  const theme = useTheme()
 
   return (
     <div className="app-shell">
@@ -73,6 +75,14 @@ export default function Layout() {
               <span className="dot" />
               {TIER_LABEL[tier.tier]}・{tier.price} 元/度
             </span>
+            <button
+              className="theme-toggle"
+              onClick={toggleTheme}
+              title={theme === 'dark' ? '切換為日間模式' : '切換為夜間模式'}
+              aria-label={theme === 'dark' ? '切換為日間模式' : '切換為夜間模式'}
+            >
+              {theme === 'dark' ? '☀️' : '🌙'}
+            </button>
             <div className="clock">
               <div className="time">{fmtClock(now)}</div>
               <div className="date">{fmtDate(now)}</div>

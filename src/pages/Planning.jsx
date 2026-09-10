@@ -4,6 +4,7 @@ import EChart from '../components/EChart.jsx'
 import { fetchPlanning, runOptimization, recomputeSchedule } from '../api/client.js'
 import { DEVICES, COLORS, CATEGORY_LABEL, slotToTime, slotToHour } from '../lib/constants.js'
 import { tomorrow, fmtDate, pad2 } from '../lib/format.js'
+import { useTheme } from '../lib/theme.js'
 import {
   slotXAxis,
   valueYAxis,
@@ -14,37 +15,39 @@ import {
   AXIS_TEXT,
 } from '../lib/charts.js'
 
-const MODES = [
-  { key: 'cost', label: '省錢模式', desc: '把可轉移設備與電池充電排到最便宜的時段，電費最低' },
-  { key: 'self', label: '自用率最大', desc: '盡量把用電與充電排在白天，最大化太陽能自用' },
-  { key: 'peak', label: '舒緩夜尖峰', desc: '避開尖峰用電、尖峰時段以電池供電，降低電網負擔' },
-]
+// 最佳化目標只做「省錢」一種：排程組（GA）本學期的範圍就是電費最小化。
+// 之前另外設計過「自用率最大」「舒緩夜尖峰」兩種模式，因為不會有對應的
+// 演算法實作，留在畫面上會讓人誤以為三種都有做，故一併移除。
+const OBJECTIVE = {
+  label: '省錢模式',
+  desc: '把可轉移設備與電池充電排到最便宜的時段，電費最低',
+}
 const HOURS = Array.from({ length: 24 }, (_, h) => h)
 
 export default function Planning() {
-  const [mode, setMode] = useState('cost')
+  const theme = useTheme() // 主題一換，下面的圖表 option 就會重算
   const [plan, setPlan] = useState(null)
   const [schedule, setSchedule] = useState(null)
   const [computing, setComputing] = useState(false)
   const planDate = useMemo(() => tomorrow(), [])
 
-  // 切換模式 → 取得該模式的最佳化排程
+  // 進頁面即取得隔日的最佳化排程
   useEffect(() => {
     let on = true
     setComputing(true)
-    fetchPlanning(mode).then((p) => {
+    fetchPlanning().then((p) => {
       if (!on) return
       setPlan(p)
       setSchedule(p.schedule)
       setComputing(false)
     })
     return () => { on = false }
-  }, [mode])
+  }, [])
 
   // 重新計算（重跑演算法，捨棄手動調整）
   const recompute = () => {
     setComputing(true)
-    runOptimization(mode).then((p) => {
+    runOptimization().then((p) => {
       setPlan(p)
       setSchedule(p.schedule)
       setComputing(false)
@@ -60,7 +63,7 @@ export default function Planning() {
       [devId]: schedule[devId].map((v, i) => (i === slot ? !v : v)),
     }
     setSchedule(next)
-    recomputeSchedule(next, mode).then(setPlan)
+    recomputeSchedule(next).then(setPlan)
   }
 
   // ---- 電力供需與電池調度 ----
@@ -93,7 +96,7 @@ export default function Planning() {
           lineStyle: { width: 2, color: COLORS.battery }, data: plan.socPct },
       ],
     }
-  }, [plan])
+  }, [plan, theme])
 
   // ---- 電池充放電 + SOC ----
   const battOption = useMemo(() => {
@@ -124,7 +127,7 @@ export default function Planning() {
             data: [{ yAxis: 90 }, { yAxis: 10 }] } },
       ],
     }
-  }, [plan])
+  }, [plan, theme])
 
   const s = plan?.summary
 
@@ -134,20 +137,9 @@ export default function Planning() {
       <Panel>
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16, justifyContent: 'space-between' }}>
           <div>
-            <div className="mode-tabs">
-              {MODES.map((m) => (
-                <button
-                  key={m.key}
-                  className={`mode-tab ${mode === m.key ? 'active' : ''}`}
-                  onClick={() => setMode(m.key)}
-                  disabled={computing}
-                >
-                  {m.label}
-                </button>
-              ))}
-            </div>
+            <div className="objective">{OBJECTIVE.label}</div>
             <p className="hint" style={{ marginTop: 8 }}>
-              {MODES.find((m) => m.key === mode).desc}
+              {OBJECTIVE.desc}
             </p>
           </div>
           <div style={{ textAlign: 'right' }}>

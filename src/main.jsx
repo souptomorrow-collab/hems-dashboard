@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom/client'
 import { HashRouter } from 'react-router-dom'
 import App from './App.jsx'
 import './index.css'
+// 在 React 掛載前就把 data-theme 套到 <html>，避免先閃一下夜間色
+import './lib/theme.js'
 
 // 使用 HashRouter：GitHub Pages 是靜態主機，沒有伺服器端路由設定，
 // 用 hash (#/loads) 可以避免重新整理子頁面時出現 404。

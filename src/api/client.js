@@ -71,18 +71,18 @@ export async function fetchLive(now = nowTaipei()) {
 }
 
 /** 今日整日（主頁面的 24h 趨勢圖、最佳化結果） */
-export async function fetchToday(now = nowTaipei(), mode = 'cost') {
+export async function fetchToday(now = nowTaipei()) {
   const fixed = await realFixedLoad()
   await delay(80)
-  return simulateDay(now, mode, simulateWeather(now), fixed)
+  return simulateDay(now, simulateWeather(now), fixed)
 }
 
 /** 隔日預測 + 最佳化排程（主頁面「預測結果」、頁面三規劃） */
-export async function fetchPlanning(mode = 'cost', baseDate = nowTaipei()) {
+export async function fetchPlanning(baseDate = nowTaipei()) {
   const fixed = await realFixedLoad()
   const date = tomorrow(baseDate)
   await delay(120)
-  return simulateDay(date, mode, simulateWeather(date), fixed)
+  return simulateDay(date, simulateWeather(date), fixed)
 }
 
 /**
@@ -90,22 +90,22 @@ export async function fetchPlanning(mode = 'cost', baseDate = nowTaipei()) {
  * 後端版本會在此觸發 GA 重新排程；這裡用同一個模擬引擎並切換模式，
  * 但不可轉移負載仍是真實的 RF 預測。
  */
-export async function runOptimization(mode = 'cost', baseDate = nowTaipei()) {
+export async function runOptimization(baseDate = nowTaipei()) {
   const fixed = await realFixedLoad()
   const date = tomorrow(baseDate)
   await delay(650) // 模擬演算法計算時間
-  return simulateDay(date, mode, simulateWeather(date), fixed)
+  return simulateDay(date, simulateWeather(date), fixed)
 }
 
 /**
  * 依使用者手動調整後的排程重新計算電池調度與成本（不重跑 GA）。
  * @param {object} schedule  { deviceId: boolean[96] }
  */
-export async function recomputeSchedule(schedule, mode = 'cost', baseDate = nowTaipei()) {
+export async function recomputeSchedule(schedule, baseDate = nowTaipei()) {
   const fixed = await realFixedLoad()
   const date = tomorrow(baseDate)
   await delay(60)
-  return simulateWithSchedule(date, mode, schedule, simulateWeather(date), fixed)
+  return simulateWithSchedule(date, schedule, simulateWeather(date), fixed)
 }
 
 /**

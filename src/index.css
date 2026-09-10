@@ -14,6 +14,13 @@
   /* 邊框與分隔 */
   --border: rgba(255, 255, 255, 0.08);
   --border-strong: rgba(255, 255, 255, 0.16);
+  /* 疊在背景上的淡色塊：夜間用白、日間要換成深色，否則會整個消失 */
+  --overlay-soft: rgba(255, 255, 255, 0.05);
+  --overlay: rgba(255, 255, 255, 0.13);
+  --overlay-strong: rgba(255, 255, 255, 0.24);
+  --hairline: rgba(255, 255, 255, 0.07);
+  --topbar-bg: rgba(13, 18, 36, 0.6);
+  --home-tint: #241a3d;   /* 能源流向圖中央「家庭用電」節點的底色 */
 
   /* 文字 */
   --text: #e8edf7;
@@ -36,6 +43,9 @@
   --radius: 14px;
   --radius-sm: 10px;
   --shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 14px 30px rgba(0, 0, 0, 0.42);
+  --drop: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.4));
 
   --font: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei",
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -171,7 +181,7 @@ h1, h2, h3, h4 {
   justify-content: space-between;
   padding: 18px 28px;
   border-bottom: 1px solid var(--border);
-  background: rgba(13, 18, 36, 0.6);
+  background: var(--topbar-bg);
   backdrop-filter: blur(8px);
   position: sticky;
   top: 0;
@@ -280,6 +290,71 @@ h1, h2, h3, h4 {
 .sc-sub .down { color: #4ade80; }
 
 /* ============================================================
+   日間主題
+
+   只覆寫顏色類的變數，版面相關的（圓角、字型、陰影距離）沿用夜間那份。
+   能源色系在白底上飽和度不足、對比會不夠（例如 #ffb020 配白底約 1.8:1），
+   所以各調深一階；色相維持不變，看圖時的認知不會跑掉。
+   由 src/lib/theme.js 在 <html> 上掛 data-theme 來切換。
+   ============================================================ */
+:root[data-theme="light"] {
+  --bg-app: #f2f5fa;
+  --bg-sidebar: #ffffff;
+  --bg-panel: #ffffff;
+  --bg-panel-2: #f6f8fc;
+  --bg-elevated: #eaeff8;
+
+  --border: rgba(15, 23, 42, 0.10);
+  --border-strong: rgba(15, 23, 42, 0.18);
+  --overlay-soft: rgba(15, 23, 42, 0.04);
+  --overlay: rgba(15, 23, 42, 0.10);
+  --overlay-strong: rgba(15, 23, 42, 0.22);
+  --hairline: rgba(15, 23, 42, 0.08);
+  --topbar-bg: rgba(255, 255, 255, 0.72);
+  --home-tint: #f1e7fd;
+
+  --text: #1a2233;
+  --text-muted: #5a6478;
+  --text-dim: #8b94a8;
+
+  --c-solar: #d98500;
+  --c-battery: #16a34a;
+  --c-grid: #2563eb;
+  --c-load: #9333ea;
+  --c-save: #0d9488;
+
+  --c-peak: #dc2626;
+  --c-offpeak: #16a34a;
+
+  --accent: #0284c7;
+
+  --shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+  --shadow-md: 0 6px 16px rgba(15, 23, 42, 0.10);
+  --shadow-lg: 0 14px 28px rgba(15, 23, 42, 0.14);
+  --drop: drop-shadow(0 2px 6px rgba(15, 23, 42, 0.18));
+}
+
+.theme-toggle {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel-2);
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.theme-toggle:hover {
+  border-color: var(--accent);
+  background: var(--bg-elevated);
+}
+
+/* ============================================================
    格線
    ============================================================ */
 .grid {
@@ -289,10 +364,23 @@ h1, h2, h3, h4 {
 .grid.kpi {
   grid-template-columns: repeat(5, 1fr);
 }
-.cols-2 { grid-template-columns: repeat(2, 1fr); }
-.cols-3 { grid-template-columns: repeat(3, 1fr); }
-.cols-4 { grid-template-columns: repeat(4, 1fr); }
-.cols-6 { grid-template-columns: repeat(6, 1fr); }
+/* 面板高度被同列的鄰居撐高時，讓內容跟著長滿，
+   而不是把空白全部留在底下 */
+.panel.fill-col {
+  display: flex;
+  flex-direction: column;
+}
+.panel.fill-col > .grow {
+  flex: 1;
+  align-content: stretch;   /* 列高為 auto，會平均吸收多出來的高度 */
+}
+
+/* 這幾條要寫成 .grid.cols-N：.grid.kpi 預設 5 欄、是兩個 class，
+   單寫 .cols-N 優先級較低會被它蓋掉，卡片數量對不上就會空一格 */
+.grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
+.grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
+.grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.grid.cols-6 { grid-template-columns: repeat(6, 1fr); }
 @media (max-width: 1100px) {
   .grid.cols-6 { grid-template-columns: repeat(3, 1fr); }
 }
@@ -313,7 +401,7 @@ h1, h2, h3, h4 {
   .sidebar-foot { display: none; }
   .nav { flex-direction: row; margin-top: 0; }
   .brand { padding: 0 16px 0 4px; }
-  .grid.kpi, .cols-2, .cols-3, .grid.cols-4 { grid-template-columns: 1fr; }
+  .grid.kpi, .grid.cols-2, .grid.cols-3, .grid.cols-4 { grid-template-columns: 1fr; }
   .span-2 { grid-column: auto; }
 }
 
@@ -406,7 +494,7 @@ h1, h2, h3, h4 {
   font-weight: 600;
 }
 .status-pill.on { color: #4ade80; background: rgba(34, 197, 94, 0.14); }
-.status-pill.off { color: var(--text-dim); background: rgba(255, 255, 255, 0.05); }
+.status-pill.off { color: var(--text-dim); background: var(--overlay-soft); }
 .status-pill.standby { color: #fbbf24; background: rgba(251, 191, 36, 0.12); }
 
 /* ============================================================
@@ -429,7 +517,7 @@ h1, h2, h3, h4 {
 }
 .flow-rail {
   fill: none;
-  stroke: rgba(255, 255, 255, 0.07);
+  stroke: var(--hairline);
   stroke-width: 2;
   stroke-linecap: round;
   vector-effect: non-scaling-stroke;
@@ -475,12 +563,12 @@ h1, h2, h3, h4 {
   background: linear-gradient(180deg, var(--bg-elevated), var(--bg-panel-2));
   border: 1px solid var(--border);
   text-align: center;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow-md);
 }
 .flow-node .fn-icon {
   font-size: 23px;
   line-height: 1;
-  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.4));
+  filter: var(--drop);
 }
 .flow-node .fn-label { font-size: 11.5px; color: var(--text-muted); }
 .flow-node .fn-value { font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; }
@@ -493,7 +581,7 @@ h1, h2, h3, h4 {
   width: 120px;
   padding: 13px 10px;
   border-color: rgba(168, 85, 247, 0.5);
-  background: linear-gradient(180deg, #241a3d, var(--bg-panel-2));
+  background: linear-gradient(180deg, var(--home-tint), var(--bg-panel-2));
   box-shadow: 0 0 0 1px rgba(168, 85, 247, 0.18), 0 0 38px rgba(168, 85, 247, 0.18);
 }
 .flow-node.home .fn-icon { font-size: 28px; }
@@ -615,7 +703,7 @@ h1, h2, h3, h4 {
 .spinner {
   width: 16px;
   height: 16px;
-  border: 2px solid rgba(255, 255, 255, 0.25);
+  border: 2px solid var(--overlay-strong);
   border-top-color: #fff;
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
@@ -689,17 +777,17 @@ body {
 }
 
 /* 捲軸 */
-* { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.16) transparent; }
+* { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.13);
+  background: var(--overlay);
   border-radius: 10px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.24);
+  background: var(--overlay-strong);
   background-clip: padding-box;
 }
 
@@ -741,7 +829,7 @@ body {
   background: linear-gradient(180deg, var(--bg-panel), var(--bg-panel-2) 160%);
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
 }
-.panel:hover { border-color: rgba(255, 255, 255, 0.13); }
+.panel:hover { border-color: var(--overlay); }
 .panel-head h3 {
   display: inline-flex;
   align-items: center;
@@ -781,7 +869,7 @@ body {
 .stat-card:hover {
   transform: translateY(-3px);
   border-color: var(--border-strong);
-  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.42);
+  box-shadow: var(--shadow-lg);
 }
 .stat-card .sc-icon {
   width: 34px;
@@ -789,7 +877,7 @@ body {
   display: grid;
   place-items: center;
   border-radius: 9px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--overlay-soft);
   border: 1px solid var(--border);
 }
 

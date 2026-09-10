@@ -4,6 +4,7 @@ import StatCard from '../components/StatCard.jsx'
 import EChart from '../components/EChart.jsx'
 import { fetchLive, fetchToday } from '../api/client.js'
 import { DEVICES, DEVICE_COLORS, CATEGORY_LABEL, COLORS } from '../lib/constants.js'
+import { useTheme } from '../lib/theme.js'
 import {
   slotXAxis,
   valueYAxis,
@@ -16,6 +17,7 @@ import {
 const STATUS_LABEL = { on: '運轉中', off: '關閉', standby: '待機' }
 
 export default function Loads() {
+  const theme = useTheme() // 主題一換，下面的圖表 option 就會重算
   const [live, setLive] = useState(null)
   const [today, setToday] = useState(null)
 
@@ -66,7 +68,7 @@ export default function Loads() {
         },
       ],
     }
-  }, [devices])
+  }, [devices, theme])
 
   // 即時用電佔比（甜甜圈）
   const pieOption = useMemo(() => {
@@ -88,7 +90,7 @@ export default function Loads() {
         },
       ],
     }
-  }, [devices])
+  }, [devices, theme])
 
   // 今日各設備用電堆疊（24h，15 分鐘）
   const stackOption = useMemo(() => {
@@ -112,7 +114,7 @@ export default function Loads() {
         data: today.devicePower[dev.id],
       })),
     }
-  }, [today])
+  }, [today, theme])
 
   return (
     <>

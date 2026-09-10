@@ -6,6 +6,7 @@ import EnergyFlow from '../components/EnergyFlow.jsx'
 import WeatherStrip from '../components/WeatherStrip.jsx'
 import { fetchLive, fetchToday, fetchPlanning, loadForecastMeta } from '../api/client.js'
 import { COLORS, BATTERY } from '../lib/constants.js'
+import { useTheme } from '../lib/theme.js'
 import {
   slotXAxis,
   valueYAxis,
@@ -15,9 +16,13 @@ import {
   peakMarkArea,
   rainMarkArea,
   AXIS_TEXT,
+  TEXT_MAIN,
+  TRACK,
+  TRACK_LINE,
 } from '../lib/charts.js'
 
 export default function Dashboard() {
+  const theme = useTheme() // 主題一換，下面的圖表 option 就會重算
   const [live, setLive] = useState(null)
   const [today, setToday] = useState(null)
   const [plan, setPlan] = useState(null)
@@ -38,7 +43,7 @@ export default function Dashboard() {
   // 今日整日 + 隔日預測：載入一次
   useEffect(() => {
     fetchToday().then(setToday)
-    fetchPlanning('cost').then((d) => {
+    fetchPlanning().then((d) => {
       setPlan(d)
       setLoadMeta(loadForecastMeta())
     })
@@ -139,7 +144,7 @@ export default function Dashboard() {
         },
       ],
     }
-  }, [today])
+  }, [today, theme])
 
   // ---- 電池 SOC 儀表 ----
   const gaugeOption = useMemo(() => {
@@ -154,16 +159,16 @@ export default function Dashboard() {
           max: 100,
           radius: '92%',
           progress: { show: true, width: 14, itemStyle: { color: COLORS.battery } },
-          axisLine: { lineStyle: { width: 14, color: [[1, 'rgba(255,255,255,0.08)']] } },
+          axisLine: { lineStyle: { width: 14, color: [[1, TRACK]] } },
           axisTick: { show: false },
-          splitLine: { length: 10, lineStyle: { color: 'rgba(255,255,255,0.15)' } },
-          axisLabel: { color: '#6b7693', fontSize: 10, distance: 14 },
+          splitLine: { length: 10, lineStyle: { color: TRACK_LINE } },
+          axisLabel: { color: AXIS_TEXT, fontSize: 10, distance: 14 },
           pointer: { width: 4, itemStyle: { color: COLORS.battery } },
           anchor: { show: true, size: 10, itemStyle: { color: COLORS.battery } },
           detail: {
             valueAnimation: true,
             formatter: '{value}%',
-            color: '#e8edf7',
+            color: TEXT_MAIN,
             fontSize: 26,
             fontWeight: 'bolder',
             offsetCenter: [0, '55%'],
@@ -172,7 +177,7 @@ export default function Dashboard() {
         },
       ],
     }
-  }, [live])
+  }, [live, theme])
 
   // ---- 隔日預測：太陽能發電 + 家庭負載 + 淨負載（鴨子曲線）----
   const forecastOption = useMemo(() => {
@@ -224,7 +229,7 @@ export default function Dashboard() {
         },
       ],
     }
-  }, [plan])
+  }, [plan, theme])
 
   const s = today?.summary
   const ps = plan?.summary
@@ -378,9 +383,9 @@ export default function Dashboard() {
           <WeatherStrip weather={plan?.weather} />
           <EChart option={forecastOption} height={260} />
         </Panel>
-        <Panel title="隔日最佳化結果" sub="GA 排程摘要（省錢模式）">
+        <Panel title="隔日最佳化結果" sub="GA 排程摘要（省錢模式）" className="fill-col">
           {ps ? (
-            <div className="grid cols-2" style={{ gap: 12 }}>
+            <div className="grid cols-2 grow" style={{ gap: 12 }}>
               <Metric label="預測發電" value={`${ps.pvKwh} 度`} color={COLORS.solar} />
               <Metric label="預估用電" value={`${ps.loadKwh} 度`} color={COLORS.load} />
               <Metric label="向電網購電" value={`${ps.gridImportKwh} 度`} color={COLORS.grid} />
@@ -413,7 +418,17 @@ function InfoRow({ label, value, color }) {
 
 function Metric({ label, value, color }) {
   return (
-    <div className="panel" style={{ padding: '12px 14px', background: 'var(--bg-panel-2)' }}>
+    <div
+      className="panel"
+      style={{
+        padding: '12px 14px',
+        background: 'var(--bg-panel-2)',
+        // 這張卡片可能被拉高以填滿面板（見 .panel.fill-col），內容置中才不會黏在上緣
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+      }}
+    >
       <div className="muted" style={{ fontSize: 12 }}>{label}</div>
       <div style={{ fontSize: 20, fontWeight: 800, marginTop: 4, color: color || 'var(--text)' }}>
         {value}
