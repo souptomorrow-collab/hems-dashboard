@@ -39,15 +39,42 @@ let lastForecastMeta = {
   error: null,
 }
 
-async function realFixedLoad() {
+/**
+ * 組出「站在第 atSlot 格往後看」的一日 96 格不可轉移負載。
+ *
+ *   過去（0..atSlot）  用當天真實值
+ *   未來（atSlot+1..） 用「在第 atSlot 格發布」的那次預測
+ *
+ * 這才是 RF 實際的產出方式：它每 15 分鐘重跑一次、重發未來 96 步，
+ * 同一個時刻會被預測很多次，越接近越更新。原本 UI 只取一筆當成整天的
+ * 固定曲線，等於把滾動預測畫成靜態預測。
+ *
+ * atSlot 給 null 就退回整日曲線（例如頁面三的隔日規劃，那時還沒有真實值）。
+ */
+function assembleFixed(d, atSlot) {
+  if (atSlot == null || !d.rolling) return d.slots
+  const s = Math.max(0, Math.min(95, atSlot))
+  const fc = d.rolling[s]
+  const out = new Array(96)
+  for (let i = 0; i < 96; i++) {
+    if (i <= s) out[i] = d.actual?.[i] ?? d.slots[i]
+    else out[i] = fc ? (fc[i - s - 1] ?? d.slots[i]) : d.slots[i]
+  }
+  return out
+}
+
+async function realFixedLoad(atSlot = null) {
   try {
-    const { refresh, slots, targetDate } = await cached(
-      'day-ahead-forecast',
-      fetchDayAheadForecast
-    )
-    if (!slots) throw new Error('快照無預測資料')
-    lastForecastMeta = { source: 'rf', refresh, datasetDate: targetDate, error: null }
-    return slots
+    const d = await cached('day-ahead-forecast', fetchDayAheadForecast)
+    if (!d.slots) throw new Error('快照無預測資料')
+    lastForecastMeta = {
+      source: 'rf',
+      refresh: atSlot == null ? null : `第 ${atSlot + 1} / 96 格發布`,
+      datasetDate: d.targetDate,
+      rolling: Boolean(d.rolling),
+      error: null,
+    }
+    return assembleFixed(d, atSlot)
   } catch (e) {
     lastForecastMeta = { source: 'sim', refresh: null, datasetDate: null, error: e.message }
     if (import.meta.env.DEV) console.warn('[HEMS] 取雲端負載預測失敗，改用模擬值：', e.message)
@@ -64,15 +91,15 @@ export function loadForecastMeta() {
 }
 
 /** 主頁面即時快照（太陽能/電池/負載/電網/SOC/省電費…） */
-export async function fetchLive(now = nowTaipei()) {
-  const fixed = await realFixedLoad()
+export async function fetchLive(now = nowTaipei(), atSlot = null) {
+  const fixed = await realFixedLoad(atSlot)
   await delay(60)
   return liveSnapshot(now, fixed)
 }
 
 /** 今日整日（主頁面的 24h 趨勢圖、最佳化結果） */
-export async function fetchToday(now = nowTaipei()) {
-  const fixed = await realFixedLoad()
+export async function fetchToday(now = nowTaipei(), atSlot = null) {
+  const fixed = await realFixedLoad(atSlot)
   await delay(80)
   return simulateDay(now, simulateWeather(now), fixed)
 }

@@ -55,10 +55,16 @@ export async function fetchDayAheadForecast() {
       throw new Error(`預測快照格式不對（slots=${slots?.length ?? 'none'}）`)
     }
     return {
-      refresh: d.refresh ?? null,
       slots: fillGaps(slots),
+      // 當天真實值。有了它，「已經發生」的那段才是真的量測值，
+      // 而不是把預測曲線切一段冒充。
+      actual: Array.isArray(d.actual) ? d.actual : null,
+      // rolling[s][k]＝第 s 格發布、領先 k+1 步的預測。
+      // RF 每 15 分鐘重發一次未來 96 步，同一個時刻會被預測很多次、
+      // 越接近越更新，這個矩陣就是拿來重現那個滾動行為的。
+      rolling: Array.isArray(d.rolling) ? d.rolling : null,
       targetDate: d.target_date ?? null,
-      clean: Boolean(d.clean),
+      hasActual: Boolean(d.has_actual),
       source: d.source ?? null,
       generatedAt: d.generated_at ?? null,
     }

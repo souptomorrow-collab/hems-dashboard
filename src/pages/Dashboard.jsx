@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Panel from '../components/Panel.jsx'
 import StatCard from '../components/StatCard.jsx'
 import EChart from '../components/EChart.jsx'
@@ -29,6 +29,15 @@ export default function Dashboard() {
   const theme = useTheme() // 主題一換，下面的圖表 option 就會重算
   const demo = useDemoClock()
   const now = useClock() // 展示模式開著時，這個已經是虛擬時間
+  // 目前在一天中的第幾格：展示模式看播放進度，否則看真實時間
+  const curSlot = demo.enabled
+    ? demo.slot
+    : Math.floor((now.getHours() * 60 + now.getMinutes()) / 15)
+
+  // kW 軸的範圍「只增不減」。
+  // 滾動預測每前進一格就換一次資料，若讓軸自動縮放，播放時整張圖會不停上下跳，
+  // 前後時刻也沒辦法比較。記住看過的最大／最小值，軸就只會變寬不會變窄。
+  const kwRange = useRef({ min: 0, max: 0 })
   const [live, setLive] = useState(null)
   const [today, setToday] = useState(null)
   const [plan, setPlan] = useState(null)
@@ -41,7 +50,7 @@ export default function Dashboard() {
   useEffect(() => {
     let on = true
     const at = demo.enabled ? slotToDate(demo.slot) : undefined
-    const tick = () => fetchLive(at).then((d) => on && setLive(d))
+    const tick = () => fetchLive(at, curSlot).then((d) => on && setLive(d))
     tick()
     if (demo.enabled) return () => { on = false }
     const id = setInterval(tick, 5000)
@@ -49,11 +58,19 @@ export default function Dashboard() {
       on = false
       clearInterval(id)
     }
-  }, [demo.enabled, demo.slot])
+  }, [demo.enabled, demo.slot, curSlot])
 
-  // 今日整日 + 隔日預測：載入一次
+  // 今日整日：每前進一格就重算一次。
+  // RF 是滾動預測（每 15 分鐘重發未來 96 步），所以「未來」那段會隨時間更新；
+  // 「過去」那段吃的是真實值、不會變，dispatch 又是照時間順序推的，
+  // 因此已經發生的電池／電網軌跡自然凍住，不需要另外處理。
   useEffect(() => {
-    fetchToday().then(setToday)
+    fetchToday(now, curSlot).then(setToday)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [curSlot, demo.enabled])
+
+  // 隔日預測 + 最佳化：載入一次（那是明天的事，不隨今天的進度改變）
+  useEffect(() => {
     fetchPlanning().then((d) => {
       setPlan(d)
       setLoadMeta(loadForecastMeta())
@@ -77,11 +94,6 @@ export default function Dashboard() {
      註：目前「即時」那段是把同一條模擬曲線切到現在為止。之後接上真實
      量測後，這裡應改讀量測紀錄，而不是切預測曲線。
      ------------------------------------------------------------ */
-  // 目前在一天中的第幾格：展示模式看播放進度，否則看真實時間
-  const curSlot = demo.enabled
-    ? demo.slot
-    : Math.floor((now.getHours() * 60 + now.getMinutes()) / 15)
-
   const dayOption = (upTo, showPlayhead) => {
     // 只保留 upTo 之前的點，之後補 null（ECharts 會直接斷線，不會連到 0）
     const clip = (arr) =>
@@ -94,9 +106,11 @@ export default function Dashboard() {
       ...today.pv, ...today.load, ...today.gridKw,
       ...today.chargeKw, ...today.dischargeKw.map((v) => -v),
     ].filter((v) => Number.isFinite(v))
-    const step = 1
-    const kwMax = Math.ceil(Math.max(0, ...all) / step) * step
-    const kwMin = Math.floor(Math.min(0, ...all) / step) * step
+    kwRange.current = {
+      max: Math.max(kwRange.current.max, Math.ceil(Math.max(0, ...all))),
+      min: Math.min(kwRange.current.min, Math.floor(Math.min(0, ...all))),
+    }
+    const { min: kwMin, max: kwMax } = kwRange.current
     return {
       tooltip: {
         ...baseTooltip,
@@ -415,7 +429,7 @@ export default function Dashboard() {
       {/* 即時：只畫到目前為止，曲線隨時間長出來 */}
       <Panel
         title="即時運轉"
-        sub={`今日 00:00 ～ ${slotToTime(curSlot)}・已發生的部分（隨時間累積）`}
+        sub={`今日 00:00 ～ ${slotToTime(curSlot)}・不可轉移負載取當日真實值（隨時間累積）`}
         className="mt-16"
         right={
           <span className="badge">
@@ -429,7 +443,7 @@ export default function Dashboard() {
       {/* 預測與排程：整天都畫，和上面那張刻意分開，避免把「已發生」和「還沒發生」混為一談 */}
       <Panel
         title="今日預測與排程"
-        sub="全天 24 小時的預測與排程結果・太陽能・負載・電網・電池充放電・SOC（右軸；紅底為尖峰時段）"
+        sub={`過去用真實值、未來用 ${slotToTime(curSlot)} 發布的最新一次 RF 預測重新規劃・紅底為尖峰時段`}
         className="mt-16"
       >
         <EChart option={dayPlanOption} height={300} />

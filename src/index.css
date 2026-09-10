@@ -34,6 +34,9 @@
   --t-down: #4ade80;
   --t-rain: #7dd3fc;
   --gantt-peak-bg: rgba(239, 68, 68, 0.06);
+  --nav-active-bg: linear-gradient(135deg, rgba(56, 189, 248, 0.18), rgba(56, 189, 248, 0.06));
+  --nav-active-text: #fff;
+  --spinner-head: #fff;
 
   /* 文字 */
   --text: #e8edf7;
@@ -167,9 +170,10 @@ h1, h2, h3, h4 {
   color: var(--text);
 }
 .nav-link.active {
-  background: linear-gradient(135deg, rgba(56, 189, 248, 0.18), rgba(56, 189, 248, 0.06));
-  color: #fff;
-  box-shadow: inset 0 0 0 1px rgba(56, 189, 248, 0.25);
+  background: var(--nav-active-bg);
+  color: var(--nav-active-text);
+  font-weight: 700;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 .sidebar-foot {
@@ -337,6 +341,9 @@ h1, h2, h3, h4 {
   --t-rain: #0369a1;
   /* 白底上 6% 的紅幾乎看不見，加深一點才看得出尖峰時段 */
   --gantt-peak-bg: rgba(239, 68, 68, 0.11);
+  --nav-active-bg: linear-gradient(135deg, rgba(2, 132, 199, 0.16), rgba(2, 132, 199, 0.05));
+  --nav-active-text: #075985;
+  --spinner-head: var(--accent);
 
   --text: #1a2233;
   --text-muted: #5a6478;
@@ -711,29 +718,6 @@ h1, h2, h3, h4 {
 /* ============================================================
    控制元件 (頁面三)
    ============================================================ */
-.mode-tabs {
-  display: inline-flex;
-  background: var(--bg-panel-2);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 4px;
-  gap: 4px;
-}
-.mode-tab {
-  padding: 8px 16px;
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-muted);
-  cursor: pointer;
-  border: none;
-  background: transparent;
-  transition: all 0.15s;
-}
-.mode-tab.active {
-  background: linear-gradient(135deg, var(--accent), #6366f1);
-  color: #fff;
-}
 
 .btn {
   display: inline-flex;
@@ -825,7 +809,7 @@ h1, h2, h3, h4 {
   width: 16px;
   height: 16px;
   border: 2px solid var(--overlay-strong);
-  border-top-color: #fff;
+  border-top-color: var(--spinner-head);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
 }
