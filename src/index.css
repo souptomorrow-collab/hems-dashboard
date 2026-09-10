@@ -126,6 +126,7 @@ h1, h2, h3, h4 {
 .nav-link {
   display: flex;
   align-items: center;
+  white-space: nowrap;
   gap: 12px;
   padding: 11px 14px;
   border-radius: var(--radius-sm);
@@ -290,6 +291,11 @@ h1, h2, h3, h4 {
 }
 .cols-2 { grid-template-columns: repeat(2, 1fr); }
 .cols-3 { grid-template-columns: repeat(3, 1fr); }
+.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.cols-6 { grid-template-columns: repeat(6, 1fr); }
+@media (max-width: 1100px) {
+  .grid.cols-6 { grid-template-columns: repeat(3, 1fr); }
+}
 .span-2 { grid-column: span 2; }
 
 @media (max-width: 1200px) {
@@ -307,7 +313,7 @@ h1, h2, h3, h4 {
   .sidebar-foot { display: none; }
   .nav { flex-direction: row; margin-top: 0; }
   .brand { padding: 0 16px 0 4px; }
-  .grid.kpi, .cols-2, .cols-3 { grid-template-columns: 1fr; }
+  .grid.kpi, .cols-2, .cols-3, .grid.cols-4 { grid-template-columns: 1fr; }
   .span-2 { grid-column: auto; }
 }
 
@@ -317,6 +323,7 @@ h1, h2, h3, h4 {
 .badge {
   display: inline-flex;
   align-items: center;
+  white-space: nowrap;
   gap: 6px;
   padding: 4px 10px;
   border-radius: 999px;
@@ -793,4 +800,64 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
   }
+}
+
+
+/* ============================================================
+   手機版（放在最後，覆蓋前面的 900px 規則）
+   ============================================================ */
+@media (max-width: 760px) {
+  /* 頂欄改兩列：標題一列，狀態徽章＋時鐘一列。
+     原本是單列 space-between，手機寬度下標題與徽章互相擠壓，
+     「主頁面」被折成兩行、徽章內文也被拆散。 */
+  .topbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    padding: 12px 16px;
+  }
+  .topbar .page-title h2 { font-size: 17px; }
+  .topbar .page-title p { display: none; }   /* 副標在手機上佔掉整整四行 */
+  .topbar-right {
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+  .topbar-right .badge { font-size: 11px; padding: 3px 9px; }
+  .clock { margin-left: auto; text-align: right; }
+  .clock .time { font-size: 16px; }
+  .clock .date { font-size: 10.5px; }
+
+  .content { padding: 16px 14px 40px; }
+  .panel { padding: 14px 12px; }
+
+  /* KPI 兩欄：五張卡片各佔一列會讓首頁長到要滑很久 */
+  .grid.kpi, .grid.cols-4, .grid.cols-6 { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+
+  /* 流向圖直式版面：來源在上、家在中、電池在下（座標見 EnergyFlow.jsx） */
+  .flow { min-height: 400px; }
+  .flow-node { width: 96px; padding: 8px 6px; }
+  .flow-node.home { width: 108px; padding: 10px 8px; }
+  .flow-node .fn-icon { font-size: 20px; }
+  .flow-node.home .fn-icon { font-size: 24px; }
+  .flow-node .fn-label { font-size: 10.5px; }
+  .flow-node .fn-value { font-size: 14.5px; }
+  .flow-node.home .fn-value { font-size: 17px; }
+  .flow-node .fn-sub { font-size: 9.5px; }
+  .flow-edge-val { font-size: 10px; padding: 2px 6px; }
+
+  /* grid item 預設 min-width:auto，會被甘特表（min-width:760px）撐開，
+     連帶讓 .gantt 的 overflow-x:auto 失效、整頁可以左右拉。設 0 才會裁切。 */
+  .app-shell > * { min-width: 0; }
+  .panel { overflow-x: hidden; }
+  .gantt { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+  /* 橫向側欄：品牌縮成 logo + HEMS，導覽可左右滑動 */
+  .sidebar { padding: 8px 10px; gap: 4px; }
+  .brand { padding: 0 10px 0 2px; gap: 8px; }
+  .brand .logo { width: 32px; height: 32px; font-size: 18px; border-radius: 9px; }
+  .brand .brand-text span { display: none; }
+  .nav { gap: 2px; }
+  .nav-link { padding: 8px 11px; font-size: 13px; gap: 7px; }
+  .nav-link .icon { font-size: 16px; width: 18px; }
 }

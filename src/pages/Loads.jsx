@@ -116,7 +116,7 @@ export default function Loads() {
 
   return (
     <>
-      <div className="grid kpi" style={{ gridTemplateColumns: 'repeat(4,1fr)' }}>
+      <div className="grid kpi cols-4">
         <StatCard icon="🏠" color={COLORS.load} label="即時總負載" value={live ? (sumW(devices) / 1000).toFixed(2) : '—'} unit="kW" sub={`${devices.length} 項設備`} />
         <StatCard icon="🟢" color={COLORS.battery} label="運轉中設備" value={live ? onCount : '—'} unit="項" sub={`待機 ${devices.filter((d) => d.status === 'standby').length} 項`} />
         <StatCard icon="🔄" color={COLORS.grid} label="可轉移負載" value={live ? (sumW(shiftable) / 1000).toFixed(2) : '—'} unit="kW" sub="洗衣/烘衣/熱水器/洗碗機" />

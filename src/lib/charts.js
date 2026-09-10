@@ -52,9 +52,15 @@ export const baseLegend = {
   itemWidth: 14,
   itemHeight: 8,
   top: 0,
+  // 窄螢幕下圖例若折成兩行，會往下壓到座標軸標籤；改用可捲動的單行圖例。
+  type: 'scroll',
+  pageIconColor: AXIS_TEXT,
+  pageIconInactiveColor: 'rgba(255,255,255,0.2)',
+  pageTextStyle: { color: AXIS_TEXT, fontSize: 11 },
 }
 
-export const baseGrid = { left: 48, right: 20, top: 40, bottom: 28 }
+// top 需留給圖例（top:0）與 Y 軸軸名兩層，否則窄螢幕下軸名會疊在圖例上
+export const baseGrid = { left: 48, right: 20, top: 54, bottom: 28 }
 
 /** 把 tier 陣列轉成「尖峰時段」的 markArea 資料（淡紅底色） */
 export function peakMarkArea(tier) {

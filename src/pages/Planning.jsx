@@ -161,7 +161,7 @@ export default function Planning() {
       </Panel>
 
       {/* 結果摘要 */}
-      <div className="grid mt-16" style={{ gridTemplateColumns: 'repeat(6,1fr)' }}>
+      <div className="grid cols-6 mt-16">
         <Tile label="預估電費" value={s ? s.optimizedCost : '—'} unit="元" />
         <Tile label="預估省電費" value={s ? s.savings : '—'} unit="元" color={COLORS.save} sub={s ? `省 ${s.savingPct}%` : ''} />
         <Tile label="太陽能自用率" value={s ? s.selfUseRate : '—'} unit="%" color={COLORS.solar} />
