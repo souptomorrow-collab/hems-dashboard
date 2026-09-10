@@ -355,6 +355,79 @@ h1, h2, h3, h4 {
 }
 
 /* ============================================================
+   展示模式控制列（頁面一最上方）
+   ============================================================ */
+.demo-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel);
+}
+.demo-bar.on {
+  border-color: var(--c-save);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-save) 22%, transparent);
+}
+.demo-power {
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-panel-2);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.demo-power.on {
+  background: var(--c-save);
+  border-color: var(--c-save);
+  color: #fff;
+}
+.demo-btn {
+  min-width: 34px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel-2);
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+.demo-btn:hover { border-color: var(--accent); color: var(--text); }
+.demo-btn.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 700;
+}
+.demo-time {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+  min-width: 92px;
+}
+.demo-time strong { font-size: 17px; font-variant-numeric: tabular-nums; }
+.demo-time .muted { font-size: 11px; color: var(--text-dim); }
+.demo-seek {
+  flex: 1;
+  min-width: 160px;
+  accent-color: var(--c-save);
+  cursor: pointer;
+}
+.demo-speeds { display: flex; gap: 4px; }
+.demo-note, .demo-idle { font-size: 12px; color: var(--text-dim); }
+
+@media (max-width: 760px) {
+  .demo-note { display: none; }        /* 手機上這行會把控制列擠成三排 */
+  .demo-seek { order: 10; flex-basis: 100%; }
+}
+
+/* ============================================================
    格線
    ============================================================ */
 .grid {

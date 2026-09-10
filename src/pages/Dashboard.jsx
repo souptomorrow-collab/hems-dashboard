@@ -7,6 +7,9 @@ import WeatherStrip from '../components/WeatherStrip.jsx'
 import { fetchLive, fetchToday, fetchPlanning, loadForecastMeta } from '../api/client.js'
 import { COLORS, BATTERY } from '../lib/constants.js'
 import { useTheme } from '../lib/theme.js'
+import { useDemoClock, slotToDate } from '../lib/demoClock.js'
+import DemoBar from '../components/DemoBar.jsx'
+import { slotToTime } from '../lib/constants.js'
 import {
   slotXAxis,
   valueYAxis,
@@ -23,22 +26,28 @@ import {
 
 export default function Dashboard() {
   const theme = useTheme() // 主題一換，下面的圖表 option 就會重算
+  const demo = useDemoClock()
   const [live, setLive] = useState(null)
   const [today, setToday] = useState(null)
   const [plan, setPlan] = useState(null)
   const [loadMeta, setLoadMeta] = useState(null) // 負載預測的資料來源
 
-  // 即時快照：每 5 秒更新一次
+  // 即時快照。
+  // 真實時間：每 5 秒抓一次。
+  // 展示模式：改由「目前播到第幾格」驅動，每前進一格就重算一次，
+  //          這樣畫面更新的節奏和進度條、時鐘完全同步。
   useEffect(() => {
     let on = true
-    const tick = () => fetchLive().then((d) => on && setLive(d))
+    const at = demo.enabled ? slotToDate(demo.slot) : undefined
+    const tick = () => fetchLive(at).then((d) => on && setLive(d))
     tick()
+    if (demo.enabled) return () => { on = false }
     const id = setInterval(tick, 5000)
     return () => {
       on = false
       clearInterval(id)
     }
-  }, [])
+  }, [demo.enabled, demo.slot])
 
   // 今日整日 + 隔日預測：載入一次
   useEffect(() => {
@@ -95,6 +104,30 @@ export default function Dashboard() {
           lineStyle: { width: 2, color: COLORS.solar },
           areaStyle: { color: 'rgba(255,176,32,0.18)' },
           markArea: peakMarkArea(today.tier),
+          // 展示模式下標出「現在播到哪」，一天 96 格的進度一眼可見
+          markLine: demo.enabled
+            ? {
+                silent: true,
+                symbol: 'none',
+                label: {
+                  formatter: slotToTime(demo.slot),
+                  // 垂直的 markLine 標籤預設會跟著線轉成直排，要明確轉回水平
+                  rotate: 0,
+                  position: 'end',
+                  distance: 4,
+                  color: TEXT_MAIN,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  backgroundColor: 'rgba(20,184,166,0.16)',
+                  borderColor: COLORS.save,
+                  borderWidth: 1,
+                  borderRadius: 4,
+                  padding: [3, 6],
+                },
+                lineStyle: { color: COLORS.save, width: 1.5, type: 'solid' },
+                data: [{ xAxis: demo.slot }],
+              }
+            : undefined,
         },
         {
           name: '家庭負載',
@@ -144,7 +177,7 @@ export default function Dashboard() {
         },
       ],
     }
-  }, [today, theme])
+  }, [today, theme, demo.enabled, demo.slot])
 
   // ---- 電池 SOC 儀表 ----
   const gaugeOption = useMemo(() => {
@@ -236,6 +269,7 @@ export default function Dashboard() {
 
   return (
     <>
+      <DemoBar />
       {/* KPI 列 */}
       <div className="grid kpi">
         <StatCard
@@ -296,7 +330,10 @@ export default function Dashboard() {
 
       {/* 流向 + 電池 */}
       <div className="grid cols-2 mt-16">
-        <Panel title="能源即時流向" sub="每 5 秒更新">
+        <Panel
+          title="能源即時流向"
+          sub={demo.enabled ? `展示模式・${slotToTime(demo.slot)}` : '每 5 秒更新'}
+        >
           <EnergyFlow live={live} />
         </Panel>
         <Panel

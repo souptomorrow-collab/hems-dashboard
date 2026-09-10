@@ -5,6 +5,8 @@ import EChart from '../components/EChart.jsx'
 import { fetchLive, fetchToday } from '../api/client.js'
 import { DEVICES, DEVICE_COLORS, CATEGORY_LABEL, COLORS } from '../lib/constants.js'
 import { useTheme } from '../lib/theme.js'
+import { useDemoClock, slotToDate } from '../lib/demoClock.js'
+import { slotToTime } from '../lib/constants.js'
 import {
   slotXAxis,
   valueYAxis,
@@ -18,19 +20,23 @@ const STATUS_LABEL = { on: '運轉中', off: '關閉', standby: '待機' }
 
 export default function Loads() {
   const theme = useTheme() // 主題一換，下面的圖表 option 就會重算
+  const demo = useDemoClock()
   const [live, setLive] = useState(null)
   const [today, setToday] = useState(null)
 
   useEffect(() => {
     let on = true
-    const tick = () => fetchLive().then((d) => on && setLive(d))
+    // 展示模式時改由「播到第幾格」驅動，和頁面一的節奏一致
+    const at = demo.enabled ? slotToDate(demo.slot) : undefined
+    const tick = () => fetchLive(at).then((d) => on && setLive(d))
     tick()
+    if (demo.enabled) return () => { on = false }
     const id = setInterval(tick, 4000)
     return () => {
       on = false
       clearInterval(id)
     }
-  }, [])
+  }, [demo.enabled, demo.slot])
 
   useEffect(() => {
     fetchToday().then(setToday)
@@ -126,7 +132,10 @@ export default function Loads() {
       </div>
 
       <div className="grid cols-2 mt-16">
-        <Panel title="各設備即時功率" sub="每 4 秒更新">
+        <Panel
+          title="各設備即時功率"
+          sub={demo.enabled ? `展示模式・${slotToTime(demo.slot)}` : '每 4 秒更新'}
+        >
           <EChart option={barOption} height={320} />
         </Panel>
         <Panel title="即時用電佔比">
