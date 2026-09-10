@@ -8,6 +8,7 @@ import { fetchLive, fetchToday, fetchPlanning, loadForecastMeta } from '../api/c
 import { COLORS, BATTERY } from '../lib/constants.js'
 import { useTheme } from '../lib/theme.js'
 import { useDemoClock, slotToDate } from '../lib/demoClock.js'
+import { useClock } from '../hooks/useClock.js'
 import DemoBar from '../components/DemoBar.jsx'
 import { slotToTime } from '../lib/constants.js'
 import {
@@ -27,6 +28,7 @@ import {
 export default function Dashboard() {
   const theme = useTheme() // 主題一換，下面的圖表 option 就會重算
   const demo = useDemoClock()
+  const now = useClock() // 展示模式開著時，這個已經是虛擬時間
   const [live, setLive] = useState(null)
   const [today, setToday] = useState(null)
   const [plan, setPlan] = useState(null)
@@ -59,8 +61,42 @@ export default function Dashboard() {
   }, [])
 
   // ---- 主圖：今日功率總覽 ----
-  const overviewOption = useMemo(() => {
+  /* ------------------------------------------------------------
+     即時 vs 預測：拆成兩張圖
+
+     原本只有一張「今日功率總覽」畫滿全天 96 格，但在任一時刻，
+     只有「到現在為止」那段是已經發生的，後面都還是預測，混在同一張圖裡
+     會讓人分不清哪些是結果、哪些是計畫。
+
+     這裡用同一個 option 產生器做兩張：
+       upTo 有值  → 只畫到第 upTo 格（之後補 null），曲線隨時間長出來
+       upTo 為 null → 整天都畫，並在展示模式下標出目前播到哪
+
+     x 軸兩張都保持完整的 24 小時，即時那張才不會邊播邊縮放。
+
+     註：目前「即時」那段是把同一條模擬曲線切到現在為止。之後接上真實
+     量測後，這裡應改讀量測紀錄，而不是切預測曲線。
+     ------------------------------------------------------------ */
+  // 目前在一天中的第幾格：展示模式看播放進度，否則看真實時間
+  const curSlot = demo.enabled
+    ? demo.slot
+    : Math.floor((now.getHours() * 60 + now.getMinutes()) / 15)
+
+  const dayOption = (upTo, showPlayhead) => {
+    // 只保留 upTo 之前的點，之後補 null（ECharts 會直接斷線，不會連到 0）
+    const clip = (arr) =>
+      upTo == null ? arr : arr.map((v, i) => (i <= upTo ? v : null))
     if (!today) return {}
+
+    // kW 軸的範圍一律用「整天」的資料算，兩張圖才會是同一把尺；
+    // 否則即時那張會隨著資料長出來一直自動縮放，也沒辦法和下面那張對照。
+    const all = [
+      ...today.pv, ...today.load, ...today.gridKw,
+      ...today.chargeKw, ...today.dischargeKw.map((v) => -v),
+    ].filter((v) => Number.isFinite(v))
+    const step = 1
+    const kwMax = Math.ceil(Math.max(0, ...all) / step) * step
+    const kwMin = Math.floor(Math.min(0, ...all) / step) * step
     return {
       tooltip: {
         ...baseTooltip,
@@ -81,7 +117,7 @@ export default function Dashboard() {
       grid: { ...baseGrid, right: 48 },
       xAxis: slotXAxis(),
       yAxis: [
-        valueYAxis('kW'),
+        valueYAxis('kW', { min: kwMin, max: kwMax }),
         {
           type: 'value',
           name: 'SOC %',
@@ -100,12 +136,12 @@ export default function Dashboard() {
           type: 'line',
           smooth: true,
           symbol: 'none',
-          data: today.pv,
+          data: clip(today.pv),
           lineStyle: { width: 2, color: COLORS.solar },
           areaStyle: { color: 'rgba(255,176,32,0.18)' },
           markArea: peakMarkArea(today.tier),
           // 展示模式下標出「現在播到哪」，一天 96 格的進度一眼可見
-          markLine: demo.enabled
+          markLine: showPlayhead && demo.enabled
             ? {
                 silent: true,
                 symbol: 'none',
@@ -134,7 +170,7 @@ export default function Dashboard() {
           type: 'line',
           smooth: true,
           symbol: 'none',
-          data: today.load,
+          data: clip(today.load),
           lineStyle: { width: 2, color: COLORS.load },
         },
         {
@@ -142,21 +178,21 @@ export default function Dashboard() {
           type: 'line',
           smooth: true,
           symbol: 'none',
-          data: today.gridKw,
+          data: clip(today.gridKw),
           lineStyle: { width: 1.5, color: COLORS.grid, type: 'dashed' },
         },
         {
           name: '電池充電',
           type: 'bar',
           stack: 'batt',
-          data: today.chargeKw,
+          data: clip(today.chargeKw),
           itemStyle: { color: 'rgba(34,197,94,0.55)' },
         },
         {
           name: '電池放電',
           type: 'bar',
           stack: 'batt',
-          data: today.dischargeKw.map((v) => -v),
+          data: clip(today.dischargeKw).map((v) => (v == null ? null : -v)),
           itemStyle: { color: 'rgba(249,115,22,0.6)' },
         },
         {
@@ -165,19 +201,29 @@ export default function Dashboard() {
           yAxisIndex: 1,
           smooth: true,
           symbol: 'none',
-          data: today.socPct,
+          data: clip(today.socPct),
           lineStyle: { width: 2.5, color: COLORS.battery },
           markLine: {
             silent: true,
             symbol: 'none',
             label: { color: AXIS_TEXT, fontSize: 10, formatter: '{c}%' },
-            lineStyle: { color: 'rgba(255,255,255,0.18)', type: 'dashed' },
+            lineStyle: { color: TRACK_LINE, type: 'dashed' },
             data: [{ yAxis: 90 }, { yAxis: 10 }],
           },
         },
       ],
     }
-  }, [today, theme, demo.enabled, demo.slot])
+  }
+
+  const realtimeOption = useMemo(
+    () => dayOption(curSlot, false),
+    [today, theme, curSlot]
+  )
+  const dayPlanOption = useMemo(
+    () => dayOption(null, true),
+    [today, theme, demo.enabled, demo.slot]
+  )
+
 
   // ---- 電池 SOC 儀表 ----
   const gaugeOption = useMemo(() => {
@@ -366,13 +412,27 @@ export default function Dashboard() {
         </Panel>
       </div>
 
-      {/* 今日總覽 */}
+      {/* 即時：只畫到目前為止，曲線隨時間長出來 */}
       <Panel
-        title="今日功率總覽"
-        sub="太陽能・負載・電網・電池充放電・SOC（右軸；紅底為尖峰時段）"
+        title="即時運轉"
+        sub={`今日 00:00 ～ ${slotToTime(curSlot)}・已發生的部分（隨時間累積）`}
+        className="mt-16"
+        right={
+          <span className="badge">
+            {demo.enabled ? '展示模式' : '真實時間'}・第 {curSlot + 1} / 96 格
+          </span>
+        }
+      >
+        <EChart option={realtimeOption} height={300} />
+      </Panel>
+
+      {/* 預測與排程：整天都畫，和上面那張刻意分開，避免把「已發生」和「還沒發生」混為一談 */}
+      <Panel
+        title="今日預測與排程"
+        sub="全天 24 小時的預測與排程結果・太陽能・負載・電網・電池充放電・SOC（右軸；紅底為尖峰時段）"
         className="mt-16"
       >
-        <EChart option={overviewOption} height={340} />
+        <EChart option={dayPlanOption} height={300} />
       </Panel>
 
       {/* 隔日預測 + 最佳化結果 */}

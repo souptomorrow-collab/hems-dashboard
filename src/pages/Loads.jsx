@@ -14,6 +14,7 @@ import {
   baseLegend,
   baseGrid,
   AXIS_TEXT,
+  SPLIT_LINE,
 } from '../lib/charts.js'
 
 const STATUS_LABEL = { on: '運轉中', off: '關閉', standby: '待機' }
@@ -54,7 +55,7 @@ export default function Loads() {
     return {
       tooltip: { ...baseTooltip, trigger: 'item', valueFormatter: (v) => `${v} W` },
       grid: { left: 84, right: 30, top: 10, bottom: 20 },
-      xAxis: { type: 'value', axisLabel: { color: AXIS_TEXT, fontSize: 11 }, splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } } },
+      xAxis: { type: 'value', axisLabel: { color: AXIS_TEXT, fontSize: 11 }, splitLine: { lineStyle: { color: SPLIT_LINE } } },
       yAxis: {
         type: 'category',
         data: sorted.map((d) => d.name),

@@ -13,6 +13,8 @@ import {
   baseGrid,
   peakMarkArea,
   AXIS_TEXT,
+  TEXT_MAIN,
+  TRACK_LINE,
 } from '../lib/charts.js'
 
 // 最佳化目標只做「省錢」一種：排程組（GA）本學期的範圍就是電費最小化。
@@ -71,7 +73,7 @@ export default function Planning() {
     if (!plan) return {}
     return {
       tooltip: { ...baseTooltip, valueFormatter: (v) => `${(+v).toFixed(2)}` },
-      color: ['#ffb020', '#f97316', '#3b82f6', '#e8edf7', COLORS.battery],
+      color: ['#ffb020', '#f97316', '#3b82f6', TEXT_MAIN, COLORS.battery],
       legend: { ...baseLegend, data: ['太陽能供電', '電池放電', '電網供電', '總負載', 'SOC'] },
       grid: { ...baseGrid, right: 48 },
       xAxis: slotXAxis(),
@@ -91,7 +93,7 @@ export default function Planning() {
         { name: '電網供電', type: 'line', stack: 'sup', symbol: 'none', lineStyle: { width: 0 },
           areaStyle: { color: 'rgba(59,130,246,0.6)' }, data: plan.gridToLoad },
         { name: '總負載', type: 'line', symbol: 'none', smooth: true,
-          lineStyle: { width: 2, color: '#e8edf7', type: 'dashed' }, data: plan.load },
+          lineStyle: { width: 2, color: TEXT_MAIN, type: 'dashed' }, data: plan.load },
         { name: 'SOC', type: 'line', yAxisIndex: 1, symbol: 'none', smooth: true,
           lineStyle: { width: 2, color: COLORS.battery }, data: plan.socPct },
       ],
@@ -123,7 +125,7 @@ export default function Planning() {
           itemStyle: { color: 'rgba(249,115,22,0.85)' } },
         { name: 'SOC', type: 'line', yAxisIndex: 1, symbol: 'none', smooth: true,
           lineStyle: { width: 2, color: COLORS.battery }, data: plan.socPct,
-          markLine: { silent: true, symbol: 'none', lineStyle: { color: 'rgba(255,255,255,0.2)', type: 'dashed' },
+          markLine: { silent: true, symbol: 'none', lineStyle: { color: TRACK_LINE, type: 'dashed' },
             data: [{ yAxis: 90 }, { yAxis: 10 }] } },
       ],
     }
@@ -137,7 +139,10 @@ export default function Planning() {
       <Panel>
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16, justifyContent: 'space-between' }}>
           <div>
-            <div className="objective">{OBJECTIVE.label}</div>
+            <div className="objective">
+              <span className="objective-tag">最佳化目標</span>
+              {OBJECTIVE.label}
+            </div>
             <p className="hint" style={{ marginTop: 8 }}>
               {OBJECTIVE.desc}
             </p>

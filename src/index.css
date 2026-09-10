@@ -21,6 +21,19 @@
   --hairline: rgba(255, 255, 255, 0.07);
   --topbar-bg: rgba(13, 18, 36, 0.6);
   --home-tint: #241a3d;   /* 能源流向圖中央「家庭用電」節點的底色 */
+  /* 各式標籤的文字色。夜間用粉彩（深底上才夠亮），日間必須換成深色，
+     否則會是「淺色字配淺色底」，糊到看不清楚 */
+  --t-peak: #fca5a5;
+  --t-offpeak: #86efac;
+  --t-summer: #fcd34d;
+  --t-shiftable: #93c5fd;
+  --t-fixed: #d8b4fe;
+  --t-on: #4ade80;
+  --t-standby: #fbbf24;
+  --t-up: #f87171;
+  --t-down: #4ade80;
+  --t-rain: #7dd3fc;
+  --gantt-peak-bg: rgba(239, 68, 68, 0.06);
 
   /* 文字 */
   --text: #e8edf7;
@@ -286,8 +299,8 @@ h1, h2, h3, h4 {
   font-size: 12px;
   color: var(--text-dim);
 }
-.sc-sub .up { color: #f87171; }
-.sc-sub .down { color: #4ade80; }
+.sc-sub .up { color: var(--t-up); }
+.sc-sub .down { color: var(--t-down); }
 
 /* ============================================================
    日間主題
@@ -312,6 +325,18 @@ h1, h2, h3, h4 {
   --hairline: rgba(15, 23, 42, 0.08);
   --topbar-bg: rgba(255, 255, 255, 0.72);
   --home-tint: #f1e7fd;
+  --t-peak: #b91c1c;
+  --t-offpeak: #15803d;
+  --t-summer: #b45309;
+  --t-shiftable: #1d4ed8;
+  --t-fixed: #7e22ce;
+  --t-on: #15803d;
+  --t-standby: #b45309;
+  --t-up: #dc2626;
+  --t-down: #15803d;
+  --t-rain: #0369a1;
+  /* 白底上 6% 的紅幾乎看不見，加深一點才看得出尖峰時段 */
+  --gantt-peak-bg: rgba(239, 68, 68, 0.11);
 
   --text: #1a2233;
   --text-muted: #5a6478;
@@ -352,6 +377,29 @@ h1, h2, h3, h4 {
 .theme-toggle:hover {
   border-color: var(--accent);
   background: var(--bg-elevated);
+}
+
+/* 頁面三的最佳化目標標示。原本是三個可切換的分頁，
+   現在只剩「電費最小化」一種，改成不可點的標籤 */
+.objective {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px 6px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-panel-2);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+}
+.objective .objective-tag {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 /* ============================================================
@@ -498,11 +546,11 @@ h1, h2, h3, h4 {
   border-radius: 50%;
   background: currentColor;
 }
-.badge.peak { color: #fca5a5; background: rgba(239, 68, 68, 0.12); border-color: rgba(239, 68, 68, 0.3); }
-.badge.offpeak { color: #86efac; background: rgba(34, 197, 94, 0.12); border-color: rgba(34, 197, 94, 0.3); }
-.badge.summer { color: #fcd34d; background: rgba(245, 158, 11, 0.1); }
-.badge.shiftable { color: #93c5fd; background: rgba(59, 130, 246, 0.12); border-color: rgba(59, 130, 246, 0.3); }
-.badge.fixed { color: #d8b4fe; background: rgba(168, 85, 247, 0.12); border-color: rgba(168, 85, 247, 0.3); }
+.badge.peak { color: var(--t-peak); background: rgba(239, 68, 68, 0.12); border-color: rgba(239, 68, 68, 0.3); }
+.badge.offpeak { color: var(--t-offpeak); background: rgba(34, 197, 94, 0.12); border-color: rgba(34, 197, 94, 0.3); }
+.badge.summer { color: var(--t-summer); background: rgba(245, 158, 11, 0.1); }
+.badge.shiftable { color: var(--t-shiftable); background: rgba(59, 130, 246, 0.12); border-color: rgba(59, 130, 246, 0.3); }
+.badge.fixed { color: var(--t-fixed); background: rgba(168, 85, 247, 0.12); border-color: rgba(168, 85, 247, 0.3); }
 
 .chart {
   width: 100%;
@@ -566,9 +614,9 @@ h1, h2, h3, h4 {
   border-radius: 999px;
   font-weight: 600;
 }
-.status-pill.on { color: #4ade80; background: rgba(34, 197, 94, 0.14); }
+.status-pill.on { color: var(--t-on); background: rgba(34, 197, 94, 0.14); }
 .status-pill.off { color: var(--text-dim); background: var(--overlay-soft); }
-.status-pill.standby { color: #fbbf24; background: rgba(251, 191, 36, 0.12); }
+.status-pill.standby { color: var(--t-standby); background: rgba(251, 191, 36, 0.12); }
 
 /* ============================================================
    能源流向圖 (頁面一) — 動態流向
@@ -744,7 +792,7 @@ h1, h2, h3, h4 {
   height: 30px;
   position: relative;
 }
-.gantt .cell.peak-bg { background: rgba(239, 68, 68, 0.06); }
+.gantt .cell.peak-bg { background: var(--gantt-peak-bg); }
 .gantt .cell.on {
   background: var(--accent);
   cursor: pointer;
@@ -824,7 +872,7 @@ h1, h2, h3, h4 {
 .ws-block .ws-icon { font-size: 22px; line-height: 1.2; }
 .ws-block .ws-label { font-size: 11px; color: var(--text-muted); }
 .ws-block .ws-temp { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.ws-block .ws-pop { font-size: 10.5px; color: #7dd3fc; }
+.ws-block .ws-pop { font-size: 10.5px; color: var(--t-rain); }
 @media (max-width: 720px) {
   .weather-strip { grid-template-columns: repeat(4, 1fr); }
 }
