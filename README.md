@@ -4,8 +4,9 @@
 
 以 **React + Vite** 製作的能源管理儀表板前端，對應計畫書第三章「顯示及操作頁面」。
 
-**家庭負載（不可轉移）已接真實資料**：RF 隨機森林的滾動預測結果存在 Supabase，
-前端直接查雲端資料表。太陽能發電（LSTM）與 GA 排程仍為模擬引擎，接口已備好。
+**家庭負載（不可轉移）已接真實資料**：RF 隨機森林的滾動預測結果存在 MongoDB Atlas，
+由預測端匯出成靜態快照隨網站部署（原因見下方「資料來源」）。
+太陽能發電（LSTM）與 GA 排程仍為模擬引擎，接口已備好。
 
 ## 三個頁面
 
@@ -51,22 +52,33 @@ npm run preview  # 本機預覽 build 結果
 
 | 項目 | 來源 | 狀態 |
 |------|------|------|
-| 不可轉移負載 | Supabase `load_forecast` 表（RF 滾動預測，每 15 分一個 refresh × 96 步） | ✅ 真實 |
-| 真實負載（驗證用） | Supabase `actual_load` 表 | ✅ 真實 |
+| 不可轉移負載 | MongoDB `hems.load_forecast`（RF 滾動預測，每 15 分一個 refresh × 96 步） | ✅ 真實 |
+| 真實負載（驗證用） | MongoDB `hems.actual_load` | ✅ 真實 |
 | 太陽能發電 | `simulate.js` 的晴空曲線 × 天氣衰減 | 🧪 模擬 |
 | 可轉移設備排程 | `simulate.js` 的最佳視窗搜尋 | 🧪 模擬（待接 GA） |
 | 天氣 | `weather.js` | 🧪 模擬（待接 CWA） |
 
-連線設定放環境變數（見 [`.env.example`](.env.example)），不設就用程式內建的專題專案：
+### 資料庫的資料怎麼進到這個 repo
 
-```
-VITE_SUPABASE_URL=https://xxxx.supabase.co
-VITE_SUPABASE_KEY=<anon key>
+前端**不直接連 MongoDB**。MongoDB 只接受官方 driver（TCP + TLS + SCRAM），
+瀏覽器發不出這種連線；Atlas 過去提供的 Data API 也已於 2025-09-30 停止服務。
+更關鍵的是 MongoDB 的連線字串是一把全開的鑰匙，沒有唯讀權限層可以套，
+放進前端 bundle 等於把資料庫交出去。
+
+所以改成**發布快照**：資料庫仍是唯一來源，由預測端匯出成靜態 JSON 一起部署。
+
+```powershell
+# 在 負載預測2/ 底下
+python mongo_handoff/04_export_web.py     # → 專題UI/public/data/forecast_day.json
 ```
 
-用的是 **anon（只讀）key**，資料表已開 RLS 只允許 SELECT，放進前端 bundle 是安全的；
-可寫的 service_role key 只留在預測端本機，不會進這個 repo。
-**雲端連不上時會自動退回模擬負載**，UI 不會壞掉，畫面上的 badge 會標示當下來源。
+前端讀的就是這個檔（[`src/api/forecastData.js`](src/api/forecastData.js)）：同源、
+免金鑰、沒有 CORS，也不會再遇到免費版資料庫冷啟動害前端逾時。
+代價是資料庫更新後要重跑匯出並重新部署——本專題用的是固定的歷史資料集，這個代價等於零。
+
+**讀不到快照時會自動退回模擬負載**，UI 不會壞掉，畫面上的 badge 會標示當下來源。
+
+日後真的要即時資料，把 `forecastData.js` 的 `DATA_URL` 指向後端 API 即可，回傳格式不變。
 
 ### 時間軸的處理
 
@@ -98,13 +110,11 @@ VITE_SUPABASE_KEY=<anon key>
 src/
   api/
     client.js          ← 資料存取層（換後端只改這裡）
-    supabase.js        ← Supabase/PostgREST 讀取（負載預測資料）
+    forecastData.js    ← 讀 public/data/forecast_day.json（MongoDB 匯出的快照）
   lib/
     constants.js       ← 時間解析度(15min)、電池、設備、配色
     tou.js             ← 台電時間電價
     simulate.js        ← 能源模擬引擎（太陽能曲線、排程、電池調度）
-    loadForecast.js    ← 預測資料整形（另含誤差指標 MAE/RMSE/R²/MAPE，
-                          供日後的預測驗證頁使用，目前未接頁面）
     charts.js          ← ECharts 共用設定
     format.js          ← 格式化工具
   components/          ← Layout / Panel / StatCard / EChart / EnergyFlow

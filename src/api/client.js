@@ -3,9 +3,10 @@
 
    ── 目前的接線狀況 ──────────────────────────────
    家庭負載（不可轉移）：**已接真實資料**。
-     RF 隨機森林預測結果存在 Supabase（PostgreSQL）的 load_forecast 表，
-     本檔透過 PostgREST 取最新 refresh 的 96 步，覆蓋掉模擬的不可轉移負載。
-     雲端連不上時自動退回模擬值，UI 不會壞掉（badge 會標示資料來源）。
+     RF 隨機森林預測結果存在 MongoDB Atlas 的 hems.load_forecast，
+     建置時由 mongo_handoff/04_export_web.py 匯出成靜態快照一起部署，
+     本檔讀那份快照，覆蓋掉模擬的不可轉移負載（詳見 api/forecastData.js）。
+     讀不到時自動退回模擬值，UI 不會壞掉（badge 會標示資料來源）。
 
    太陽能發電（LSTM）、GA 排程：仍為模擬引擎（simulate.js）。
      之後接後端時，把對應函式內容換成 fetch() 即可，回傳格式不變。
@@ -16,8 +17,7 @@ import { liveSnapshot, simulateDay, simulateWithSchedule } from '../lib/simulate
 import { tomorrow } from '../lib/format.js'
 import { nowTaipei } from '../lib/time.js'
 import { simulateWeather } from '../lib/weather.js'
-import { fetchDayAheadForecast } from './supabase.js'
-import { forecastToSlots, cached } from '../lib/loadForecast.js'
+import { fetchDayAheadForecast, cached } from './forecastData.js'
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms))
 
@@ -41,12 +41,11 @@ let lastForecastMeta = {
 
 async function realFixedLoad() {
   try {
-    const { refresh, rows, targetDate } = await cached(
+    const { refresh, slots, targetDate } = await cached(
       'day-ahead-forecast',
       fetchDayAheadForecast
     )
-    const slots = forecastToSlots(rows)
-    if (!slots) throw new Error('雲端無預測資料')
+    if (!slots) throw new Error('快照無預測資料')
     lastForecastMeta = { source: 'rf', refresh, datasetDate: targetDate, error: null }
     return slots
   } catch (e) {
