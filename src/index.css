@@ -426,9 +426,14 @@ h1, h2, h3, h4 {
   border-radius: var(--radius-sm);
   background: var(--bg-panel);
 }
+/* 展示中：黏在頂端列正下方，往下捲去講圖表時也能隨時暫停、拖曳、調速。
+   沒在展示時不黏——閒置的控制列一直蓋在畫面上只會佔空間 */
 .demo-bar.on {
+  position: sticky;
+  top: var(--topbar-h, 88px);
+  z-index: 9;                 /* 頂端列是 10，展示列要在它下面 */
   border-color: var(--c-save);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-save) 22%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--c-save) 22%, transparent), var(--shadow-md);
 }
 .demo-power {
   padding: 7px 14px;
@@ -481,6 +486,7 @@ h1, h2, h3, h4 {
 .demo-note, .demo-idle { font-size: 12px; color: var(--text-dim); }
 
 @media (max-width: 760px) {
+  .demo-bar.on { position: static; }   /* 手機上頂端列已佔好幾行，再黏一條會蓋掉半個螢幕 */
   .demo-note { display: none; }        /* 手機上這行會把控制列擠成三排 */
   .demo-seek { order: 10; flex-basis: 100%; }
 }

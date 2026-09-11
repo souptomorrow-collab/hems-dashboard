@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useClock } from '../hooks/useClock.js'
 import { fmtClock, fmtDate } from '../lib/format.js'
@@ -42,6 +42,20 @@ export default function Layout() {
   const summer = isSummer(now)
   const theme = useTheme()
   const [collapsed, setCollapsed] = useState(readCollapsed)
+
+  // 頂端列的實際高度寫成 CSS 變數 --topbar-h，展示控制列才知道要黏在哪個高度。
+  // 高度不固定：手機上頂端列會折成好幾行，側欄收合也可能讓標題換行
+  const topbarRef = useRef(null)
+  useEffect(() => {
+    const el = topbarRef.current
+    if (!el) return
+    const ro = new ResizeObserver(([e]) => {
+      const h = Math.round(e.borderBoxSize?.[0]?.blockSize ?? el.getBoundingClientRect().height)
+      document.documentElement.style.setProperty('--topbar-h', `${h}px`)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
   useEffect(() => {
     try {
       localStorage.setItem(SIDEBAR_KEY, collapsed ? '1' : '0')
@@ -83,7 +97,7 @@ export default function Layout() {
       </aside>
 
       <div className="main">
-        <header className="topbar">
+        <header className="topbar" ref={topbarRef}>
           <div className="topbar-left">
             {/* 側欄的開關只有這一顆：放在頂端列，側欄整個收起來時它也還在 */}
             <button
