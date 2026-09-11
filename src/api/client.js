@@ -227,17 +227,6 @@ export async function fetchPlanning(baseDate = nowTaipei()) {
   return simulateDay(date, simulateWeather(date), fixed)
 }
 
-/**
- * 重新執行最佳化（頁面三的「重新計算」按鈕）。
- * 後端版本會在此觸發 GA 重新排程；這裡用同一個模擬引擎並切換模式，
- * 但不可轉移負載仍是真實的 RF 預測。
- */
-export async function runOptimization(baseDate = nowTaipei()) {
-  const fixed = await realFixedLoad()
-  const date = tomorrow(baseDate)
-  await delay(650) // 模擬演算法計算時間
-  return simulateDay(date, simulateWeather(date), fixed)
-}
 
 /**
  * 依使用者手動調整後的排程重新計算電池調度與成本（不重跑 GA）。

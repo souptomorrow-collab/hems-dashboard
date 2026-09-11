@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Panel from '../components/Panel.jsx'
 import EChart from '../components/EChart.jsx'
 import Tile from '../components/Tile.jsx'
-import { fetchPlanning, runOptimization, recomputeSchedule } from '../api/client.js'
+import { fetchPlanning, recomputeSchedule } from '../api/client.js'
 import { DEVICES, COLORS, CATEGORY_LABEL, slotToTime, slotToHour } from '../lib/constants.js'
 import { tomorrow, fmtDate, pad2 } from '../lib/format.js'
 import { useTheme } from '../lib/theme.js'
@@ -32,6 +32,9 @@ export default function Planning() {
   const [plan, setPlan] = useState(null)
   const [schedule, setSchedule] = useState(null)
   const [computing, setComputing] = useState(false)
+  // 演算法給的最佳排程。手動調整只改 plan／schedule，這份留著供「還原」使用
+  const [optimal, setOptimal] = useState(null)
+  const [edits, setEdits] = useState(0) // 手動改過幾格；0 = 目前就是最佳排程
   const planDate = useMemo(() => tomorrow(), [])
 
   // 進頁面即取得隔日的最佳化排程
@@ -42,19 +45,22 @@ export default function Planning() {
       if (!on) return
       setPlan(p)
       setSchedule(p.schedule)
+      setOptimal(p)
       setComputing(false)
     })
     return () => { on = false }
   }, [])
 
-  // 重新計算（重跑演算法，捨棄手動調整）
-  const recompute = () => {
-    setComputing(true)
-    runOptimization().then((p) => {
-      setPlan(p)
-      setSchedule(p.schedule)
-      setComputing(false)
-    })
+  // 還原成演算法給的最佳排程（捨棄手動調整）。
+  // 原本這顆是「重新計算最佳化」：重跑同一套固定的模擬、結果完全一樣，
+  // 還加了 650 毫秒的假延遲讓它看起來像在算。實際唯一的作用是丟掉手動調整，
+  // 所以直接換回一開始存下的那份——瞬間完成，也不假裝在計算。
+  // 之後接上 GA 後端時，可以改回真正觸發重新排程。
+  const restore = () => {
+    if (!optimal) return
+    setPlan(optimal)
+    setSchedule(optimal.schedule)
+    setEdits(0)
   }
 
   // 手動切換可轉移設備的某時段 → 即時重算電池調度與成本
@@ -66,6 +72,7 @@ export default function Planning() {
       [devId]: schedule[devId].map((v, i) => (i === slot ? !v : v)),
     }
     setSchedule(next)
+    setEdits((n) => n + 1)
     recomputeSchedule(next).then(setPlan)
   }
 
@@ -151,9 +158,17 @@ export default function Planning() {
           <div style={{ textAlign: 'right' }}>
             <div className="muted" style={{ fontSize: 12 }}>規劃日（隔日）</div>
             <div style={{ fontWeight: 700, marginBottom: 8 }}>{fmtDate(planDate)}</div>
-            <button className="btn primary" onClick={recompute} disabled={computing}>
-              {computing ? <span className="spinner" /> : '⟳'} 重新計算最佳化
+            <button
+              className="btn primary"
+              onClick={restore}
+              disabled={computing || edits === 0}
+              title={edits === 0 ? '目前就是最佳排程；在下方甘特表手動調整後才需要還原' : '捨棄手動調整，回到演算法的最佳排程'}
+            >
+              ↺ 還原最佳排程
             </button>
+            <div className="dim" style={{ fontSize: 11, marginTop: 6 }}>
+              {edits === 0 ? '目前為最佳排程' : `已手動調整 ${edits} 格`}
+            </div>
           </div>
         </div>
       </Panel>
