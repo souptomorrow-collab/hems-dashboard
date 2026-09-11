@@ -16,6 +16,7 @@ import {
   baseGrid,
   AXIS_TEXT,
   SPLIT_LINE,
+  PANEL_BG,
 } from '../lib/charts.js'
 
 const STATUS_LABEL = { on: '運轉中', off: '關閉', standby: '待機' }
@@ -96,7 +97,7 @@ export default function Loads() {
           radius: ['45%', '72%'],
           center: ['38%', '50%'],
           avoidLabelOverlap: true,
-          itemStyle: { borderColor: 'var(--bg-panel)', borderWidth: 2 },
+          itemStyle: { borderColor: PANEL_BG, borderWidth: 2 },
           label: { show: false },
           data,
         },

@@ -102,6 +102,9 @@ export default function Dashboard() {
     }
     const { min: kwMin, max: kwMax } = kwRange.current
     return {
+      // 展示模式每秒換一次資料：保留動畫的話，每次更新都會重播一段進場，
+      // 播放頭的時間標籤看起來會一直抖。真實時間模式更新慢，動畫留著比較順
+      animation: !demo.enabled,
       tooltip: {
         ...baseTooltip,
         formatter: (ps) =>
@@ -270,6 +273,7 @@ export default function Dashboard() {
     const issueOf = [...earlier, s, null]
 
     return {
+      animation: !demo.enabled, // 理由同上：展示模式每秒更新，動畫會讓「現在」那條線抖
       tooltip: {
         ...baseTooltip,
         formatter: (ps) =>
@@ -330,7 +334,7 @@ export default function Dashboard() {
         },
       ],
     }
-  }, [roll, curSlot, theme, rollRange])
+  }, [roll, curSlot, theme, rollRange, demo.enabled])
 
 
   // ---- 電池 SOC 儀表 ----

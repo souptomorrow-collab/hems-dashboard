@@ -24,6 +24,7 @@ const PALETTE = {
     text: '#e8edf7',
     track: 'rgba(255,255,255,0.08)',
     trackLine: 'rgba(255,255,255,0.15)',
+    panel: '#141a2e',
   },
   light: {
     axis: '#5a6478',
@@ -36,6 +37,7 @@ const PALETTE = {
     text: '#1a2233',
     track: 'rgba(15,23,42,0.10)',
     trackLine: 'rgba(15,23,42,0.18)',
+    panel: '#ffffff',
   },
 }
 
@@ -44,6 +46,9 @@ export let SPLIT_LINE = PALETTE.dark.split
 export let TEXT_MAIN = PALETTE.dark.text        // 圖上的主要數字（例如儀表中央的百分比）
 export let TRACK = PALETTE.dark.track           // 儀表底環
 export let TRACK_LINE = PALETTE.dark.trackLine  // 儀表刻度線
+// 面板底色。圖表畫在 canvas 上，不認得 'var(--bg-panel)' 這種 CSS 變數，
+// 寫進去會解析失敗而退回黑色——圓餅圖的扇形分隔線原本就是這樣變成一圈黑框的。
+export let PANEL_BG = PALETTE.dark.panel
 export let baseTooltip = {}
 export let baseLegend = {}
 
@@ -54,6 +59,7 @@ export function applyChartTheme(theme) {
   TEXT_MAIN = c.text
   TRACK = c.track
   TRACK_LINE = c.trackLine
+  PANEL_BG = c.panel
   baseTooltip = {
     trigger: 'axis',
     backgroundColor: c.tipBg,

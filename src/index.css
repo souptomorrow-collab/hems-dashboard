@@ -37,6 +37,7 @@
   --nav-active-bg: linear-gradient(135deg, rgba(56, 189, 248, 0.18), rgba(56, 189, 248, 0.06));
   --nav-active-text: #fff;
   --spinner-head: #fff;
+  --edge-label-bg: rgba(10, 14, 26, 0.86);
 
   /* 文字 */
   --text: #e8edf7;
@@ -376,6 +377,7 @@ h1, h2, h3, h4 {
   --nav-active-bg: linear-gradient(135deg, rgba(2, 132, 199, 0.16), rgba(2, 132, 199, 0.05));
   --nav-active-text: #075985;
   --spinner-head: var(--accent);
+  --edge-label-bg: rgba(255, 255, 255, 0.94);
 
   --text: #1a2233;
   --text-muted: #5a6478;
@@ -712,7 +714,7 @@ h1, h2, h3, h4 {
   font-variant-numeric: tabular-nums;
   padding: 2px 8px;
   border-radius: 999px;
-  background: rgba(10, 14, 26, 0.86);
+  background: var(--edge-label-bg);
   border: 1px solid var(--border);
   white-space: nowrap;
   pointer-events: none;
@@ -742,6 +744,21 @@ h1, h2, h3, h4 {
 .flow-node .fn-label { font-size: 11.5px; color: var(--text-muted); }
 .flow-node .fn-value { font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .flow-node .fn-sub { font-size: 10px; color: var(--text-dim); }
+
+/* 能源流向圖的窄版（直向）配置。
+   由 EnergyFlow 量容器寬度決定要不要掛 .narrow，而不是看視窗寬度——
+   側欄展開與否、兩欄或一欄，都會讓這張圖實際拿到的寬度差很多。 */
+.flow.narrow { min-height: 400px; }
+.flow.narrow .flow-node { width: 96px; padding: 8px 6px; }
+.flow.narrow .flow-node.home { width: 108px; padding: 10px 8px; }
+.flow.narrow .flow-node .fn-icon { font-size: 20px; }
+.flow.narrow .flow-node.home .fn-icon { font-size: 24px; }
+.flow.narrow .flow-node .fn-label { font-size: 10.5px; }
+.flow.narrow .flow-node .fn-value { font-size: 14.5px; }
+.flow.narrow .flow-node.home .fn-value { font-size: 17px; }
+.flow.narrow .flow-node .fn-sub { font-size: 9.5px; }
+.flow.narrow .flow-edge-val { font-size: 10px; padding: 2px 6px; }
+
 
 .flow-node.pv { border-color: rgba(255, 176, 32, 0.45); box-shadow: 0 0 0 1px rgba(255, 176, 32, 0.12), 0 10px 24px rgba(255, 176, 32, 0.1); }
 .flow-node.batt { border-color: rgba(34, 197, 94, 0.45); box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.12), 0 10px 24px rgba(34, 197, 94, 0.1); }
@@ -1032,16 +1049,6 @@ body {
   .grid.kpi, .grid.cols-4, .grid.cols-6 { grid-template-columns: repeat(2, 1fr); gap: 10px; }
 
   /* 流向圖直式版面：來源在上、家在中、電池在下（座標見 EnergyFlow.jsx） */
-  .flow { min-height: 400px; }
-  .flow-node { width: 96px; padding: 8px 6px; }
-  .flow-node.home { width: 108px; padding: 10px 8px; }
-  .flow-node .fn-icon { font-size: 20px; }
-  .flow-node.home .fn-icon { font-size: 24px; }
-  .flow-node .fn-label { font-size: 10.5px; }
-  .flow-node .fn-value { font-size: 14.5px; }
-  .flow-node.home .fn-value { font-size: 17px; }
-  .flow-node .fn-sub { font-size: 9.5px; }
-  .flow-edge-val { font-size: 10px; padding: 2px 6px; }
 
   /* grid item 預設 min-width:auto，會被甘特表（min-width:760px）撐開，
      連帶讓 .gantt 的 overflow-x:auto 失效、整頁可以左右拉。設 0 才會裁切。 */
@@ -1058,3 +1065,11 @@ body {
   .nav-link { padding: 8px 11px; font-size: 13px; gap: 7px; }
   .nav-link .icon { font-size: 16px; width: 18px; }
 }
+
+/* ------------------------------------------------------------
+   日間模式：收斂各種「發光」效果
+   夜間在深色底上是微光，日間在白底上會變成一塊塊色斑，像沾到東西。
+   ------------------------------------------------------------ */
+:root[data-theme="light"] .stat-card::before { box-shadow: none; }
+:root[data-theme="light"] .stat-card::after { opacity: 0.045; }
+:root[data-theme="light"] .nav-link.active::before { box-shadow: none; }

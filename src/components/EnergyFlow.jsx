@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 /**
  * 能源即時流向圖（主頁面）
@@ -68,9 +68,12 @@ function trimmed(a, b, K = 8, mode = 'up') {
       px = 0
       py = 0
     }
-  } else if (py > 0) {
-    px = -px
-    py = -py
+  } else {
+    // 寬版：一律往「正上方」推。原本沿法線推，但斜線（太陽能→家、電網→家）
+    // 的法線帶有朝右的分量，會把標籤推向中央的家庭方塊，面板稍窄時
+    // 標籤就被方塊蓋掉一半（「0.63 kW」只剩「0.63 k」）。
+    px = 0
+    py = -1
   }
   return { d: `M${sx} ${sy}L${ex} ${ey}`, mx, my, lx: mx + px * K, ly: my + py * K }
 }
@@ -84,23 +87,31 @@ const railsOf = (N) => [
   [N.batt, N.home],
 ]
 
-/** 視窗寬度是否進入窄版（與 index.css 的斷點一致） */
-function useNarrowLayout(query = '(max-width: 760px)') {
-  const [narrow, setNarrow] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia(query).matches
-  )
+/**
+ * 容器夠不夠寬、該不該換成窄版（直向）配置。
+ *
+ * 原本看的是「整個視窗」寬度（760px），但這張圖實際拿到的寬度還受側欄
+ * 與兩欄排版影響：視窗 900～1200px 時面板只剩 300～450px，卻仍套寬版座標，
+ * 卡片與標籤就疊在一起。改成量容器本身，側欄收合、兩欄變一欄都會跟著對。
+ *
+ * 門檻 520px：寬版要並排放下 太陽能卡 + 家庭卡 + 電池卡 + 三個數值標籤。
+ */
+const NARROW_BELOW = 520
+function useNarrowContainer(ref) {
+  const [narrow, setNarrow] = useState(false)
   useEffect(() => {
-    const mq = window.matchMedia(query)
-    const onChange = (e) => setNarrow(e.matches)
-    setNarrow(mq.matches)
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
-  }, [query])
+    const el = ref.current
+    if (!el) return
+    const ro = new ResizeObserver(([e]) => setNarrow(e.contentRect.width < NARROW_BELOW))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [ref])
   return narrow
 }
 
 export default function EnergyFlow({ live }) {
-  const narrow = useNarrowLayout()
+  const boxRef = useRef(null)
+  const narrow = useNarrowContainer(boxRef)
   const N = narrow ? N_NARROW : N_WIDE
   const RAILS = railsOf(N)
   const labelK = narrow ? 11 : 8 // 流量標籤離線的距離
@@ -133,7 +144,7 @@ export default function EnergyFlow({ live }) {
     .map((e) => ({ ...e, geo: trimmed(e.from, e.to, labelK, labelMode) }))
 
   return (
-    <div className={`flow ${live ? '' : 'flow-empty'}`}>
+    <div ref={boxRef} className={`flow ${narrow ? 'narrow' : ''} ${live ? '' : 'flow-empty'}`}>
       {/* 流向線 */}
       <svg className="flow-svg" viewBox="0 0 100 100" preserveAspectRatio="none">
         {RAILS.map(([a, b], i) => (
