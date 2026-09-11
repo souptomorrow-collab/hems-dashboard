@@ -100,6 +100,31 @@ export async function fetchRollingForecast() {
 }
 
 /**
+ * 歷史紀錄：逐日的真實值、日前預測、一步預測（public/data/history.json）。
+ * 和其他資料一樣是由 MongoDB 匯出的靜態快照，見 mongo_handoff/04_export_web.py。
+ * @returns {Promise<{days:Array, source:string, generatedAt:string}|null>}
+ */
+export async function fetchHistory() {
+  return cached('history', async () => {
+    const r = await fetch(`${import.meta.env.BASE_URL}data/history.json`, { cache: 'no-cache' })
+    if (!r.ok) throw new Error(`讀取歷史紀錄失敗 ${r.status}`)
+    const d = await r.json()
+    return { days: d.days ?? [], source: d.source ?? null, generatedAt: d.generated_at ?? null }
+  }).catch(() => null)
+}
+
+/**
+ * 用某一天的「真實」不可轉移負載跑一次 HEMS 模擬，得到那天的運轉紀錄。
+ * 太陽能與排程目前仍是模擬引擎，所以這部分是「如果那天由本系統運轉會怎樣」，
+ * 不是量測紀錄；頁面上會標明。
+ */
+export function simulateHistoryDay(dateStr, actualKw) {
+  const [y, m, d] = dateStr.split('-').map(Number)
+  const date = new Date(y, m - 1, d)
+  return simulateDay(date, simulateWeather(date), actualKw)
+}
+
+/**
  * 目前負載資料的來源（UI 標示用）。
  * @returns {{source:'rf'|'sim', refresh:string|null, datasetDate:string|null, error:string|null}}
  */

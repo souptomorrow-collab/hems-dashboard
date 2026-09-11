@@ -11,6 +11,7 @@ const NAV = [
   { to: '/', label: '主頁面', icon: '🏠', end: true },
   { to: '/loads', label: '各負載功率', icon: '🔌', end: false },
   { to: '/planning', label: '用電規劃', icon: '📅', end: false },
+  { to: '/history', label: '歷史紀錄', icon: '🗂️', end: false },
 ]
 
 const DEMO_PAGES = new Set(['/', '/loads'])
@@ -30,6 +31,7 @@ const PAGE_META = {
   '/': { title: '主頁面', sub: '太陽能・電池・負載・電網 即時總覽' },
   '/loads': { title: '各負載即時功率', sub: '家中各設備即時消耗與分布' },
   '/planning': { title: '用電規劃', sub: '隔日 24 小時最佳化排程（以 15 分鐘為單位）' },
+  '/history': { title: '歷史紀錄', sub: '逐日查詢負載預測表現與 HEMS 運轉，並匯出報表' },
 }
 
 export default function Layout() {
