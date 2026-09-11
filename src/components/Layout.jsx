@@ -68,8 +68,6 @@ export default function Layout() {
               to={n.to}
               end={n.end}
               className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
-              // 收合後只剩圖示，滑過去要能看到是哪一頁
-              title={collapsed ? n.label : undefined}
             >
               <span className="icon">{n.icon}</span>
               <span className="nav-label">{n.label}</span>
@@ -77,30 +75,30 @@ export default function Layout() {
           ))}
         </nav>
 
-        <div className="sidebar-bottom">
-          <button
-            className="sidebar-toggle"
-            onClick={() => setCollapsed((c) => !c)}
-            title={collapsed ? '展開側欄' : '收合側欄'}
-            aria-label={collapsed ? '展開側欄' : '收合側欄'}
-            aria-expanded={!collapsed}
-          >
-            <span className="chev">{collapsed ? '»' : '«'}</span>
-            <span className="nav-label">收合側欄</span>
-          </button>
-          <div className="sidebar-foot">
-            基於發電量與負載預測之
-            <br />
-            家庭能源管理系統
-          </div>
+        <div className="sidebar-foot">
+          基於發電量與負載預測之
+          <br />
+          家庭能源管理系統
         </div>
       </aside>
 
       <div className="main">
         <header className="topbar">
-          <div className="page-title">
-            <h2>{meta.title}</h2>
-            <p>{meta.sub}</p>
+          <div className="topbar-left">
+            {/* 側欄的開關只有這一顆：放在頂端列，側欄整個收起來時它也還在 */}
+            <button
+              className="sidebar-toggle"
+              onClick={() => setCollapsed((c) => !c)}
+              title={collapsed ? '展開側欄' : '收合側欄'}
+              aria-label={collapsed ? '展開側欄' : '收合側欄'}
+              aria-expanded={!collapsed}
+            >
+              ☰
+            </button>
+            <div className="page-title">
+              <h2>{meta.title}</h2>
+              <p>{meta.sub}</p>
+            </div>
           </div>
 
           <div className="topbar-right">

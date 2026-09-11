@@ -178,39 +178,8 @@ h1, h2, h3, h4 {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
-.sidebar-bottom {
-  margin-top: auto;           /* 把收合鈕與頁尾一起推到側欄最下面 */
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.sidebar-toggle {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  padding: 9px 14px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 13px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-.sidebar-toggle:hover {
-  background: var(--bg-panel);
-  border-color: var(--border-strong);
-  color: var(--text);
-}
-.sidebar-toggle .chev {
-  width: 22px;
-  text-align: center;
-  font-size: 15px;
-  line-height: 1;
-}
 .sidebar-foot {
+  margin-top: auto;
   font-size: 11px;
   color: var(--text-dim);
   padding: 14px 10px 2px;
@@ -541,16 +510,40 @@ h1, h2, h3, h4 {
   .grid.kpi { grid-template-columns: repeat(3, 1fr); }
 }
 /* ---------- 側欄收合 ----------
-   收起來只留圖示（72px），把寬度讓給圖表。
+   收起來就整個藏掉（寬度 0），開關只剩頂端列左邊那顆 ☰。
    圖表容器有 ResizeObserver，欄寬一變就會自己重排，不必另外通知。 */
-.app-shell.collapsed { grid-template-columns: 72px 1fr; }
-.app-shell.collapsed .sidebar { padding: 22px 12px; }
-.app-shell.collapsed .brand { justify-content: center; padding: 4px 0 22px; }
-.app-shell.collapsed .brand-text,
-.app-shell.collapsed .nav-label,
-.app-shell.collapsed .sidebar-foot { display: none; }
-.app-shell.collapsed .nav-link,
-.app-shell.collapsed .sidebar-toggle { justify-content: center; padding-left: 0; padding-right: 0; }
+.sidebar-toggle {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel-2);
+  color: var(--text-muted);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+.sidebar-toggle:hover { border-color: var(--accent); color: var(--text); background: var(--bg-elevated); }
+.topbar-left { display: flex; align-items: center; gap: 14px; min-width: 0; }
+
+.sidebar {
+  overflow-x: hidden;          /* 收合動畫時內容會比欄寬大，要裁掉 */
+  transition: padding 0.22s ease, visibility 0s;
+}
+.app-shell.collapsed { grid-template-columns: 0px 1fr; }
+.app-shell.collapsed .sidebar {
+  padding-left: 0;
+  padding-right: 0;
+  border-right-width: 0;
+  visibility: hidden;          /* 藏起來後不能再被 Tab 鍵選到 */
+  /* 等寬度動畫跑完才隱藏；展開時則立刻顯示（上面那條 visibility 0s） */
+  transition: padding 0.22s ease, visibility 0s linear 0.22s;
+}
 
 @media (max-width: 900px) {
   .app-shell { grid-template-columns: 1fr; }
@@ -562,14 +555,14 @@ h1, h2, h3, h4 {
     overflow-x: auto;
   }
   .sidebar-foot { display: none; }
-  .sidebar-bottom { display: none; }
-  /* 桌機上收合過，換到手機時仍要正常顯示文字與整列寬度 */
+  .sidebar-toggle { display: none; }
+  /* 手機上側欄是頂端的一排導覽，不能被收合藏掉；桌機上收合過也要照常顯示 */
   .app-shell.collapsed { grid-template-columns: 1fr; }
-  .app-shell.collapsed .sidebar { padding: 22px 16px; }
-  .app-shell.collapsed .brand { justify-content: flex-start; padding: 0 16px 0 4px; }
-  .app-shell.collapsed .brand-text { display: block; }
-  .app-shell.collapsed .nav-label { display: inline; }
-  .app-shell.collapsed .nav-link { justify-content: flex-start; padding: 11px 14px; }
+  .app-shell.collapsed .sidebar {
+    visibility: visible;
+    padding: 22px 16px;
+    border-right-width: 1px;
+  }
   .nav { flex-direction: row; margin-top: 0; }
   .brand { padding: 0 16px 0 4px; }
   .grid.kpi, .grid.cols-2, .grid.cols-3, .grid.cols-4 { grid-template-columns: 1fr; }
@@ -604,7 +597,14 @@ h1, h2, h3, h4 {
 
 .chart {
   width: 100%;
+  /* flex／grid 子項預設 min-width:auto，不會縮得比內容還窄。ECharts 的 canvas
+     一旦被畫寬，容器就再也縮不回來，ResizeObserver 也等不到縮小——
+     側欄收起再展開時，圖表會卡在較寬的尺寸撐出面板 */
+  min-width: 0;
+  overflow: hidden;
 }
+.app-shell > *,
+.grid > * { min-width: 0; }
 
 /* 設備卡 (頁面二) */
 .device-grid {
