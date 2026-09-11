@@ -482,6 +482,15 @@ export default function Dashboard() {
         <EChart option={realtimeOption} height={300} />
       </Panel>
 
+      {/* 預測與排程：整天都畫，和上面那張刻意分開，避免把「已發生」和「還沒發生」混為一談 */}
+      <Panel
+        title="今日預測與排程"
+        sub={`過去用真實值、未來用 ${slotToTime(curSlot)} 發布的最新一次 RF 預測重新規劃・紅底為尖峰時段`}
+        className="mt-16"
+      >
+        <EChart option={dayPlanOption} height={300} />
+      </Panel>
+
       {/* 滾動預測：同一段未來在不同時間點被預測成什麼樣子 */}
       {roll && (
         <Panel
@@ -493,15 +502,6 @@ export default function Dashboard() {
           <EChart option={rollingOption} height={260} />
         </Panel>
       )}
-
-      {/* 預測與排程：整天都畫，和上面那張刻意分開，避免把「已發生」和「還沒發生」混為一談 */}
-      <Panel
-        title="今日預測與排程"
-        sub={`過去用真實值、未來用 ${slotToTime(curSlot)} 發布的最新一次 RF 預測重新規劃・紅底為尖峰時段`}
-        className="mt-16"
-      >
-        <EChart option={dayPlanOption} height={300} />
-      </Panel>
     </>
   )
 }
