@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useClock } from '../hooks/useClock.js'
 import { fmtClock, fmtDate } from '../lib/format.js'
@@ -14,6 +15,17 @@ const NAV = [
 
 const DEMO_PAGES = new Set(['/', '/loads'])
 
+// 側欄收合狀態記在瀏覽器裡，重新整理或下次開啟都維持上次的樣子。
+// 無痕視窗或封鎖網站資料時讀寫會直接丟例外，當成沒存過即可。
+const SIDEBAR_KEY = 'hems-sidebar-collapsed'
+function readCollapsed() {
+  try {
+    return localStorage.getItem(SIDEBAR_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
 const PAGE_META = {
   '/': { title: '主頁面', sub: '太陽能・電池・負載・電網 即時總覽' },
   '/loads': { title: '各負載即時功率', sub: '家中各設備即時消耗與分布' },
@@ -27,9 +39,17 @@ export default function Layout() {
   const tier = getCurrentTier(now)
   const summer = isSummer(now)
   const theme = useTheme()
+  const [collapsed, setCollapsed] = useState(readCollapsed)
+  useEffect(() => {
+    try {
+      localStorage.setItem(SIDEBAR_KEY, collapsed ? '1' : '0')
+    } catch {
+      // 存不進去只是下次不記得，不影響功能
+    }
+  }, [collapsed])
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${collapsed ? 'collapsed' : ''}`}>
       <aside className="sidebar">
         <div className="brand">
           <div className="logo">⚡</div>
@@ -46,17 +66,31 @@ export default function Layout() {
               to={n.to}
               end={n.end}
               className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}
+              // 收合後只剩圖示，滑過去要能看到是哪一頁
+              title={collapsed ? n.label : undefined}
             >
               <span className="icon">{n.icon}</span>
-              <span>{n.label}</span>
+              <span className="nav-label">{n.label}</span>
             </NavLink>
           ))}
         </nav>
 
-        <div className="sidebar-foot">
-          基於發電量與負載預測之
-          <br />
-          家庭能源管理系統
+        <div className="sidebar-bottom">
+          <button
+            className="sidebar-toggle"
+            onClick={() => setCollapsed((c) => !c)}
+            title={collapsed ? '展開側欄' : '收合側欄'}
+            aria-label={collapsed ? '展開側欄' : '收合側欄'}
+            aria-expanded={!collapsed}
+          >
+            <span className="chev">{collapsed ? '»' : '«'}</span>
+            <span className="nav-label">收合側欄</span>
+          </button>
+          <div className="sidebar-foot">
+            基於發電量與負載預測之
+            <br />
+            家庭能源管理系統
+          </div>
         </div>
       </aside>
 

@@ -104,6 +104,7 @@ h1, h2, h3, h4 {
   display: grid;
   grid-template-columns: 240px 1fr;
   min-height: 100vh;
+  transition: grid-template-columns 0.22s ease;
 }
 
 .sidebar {
@@ -176,8 +177,39 @@ h1, h2, h3, h4 {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
+.sidebar-bottom {
+  margin-top: auto;           /* 把收合鈕與頁尾一起推到側欄最下面 */
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.sidebar-toggle {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 9px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.sidebar-toggle:hover {
+  background: var(--bg-panel);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.sidebar-toggle .chev {
+  width: 22px;
+  text-align: center;
+  font-size: 15px;
+  line-height: 1;
+}
 .sidebar-foot {
-  margin-top: auto;
   font-size: 11px;
   color: var(--text-dim);
   padding: 14px 10px 2px;
@@ -506,6 +538,18 @@ h1, h2, h3, h4 {
 @media (max-width: 1200px) {
   .grid.kpi { grid-template-columns: repeat(3, 1fr); }
 }
+/* ---------- 側欄收合 ----------
+   收起來只留圖示（72px），把寬度讓給圖表。
+   圖表容器有 ResizeObserver，欄寬一變就會自己重排，不必另外通知。 */
+.app-shell.collapsed { grid-template-columns: 72px 1fr; }
+.app-shell.collapsed .sidebar { padding: 22px 12px; }
+.app-shell.collapsed .brand { justify-content: center; padding: 4px 0 22px; }
+.app-shell.collapsed .brand-text,
+.app-shell.collapsed .nav-label,
+.app-shell.collapsed .sidebar-foot { display: none; }
+.app-shell.collapsed .nav-link,
+.app-shell.collapsed .sidebar-toggle { justify-content: center; padding-left: 0; padding-right: 0; }
+
 @media (max-width: 900px) {
   .app-shell { grid-template-columns: 1fr; }
   .sidebar {
@@ -516,6 +560,14 @@ h1, h2, h3, h4 {
     overflow-x: auto;
   }
   .sidebar-foot { display: none; }
+  .sidebar-bottom { display: none; }
+  /* 桌機上收合過，換到手機時仍要正常顯示文字與整列寬度 */
+  .app-shell.collapsed { grid-template-columns: 1fr; }
+  .app-shell.collapsed .sidebar { padding: 22px 16px; }
+  .app-shell.collapsed .brand { justify-content: flex-start; padding: 0 16px 0 4px; }
+  .app-shell.collapsed .brand-text { display: block; }
+  .app-shell.collapsed .nav-label { display: inline; }
+  .app-shell.collapsed .nav-link { justify-content: flex-start; padding: 11px 14px; }
   .nav { flex-direction: row; margin-top: 0; }
   .brand { padding: 0 16px 0 4px; }
   .grid.kpi, .grid.cols-2, .grid.cols-3, .grid.cols-4 { grid-template-columns: 1fr; }
