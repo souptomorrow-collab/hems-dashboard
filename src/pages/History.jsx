@@ -1,204 +1,169 @@
 /* ============================================================
-   頁面四：歷史紀錄查詢與報表匯出
+   頁面四：歷史紀錄（用電紀錄，電費帳單式）
 
-   資料分兩種，畫面上刻意分開標示：
-   - 不可轉移負載的「真實值」與「預測」：來自 MongoDB 的實際紀錄
-   - HEMS 運轉（太陽能、電池、電網、電費）：拿那天的真實負載餵模擬引擎算出來的，
-     因為太陽能與排程目前仍是模擬；代表「那天若由本系統運轉會怎樣」，不是量測值
+   選一段日期區間，依「日／週／月」彙整：用電、太陽能發電、向電網購電、
+   電費，以及和「不裝 HEMS」相比省下多少。可匯出日報、月報，或列印成 PDF。
 
-   預測放了兩條：日前（前一晚 23:45 發布，排程時手上有的）與一步（只往前看 15 分鐘）。
-   兩者是預測距離的兩端，並排才看得出「越近越準」實際差多少。
+   資料來源見 api/client.js 的 fetchDailyUsage()：系統尚未接實際電表，
+   每一天是用同一套模擬引擎依當日天氣與電價重跑出來的紀錄，畫面上會標明。
+   只收「已經結束」的日子（到昨天為止）——和電費帳單一樣，今天還在跑，
+   要到 24:00 才結算。
    ============================================================ */
 import { useEffect, useMemo, useState } from 'react'
 import Panel from '../components/Panel.jsx'
 import EChart from '../components/EChart.jsx'
 import Tile from '../components/Tile.jsx'
-import { fetchHistory, simulateHistoryDay } from '../api/client.js'
-import { COLORS, slotToTime } from '../lib/constants.js'
+import { fetchDailyUsage, ymd, parseYmd, addDays } from '../api/client.js'
+import { COLORS } from '../lib/constants.js'
+import { nowTaipei } from '../lib/time.js'
 import { useTheme, getTheme, setTheme } from '../lib/theme.js'
-import { mae, rmse, mape, energyKwh, peak } from '../lib/metrics.js'
-import { TIER_LABEL } from '../lib/tou.js'
 import { toCsv, downloadCsv, printReport } from '../lib/exportFile.js'
-import {
-  baseTooltip,
-  baseLegend,
-  baseGrid,
-  slotXAxis,
-  valueYAxis,
-  peakMarkArea,
-  AXIS_TEXT,
-  TEXT_MAIN,
-} from '../lib/charts.js'
+import { baseTooltip, baseLegend, baseGrid, AXIS_TEXT, SPLIT_LINE } from '../lib/charts.js'
 
 const WEEK = ['日', '一', '二', '三', '四', '五', '六']
-const weekdayOf = (dateStr) => {
-  const [y, m, d] = dateStr.split('-').map(Number)
-  return WEEK[new Date(y, m - 1, d).getDay()]
+const UNITS = [
+  { key: 'day', label: '日' },
+  { key: 'week', label: '週' },
+  { key: 'month', label: '月' },
+]
+const FIELDS = ['loadKwh', 'pvKwh', 'gridKwh', 'dischargeKwh', 'cost', 'baseline', 'savings']
+
+/* ---------------- 彙整：日 → 週／月 ---------------- */
+function mondayOf(d) {
+  const back = (d.getDay() + 6) % 7 // 週一 = 0
+  return addDays(d, -back)
+}
+function groupRows(rows, unit) {
+  if (unit === 'day') {
+    return rows.map((r) => ({
+      ...r,
+      key: r.date,
+      label: `${r.date.slice(5).replace('-', '/')}（${WEEK[r.weekday]}）`,
+      days: 1,
+    }))
+  }
+  const map = new Map()
+  for (const r of rows) {
+    const d = parseYmd(r.date)
+    const key = unit === 'week' ? ymd(mondayOf(d)) : r.date.slice(0, 7)
+    if (!map.has(key)) map.set(key, { key, first: r.date, last: r.date, days: 0, ...Object.fromEntries(FIELDS.map((f) => [f, 0])) })
+    const g = map.get(key)
+    g.last = r.date
+    g.days += 1
+    for (const f of FIELDS) g[f] += r[f]
+  }
+  return [...map.values()].map((g) => ({
+    ...g,
+    // 區間頭尾可能只涵蓋半週，標籤寫實際涵蓋的日期，不寫整週
+    label:
+      unit === 'week'
+        ? `${g.first.slice(5).replace('-', '/')} ～ ${g.last.slice(5).replace('-', '/')}`
+        : `${g.key.slice(0, 4)} 年 ${Number(g.key.slice(5))} 月`,
+  }))
 }
 
-/** 一天的完整紀錄：預測指標 + 模擬運轉結果 */
-function buildDay(day) {
-  const sim = simulateHistoryDay(day.date, day.actual)
-  const pk = peak(day.actual)
-  return {
-    ...day,
-    weekday: weekdayOf(day.date),
-    sim,
-    kwh: energyKwh(day.actual),
-    peakKw: pk.kw,
-    peakAt: slotToTime(pk.slot),
-    daMae: mae(day.day_ahead, day.actual),
-    daRmse: rmse(day.day_ahead, day.actual),
-    daMape: mape(day.day_ahead, day.actual),
-    osMae: mae(day.one_step, day.actual),
-  }
-}
+const total = (rows) => Object.fromEntries(FIELDS.map((f) => [f, rows.reduce((a, r) => a + r[f], 0)]))
 
 export default function History() {
   const theme = useTheme()
-  const [hist, setHist] = useState(undefined) // undefined = 載入中、null = 讀取失敗
-  const [sel, setSel] = useState(null)
+  const yesterday = useMemo(() => addDays(nowTaipei(), -1), [])
+  const minDay = useMemo(() => addDays(yesterday, -364), [yesterday]) // 往回最多一年
+  const [from, setFrom] = useState(() => {
+    // 預設「昨天所在的那個月，從 1 號到昨天」。
+    // 今天是 1 號時昨天屬於上個月，就會自然顯示整個上月，不會出現空區間
+    const first = new Date(yesterday.getFullYear(), yesterday.getMonth(), 1)
+    return ymd(first)
+  })
+  const [to, setTo] = useState(() => ymd(yesterday))
+  const [unit, setUnit] = useState('day')
+  const [data, setData] = useState(null)
 
   useEffect(() => {
-    fetchHistory().then((h) => {
-      setHist(h)
-      if (h?.days?.length) setSel(h.days[h.days.length - 1].date) // 預設看最新一天
-    })
-  }, [])
+    let on = true
+    const [a, b] = from <= to ? [from, to] : [to, from] // 起訖選反了就自動對調
+    fetchDailyUsage(a, b).then((d) => on && setData(d))
+    return () => { on = false }
+  }, [from, to])
 
-  // 七天全部先算好：總覽表要用，切換日期時也不必重算
-  const days = useMemo(() => (hist?.days ?? []).map(buildDay), [hist])
-  const day = days.find((d) => d.date === sel) ?? null
+  const rows = data?.rows ?? []
+  const groups = useMemo(() => groupRows(rows, unit), [rows, unit])
+  const sum = useMemo(() => total(rows), [rows])
 
-  /* ---------------- 圖：真實 vs 預測 ---------------- */
-  const loadOption = useMemo(() => {
-    if (!day) return {}
-    const line = { type: 'line', smooth: true, symbol: 'none' }
-    return {
-      tooltip: { ...baseTooltip, valueFormatter: (v) => `${(+v).toFixed(3)} kW` },
-      legend: { ...baseLegend, data: ['真實值', '日前預測', '一步預測'] },
-      grid: { ...baseGrid, right: 24 },
-      xAxis: slotXAxis(),
-      yAxis: valueYAxis('kW', { min: 0 }),
-      series: [
-        { ...line, name: '真實值', data: day.actual, lineStyle: { width: 2.2, color: TEXT_MAIN }, itemStyle: { color: TEXT_MAIN } },
-        { ...line, name: '日前預測', data: day.day_ahead, lineStyle: { width: 2, color: COLORS.load, type: 'dashed' }, itemStyle: { color: COLORS.load } },
-        { ...line, name: '一步預測', data: day.one_step, lineStyle: { width: 1.4, color: COLORS.save }, itemStyle: { color: COLORS.save } },
-      ],
-    }
-  }, [day, theme])
+  // 快速區間
+  const quick = (kind) => {
+    const y = yesterday
+    const set = (a, b) => { setFrom(ymd(a < minDay ? minDay : a)); setTo(ymd(b)) }
+    if (kind === 'thisMonth') set(new Date(y.getFullYear(), y.getMonth(), 1), y)
+    if (kind === 'lastMonth') set(new Date(y.getFullYear(), y.getMonth() - 1, 1), new Date(y.getFullYear(), y.getMonth(), 0))
+    if (kind === '7') set(addDays(y, -6), y)
+    if (kind === '30') set(addDays(y, -29), y)
+    if (kind === 'year') { set(addDays(y, -364), y); setUnit('month') }
+  }
 
-  /* ---------------- 圖：HEMS 運轉（模擬） ---------------- */
-  const hemsOption = useMemo(() => {
-    if (!day) return {}
-    const s = day.sim
-    const line = { type: 'line', smooth: true, symbol: 'none' }
+  /* ---------------- 圖：用電／發電／購電（長條）＋ 電費（折線） ---------------- */
+  const chartOption = useMemo(() => {
+    if (!groups.length) return {}
+    const dense = groups.length > 45 // 長條太多時拿掉間距，不然擠成一片
+    const bar = { type: 'bar', barGap: dense ? '0%' : '15%', barCategoryGap: dense ? '10%' : '30%' }
     return {
       tooltip: {
         ...baseTooltip,
         formatter: (ps) =>
           `${ps[0].axisValueLabel}<br/>` +
-          ps
-            .map((p) => `${p.marker}${p.seriesName}: ${p.seriesName === 'SOC' ? Math.round(p.value) + '%' : (+p.value).toFixed(2) + ' kW'}`)
-            .join('<br/>'),
+          ps.map((p) => `${p.marker}${p.seriesName}: ${(+p.value).toFixed(p.seriesName.includes('元') ? 1 : 2)} ${p.seriesName.includes('元') ? '元' : 'kWh'}`).join('<br/>'),
       },
-      legend: { ...baseLegend, data: ['太陽能發電', '家庭負載', '電網購電', '電池充電', '電池放電', 'SOC'] },
-      grid: { ...baseGrid, right: 48 },
-      xAxis: slotXAxis({ boundaryGap: true }),
+      legend: { ...baseLegend, data: ['用電（kWh）', '太陽能發電（kWh）', '向電網購電（kWh）', '電費（元）'] },
+      grid: { ...baseGrid, right: 52, bottom: 44 },
+      xAxis: {
+        type: 'category',
+        data: groups.map((g) => g.label),
+        axisLine: { lineStyle: { color: SPLIT_LINE } },
+        axisTick: { show: false },
+        axisLabel: { color: AXIS_TEXT, fontSize: 11, hideOverlap: true },
+      },
       yAxis: [
-        valueYAxis('kW'),
         {
-          type: 'value', name: 'SOC %', min: 0, max: 100, position: 'right',
-          nameTextStyle: { color: AXIS_TEXT, fontSize: 11 },
-          axisLabel: { color: AXIS_TEXT, fontSize: 11, formatter: '{value}%' },
-          axisLine: { show: false }, splitLine: { show: false },
+          type: 'value', name: 'kWh', nameTextStyle: { color: AXIS_TEXT, fontSize: 11 },
+          axisLabel: { color: AXIS_TEXT, fontSize: 11 }, splitLine: { lineStyle: { color: SPLIT_LINE } },
+        },
+        {
+          type: 'value', name: '元', position: 'right', nameTextStyle: { color: AXIS_TEXT, fontSize: 11 },
+          axisLabel: { color: AXIS_TEXT, fontSize: 11 }, splitLine: { show: false },
         },
       ],
       series: [
-        { ...line, name: '太陽能發電', data: s.pv, lineStyle: { width: 2, color: COLORS.solar }, itemStyle: { color: COLORS.solar }, areaStyle: { color: 'rgba(255,176,32,0.16)' }, markArea: peakMarkArea(s.tier) },
-        { ...line, name: '家庭負載', data: s.load, lineStyle: { width: 2, color: COLORS.load }, itemStyle: { color: COLORS.load } },
-        { ...line, name: '電網購電', data: s.gridKw, lineStyle: { width: 1.5, color: COLORS.grid, type: 'dashed' }, itemStyle: { color: COLORS.grid } },
-        { type: 'bar', stack: 'b', name: '電池充電', data: s.chargeKw, itemStyle: { color: 'rgba(34,197,94,0.55)' } },
-        { type: 'bar', stack: 'b', name: '電池放電', data: s.dischargeKw.map((v) => -v), itemStyle: { color: 'rgba(249,115,22,0.6)' } },
-        { ...line, name: 'SOC', yAxisIndex: 1, data: s.socPct, lineStyle: { width: 2.4, color: COLORS.battery }, itemStyle: { color: COLORS.battery } },
+        { ...bar, name: '用電（kWh）', data: groups.map((g) => +g.loadKwh.toFixed(2)), itemStyle: { color: COLORS.load, borderRadius: [3, 3, 0, 0] } },
+        { ...bar, name: '太陽能發電（kWh）', data: groups.map((g) => +g.pvKwh.toFixed(2)), itemStyle: { color: COLORS.solar, borderRadius: [3, 3, 0, 0] } },
+        { ...bar, name: '向電網購電（kWh）', data: groups.map((g) => +g.gridKwh.toFixed(2)), itemStyle: { color: COLORS.grid, borderRadius: [3, 3, 0, 0] } },
+        {
+          type: 'line', name: '電費（元）', yAxisIndex: 1, smooth: true, symbol: dense ? 'none' : 'circle', symbolSize: 6,
+          data: groups.map((g) => +g.cost.toFixed(1)), lineStyle: { width: 2.2, color: COLORS.save }, itemStyle: { color: COLORS.save },
+        },
       ],
     }
-  }, [day, theme])
+  }, [groups, theme])
 
   /* ---------------- 匯出 ---------------- */
-  const exportDay = () => {
-    if (!day) return
-    const s = day.sim
-    const rows = day.actual.map((a, i) => ({
-      time: `${day.date} ${slotToTime(i)}`,
-      actual: a,
-      dayAhead: day.day_ahead[i],
-      oneStep: day.one_step[i],
-      err: day.day_ahead[i] - a,
-      pv: s.pv[i],
-      load: s.load[i],
-      grid: s.gridKw[i],
-      charge: s.chargeKw[i],
-      discharge: s.dischargeKw[i],
-      soc: s.socPct[i],
-      tier: TIER_LABEL[s.tier[i]] ?? s.tier[i],
-    }))
-    downloadCsv(
-      `HEMS_歷史紀錄_${day.date}.csv`,
-      toCsv(rows, [
-        { key: 'time', label: '時間' },
-        { key: 'actual', label: '不可轉移負載_真實(kW)', digits: 4 },
-        { key: 'dayAhead', label: '不可轉移負載_日前預測(kW)', digits: 4 },
-        { key: 'oneStep', label: '不可轉移負載_一步預測(kW)', digits: 4 },
-        { key: 'err', label: '日前預測誤差(kW)', digits: 4 },
-        { key: 'pv', label: '太陽能發電_模擬(kW)', digits: 3 },
-        { key: 'load', label: '家庭總負載_模擬(kW)', digits: 3 },
-        { key: 'grid', label: '電網購電_模擬(kW)', digits: 3 },
-        { key: 'charge', label: '電池充電_模擬(kW)', digits: 3 },
-        { key: 'discharge', label: '電池放電_模擬(kW)', digits: 3 },
-        { key: 'soc', label: 'SOC_模擬(%)', digits: 1 },
-        { key: 'tier', label: '電價時段' },
-      ])
-    )
+  const [a, b] = from <= to ? [from, to] : [to, from]
+  const COLS = (first) => [
+    { key: 'label', label: first },
+    { key: 'loadKwh', label: '用電(kWh)', digits: 2 },
+    { key: 'pvKwh', label: '太陽能發電(kWh)', digits: 2 },
+    { key: 'gridKwh', label: '向電網購電(kWh)', digits: 2 },
+    { key: 'dischargeKwh', label: '電池放電(kWh)', digits: 2 },
+    { key: 'cost', label: '電費(元)', digits: 1 },
+    { key: 'baseline', label: '不裝HEMS電費(元)', digits: 1 },
+    { key: 'savings', label: '省下電費(元)', digits: 1 },
+  ]
+  const withTotal = (list, name) => [...list, { label: name, ...total(list) }]
+  const exportDaily = () => {
+    const list = groupRows(rows, 'day').map((r) => ({ ...r, label: `${r.date}（${WEEK[r.weekday]}）` }))
+    downloadCsv(`HEMS_用電日報_${a}_${b}.csv`, toCsv(withTotal(list, '合計'), COLS('日期')))
   }
-
-  const exportSummary = () => {
-    if (!days.length) return
-    const rows = days.map((d) => ({
-      date: d.date,
-      weekday: `週${d.weekday}`,
-      kwh: d.kwh,
-      peak: d.peakKw,
-      peakAt: d.peakAt,
-      daMae: d.daMae,
-      daRmse: d.daRmse,
-      daMape: d.daMape,
-      osMae: d.osMae,
-      cost: d.sim.summary.optimizedCost,
-      saving: d.sim.summary.savings,
-      pv: d.sim.summary.pvKwh,
-      grid: d.sim.summary.gridImportKwh,
-    }))
-    downloadCsv(
-      `HEMS_七日摘要_${days[0].date}_${days[days.length - 1].date}.csv`,
-      toCsv(rows, [
-        { key: 'date', label: '日期' },
-        { key: 'weekday', label: '星期' },
-        { key: 'kwh', label: '不可轉移負載用電(kWh)', digits: 2 },
-        { key: 'peak', label: '尖峰負載(kW)', digits: 3 },
-        { key: 'peakAt', label: '尖峰時刻' },
-        { key: 'daMae', label: '日前預測MAE(kW)', digits: 4 },
-        { key: 'daRmse', label: '日前預測RMSE(kW)', digits: 4 },
-        { key: 'daMape', label: '日前預測MAPE(%)', digits: 1 },
-        { key: 'osMae', label: '一步預測MAE(kW)', digits: 4 },
-        { key: 'pv', label: '太陽能發電_模擬(kWh)', digits: 2 },
-        { key: 'grid', label: '電網購電_模擬(kWh)', digits: 2 },
-        { key: 'cost', label: '電費_模擬(元)', digits: 1 },
-        { key: 'saving', label: '省電費_模擬(元)', digits: 1 },
-      ])
-    )
+  const exportMonthly = () => {
+    const list = groupRows(rows, 'month').map((g) => ({ ...g, label: `${g.label}（${g.days} 天）` }))
+    downloadCsv(`HEMS_用電月報_${a}_${b}.csv`, toCsv(withTotal(list, '合計'), COLS('月份')))
   }
-
   // 列印時白紙上要看得清楚：夜間模式先切到日間，印完再切回來（不寫入使用者的偏好）
   const exportPdf = () => {
     const prev = getTheme()
@@ -208,163 +173,131 @@ export default function History() {
     )
   }
 
-  /* ---------------- 畫面 ---------------- */
-  if (hist === undefined) return <div className="skeleton" style={{ height: 320 }} />
-  if (!hist || !days.length) {
-    return (
-      <Panel title="歷史紀錄">
-        <p className="hint">讀不到歷史資料（public/data/history.json）。請先在 負載預測2 執行 mongo_handoff/04_export_web.py。</p>
-      </Panel>
-    )
-  }
-
-  const avg = (k) => days.reduce((a, d) => a + (d[k] ?? 0), 0) / days.length
-  const sum = (f) => days.reduce((a, d) => a + f(d), 0)
-  const improve = day?.daMae ? (1 - day.osMae / day.daMae) * 100 : null
+  const unitLabel = UNITS.find((u) => u.key === unit).label
+  const savePct = sum.baseline > 0 ? (sum.savings / sum.baseline) * 100 : 0
 
   return (
     <div className="history">
       {/* 列印時才出現的報表抬頭 */}
       <div className="print-only report-head">
-        <h1>家庭能源管理系統　歷史紀錄報表</h1>
+        <h1>家庭能源管理系統　用電紀錄</h1>
         <p>
-          查詢日期 {day?.date}（週{day?.weekday}）・資料區間 {days[0].date} ～ {days[days.length - 1].date}
-          ・資料來源 {hist.source}・匯出於 {new Date().toLocaleString('zh-TW', { hour12: false })}
+          區間 {a} ～ {b}（{rows.length} 天）・依{unitLabel}彙整・匯出於{' '}
+          {new Date().toLocaleString('zh-TW', { hour12: false })}
         </p>
       </div>
 
-      {/* 控制列：選日期 + 匯出 */}
+      {/* 控制列 */}
       <Panel className="no-print">
         <div className="history-bar">
-          <div>
-            <div className="muted" style={{ fontSize: 12, marginBottom: 8 }}>
-              查詢日期（資料集：法國 Sceaux 住宅，UCI household_power_consumption）
-            </div>
-            <div className="day-chips">
-              {days.map((d) => (
-                <button
-                  key={d.date}
-                  className={`day-chip ${d.date === sel ? 'active' : ''}`}
-                  onClick={() => setSel(d.date)}
-                >
-                  <strong>{d.date.slice(5).replace('-', '/')}</strong>
-                  <span>週{d.weekday}</span>
+          <div className="history-filters">
+            <label className="field">
+              <span>開始</span>
+              <input type="date" value={from} min={ymd(minDay)} max={ymd(yesterday)} onChange={(e) => e.target.value && setFrom(e.target.value)} />
+            </label>
+            <span className="dim">～</span>
+            <label className="field">
+              <span>結束</span>
+              <input type="date" value={to} min={ymd(minDay)} max={ymd(yesterday)} onChange={(e) => e.target.value && setTo(e.target.value)} />
+            </label>
+            <div className="seg" role="group" aria-label="彙整單位">
+              {UNITS.map((u) => (
+                <button key={u.key} className={unit === u.key ? 'active' : ''} onClick={() => setUnit(u.key)}>
+                  {u.label}
                 </button>
               ))}
             </div>
           </div>
           <div className="export-btns">
-            <button className="btn" onClick={exportDay} title="該日 96 格（15 分鐘）明細">⬇ 當日明細 CSV</button>
-            <button className="btn" onClick={exportSummary} title="七天各一列的摘要">⬇ 七日摘要 CSV</button>
-            <button className="btn" onClick={exportPdf} title="用瀏覽器列印，可選「另存為 PDF」">🖨 列印／另存 PDF</button>
+            <button className="btn" onClick={exportDaily} title="區間內每天一列">⬇ 匯出日報</button>
+            <button className="btn" onClick={exportMonthly} title="區間內每月一列">⬇ 匯出月報</button>
+            <button className="btn" onClick={exportPdf} title="用瀏覽器列印，可選「另存為 PDF」">🖨 列印／PDF</button>
           </div>
+        </div>
+        <div className="quick-ranges">
+          <span className="dim">快速選擇：</span>
+          <button onClick={() => quick('thisMonth')}>本月</button>
+          <button onClick={() => quick('lastMonth')}>上個月</button>
+          <button onClick={() => quick('7')}>近 7 天</button>
+          <button onClick={() => quick('30')}>近 30 天</button>
+          <button onClick={() => quick('year')}>近 12 個月</button>
+          <span className="dim" style={{ marginLeft: 'auto' }}>只列到昨天：今天要到 24:00 才結算</span>
         </div>
       </Panel>
 
-      {day && (
+      {!data ? (
+        <div className="skeleton mt-16" style={{ height: 320 }} />
+      ) : (
         <>
-          {/* 預測表現 */}
           <div className="grid cols-6 mt-16">
-            <Tile label="當日用電" value={day.kwh.toFixed(2)} unit="kWh" sub="不可轉移負載・真實值" color={COLORS.load} />
-            <Tile label="尖峰負載" value={day.peakKw.toFixed(2)} unit="kW" sub={`發生於 ${day.peakAt}`} />
-            <Tile label="日前預測 MAE" value={day.daMae.toFixed(3)} unit="kW" sub={`RMSE ${day.daRmse.toFixed(3)} kW`} />
-            <Tile label="日前預測 MAPE" value={day.daMape.toFixed(1)} unit="%" sub="排除真實值 < 0.05 kW 的格子" />
-            <Tile label="一步預測 MAE" value={day.osMae.toFixed(3)} unit="kW" sub="只往前看 15 分鐘" color={COLORS.save} />
-            <Tile
-              label="預測越近越準"
-              value={improve == null ? '—' : improve.toFixed(0)}
-              unit="%"
-              sub="一步比日前的 MAE 降低幅度"
-              color={COLORS.save}
-            />
+            <Tile label="區間用電" value={sum.loadKwh.toFixed(1)} unit="kWh" sub={`${rows.length} 天，日均 ${(sum.loadKwh / rows.length).toFixed(1)} kWh`} color={COLORS.load} />
+            <Tile label="太陽能發電" value={sum.pvKwh.toFixed(1)} unit="kWh" color={COLORS.solar} />
+            <Tile label="向電網購電" value={sum.gridKwh.toFixed(1)} unit="kWh" color={COLORS.grid} />
+            <Tile label="電費" value={Math.round(sum.cost).toLocaleString()} unit="元" sub={`日均 ${(sum.cost / rows.length).toFixed(1)} 元`} />
+            <Tile label="不裝 HEMS 的電費" value={Math.round(sum.baseline).toLocaleString()} unit="元" sub="無太陽能、無電池，全部向台電購買" />
+            <Tile label="省下電費" value={Math.round(sum.savings).toLocaleString()} unit="元" sub={`省 ${savePct.toFixed(1)}%`} color={COLORS.save} />
           </div>
 
           <Panel
-            title="不可轉移負載：真實 vs 預測"
-            sub={`日前預測於 ${day.day_ahead_refresh} 發布（提前一整天，排程時手上有的）；一步預測每格都取前一格發布、只看 15 分鐘後的值`}
+            title={`用電與電費（依${unitLabel}）`}
+            sub={`${a} ～ ${b}`}
             className="mt-16"
-            right={<span className="badge">MongoDB 實際紀錄</span>}
+            right={<span className="badge">🧪 模擬紀錄</span>}
           >
-            <EChart option={loadOption} height={280} />
+            <EChart option={chartOption} height={300} />
           </Panel>
 
-          <Panel
-            title="HEMS 運轉紀錄"
-            sub="以當日真實負載餵入模擬引擎：太陽能與排程目前仍為模擬，代表「那天若由本系統運轉」的結果，不是量測值"
-            className="mt-16"
-            right={<span className="badge">🧪 模擬</span>}
-          >
-            <div className="grid cols-6" style={{ marginBottom: 12 }}>
-              <Tile label="太陽能發電" value={day.sim.summary.pvKwh} unit="kWh" color={COLORS.solar} />
-              <Tile label="向電網購電" value={day.sim.summary.gridImportKwh} unit="kWh" color={COLORS.grid} />
-              <Tile label="電池放電" value={day.sim.summary.dischargeKwh} unit="kWh" color={COLORS.battery} />
-              <Tile label="太陽能自用率" value={day.sim.summary.selfUseRate} unit="%" color={COLORS.battery} />
-              <Tile label="電費" value={day.sim.summary.optimizedCost} unit="元" sub={`不裝 HEMS：${day.sim.summary.baselineCost} 元`} />
-              <Tile label="省下電費" value={day.sim.summary.savings} unit="元" sub={`省 ${day.sim.summary.savingPct}%`} color={COLORS.save} />
+          <Panel title={`用電明細（依${unitLabel}）`} sub={`共 ${groups.length} 筆`} className="mt-16">
+            <div className="table-wrap">
+              <table className="history-table">
+                <thead>
+                  <tr>
+                    <th>{unit === 'day' ? '日期' : unit === 'week' ? '週' : '月份'}</th>
+                    {unit !== 'day' && <th className="num">天數</th>}
+                    <th className="num">用電 kWh</th>
+                    <th className="num">太陽能 kWh</th>
+                    <th className="num">購電 kWh</th>
+                    <th className="num">電費</th>
+                    <th className="num">不裝 HEMS</th>
+                    <th className="num">省下</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {groups.map((g) => (
+                    <tr key={g.key} className={unit === 'day' && (g.weekday === 0 || g.weekday === 6) ? 'weekend' : ''}>
+                      <td>{g.label}</td>
+                      {unit !== 'day' && <td className="num">{g.days}</td>}
+                      <td className="num">{g.loadKwh.toFixed(2)}</td>
+                      <td className="num">{g.pvKwh.toFixed(2)}</td>
+                      <td className="num">{g.gridKwh.toFixed(2)}</td>
+                      <td className="num">{g.cost.toFixed(1)} 元</td>
+                      <td className="num dim">{g.baseline.toFixed(1)} 元</td>
+                      <td className="num save">{g.savings.toFixed(1)} 元</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td>合計</td>
+                    {unit !== 'day' && <td className="num">{rows.length}</td>}
+                    <td className="num">{sum.loadKwh.toFixed(2)}</td>
+                    <td className="num">{sum.pvKwh.toFixed(2)}</td>
+                    <td className="num">{sum.gridKwh.toFixed(2)}</td>
+                    <td className="num">{sum.cost.toFixed(1)} 元</td>
+                    <td className="num">{sum.baseline.toFixed(1)} 元</td>
+                    <td className="num save">{sum.savings.toFixed(1)} 元</td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
-            <EChart option={hemsOption} height={280} />
+            <p className="hint mt-16">
+              🧪 系統尚未接上實際電表，以上是依各日天氣與台電簡易二段式電價（夏月／非夏月、平日／假日）
+              逐日模擬的運轉紀錄；不可轉移負載採用資料集（UCI household_power_consumption）中同一個星期幾的實測曲線。
+              {unit === 'day' && ' 週末列以底色標示：週末全天離峰、沒有尖離峰價差，電池能省的錢明顯較少。'}
+            </p>
           </Panel>
         </>
       )}
-
-      {/* 七日總覽 */}
-      <Panel
-        title="七日總覽"
-        sub="點選任一列可切換到該日"
-        className="mt-16"
-      >
-        <div className="table-wrap">
-          <table className="history-table">
-            <thead>
-              <tr>
-                <th>日期</th>
-                <th>星期</th>
-                <th className="num">用電 kWh</th>
-                <th className="num">尖峰 kW</th>
-                <th className="num">日前 MAE</th>
-                <th className="num">日前 MAPE</th>
-                <th className="num">一步 MAE</th>
-                <th className="num">電費（模擬）</th>
-                <th className="num">省電費（模擬）</th>
-              </tr>
-            </thead>
-            <tbody>
-              {days.map((d) => (
-                <tr
-                  key={d.date}
-                  className={d.date === sel ? 'active' : ''}
-                  onClick={() => setSel(d.date)}
-                >
-                  <td>{d.date}</td>
-                  <td>週{d.weekday}</td>
-                  <td className="num">{d.kwh.toFixed(2)}</td>
-                  <td className="num">{d.peakKw.toFixed(2)} <span className="dim">@{d.peakAt}</span></td>
-                  <td className="num">{d.daMae.toFixed(3)}</td>
-                  <td className="num">{d.daMape.toFixed(1)}%</td>
-                  <td className="num">{d.osMae.toFixed(3)}</td>
-                  <td className="num">{d.sim.summary.optimizedCost.toFixed(1)} 元</td>
-                  <td className="num save">{d.sim.summary.savings.toFixed(1)} 元</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr>
-                <td colSpan={2}>七日{' '}合計／平均</td>
-                <td className="num">{sum((d) => d.kwh).toFixed(2)}</td>
-                <td className="num">{Math.max(...days.map((d) => d.peakKw)).toFixed(2)}</td>
-                <td className="num">{avg('daMae').toFixed(3)}</td>
-                <td className="num">{avg('daMape').toFixed(1)}%</td>
-                <td className="num">{avg('osMae').toFixed(3)}</td>
-                <td className="num">{sum((d) => d.sim.summary.optimizedCost).toFixed(1)} 元</td>
-                <td className="num save">{sum((d) => d.sim.summary.savings).toFixed(1)} 元</td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-        <p className="hint mt-16">
-          用電、尖峰與預測誤差為 MongoDB 的實際紀錄；電費與省電費由模擬引擎以當日真實負載計算（台電簡易二段式時間電價）。
-        </p>
-      </Panel>
     </div>
   )
 }

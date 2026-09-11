@@ -113,15 +113,61 @@ export async function fetchHistory() {
   }).catch(() => null)
 }
 
+/* ------------------------------------------------------------
+   用電紀錄（歷史紀錄頁，電費帳單式）
+
+   系統還沒接實際電表，沒有真實的逐日量測紀錄，所以每個過去的日期都
+   「用同一套模擬引擎重跑一次」：依那天的天氣與電價（夏月／非夏月、
+   平日／假日）算出太陽能、電池、電網與電費。模擬引擎的天氣是以日期為
+   種子產生，同一天每次算出來都一樣，紀錄才不會每次打開都不同。
+
+   不可轉移負載改用資料集裡「同一個星期幾」的實測曲線：資料集
+   （2010-11-18～24）剛好週一到週日各一天，平日／週末的用電差異是真的，
+   而不是模擬值。
+   ------------------------------------------------------------ */
+const pad = (n) => String(n).padStart(2, '0')
+export const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+export const parseYmd = (s) => {
+  const [y, m, d] = s.split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
+export const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n)
+
+const usageCache = new Map() // 'YYYY-MM-DD' → 當日紀錄；切換區間時不必重算
+
 /**
- * 用某一天的「真實」不可轉移負載跑一次 HEMS 模擬，得到那天的運轉紀錄。
- * 太陽能與排程目前仍是模擬引擎，所以這部分是「如果那天由本系統運轉會怎樣」，
- * 不是量測紀錄；頁面上會標明。
+ * 區間內每天一筆的用電紀錄（含頭尾兩天）。
+ * @returns {Promise<{rows:Array, profileDates:object}>}
  */
-export function simulateHistoryDay(dateStr, actualKw) {
-  const [y, m, d] = dateStr.split('-').map(Number)
-  const date = new Date(y, m - 1, d)
-  return simulateDay(date, simulateWeather(date), actualKw)
+export async function fetchDailyUsage(fromStr, toStr) {
+  const hist = await fetchHistory()
+  const profiles = {} // 星期幾（0=日）→ { date, actual[96] }
+  for (const d of hist?.days ?? []) profiles[parseYmd(d.date).getDay()] = d
+
+  const rows = []
+  for (let t = parseYmd(fromStr), end = parseYmd(toStr); t <= end; t = addDays(t, 1)) {
+    const key = ymd(t)
+    if (!usageCache.has(key)) {
+      const prof = profiles[t.getDay()]
+      const sum = simulateDay(t, simulateWeather(t), prof?.actual ?? null).summary
+      usageCache.set(key, {
+        date: key,
+        weekday: t.getDay(),
+        loadKwh: sum.loadKwh,
+        pvKwh: sum.pvKwh,
+        gridKwh: sum.gridImportKwh,
+        dischargeKwh: sum.dischargeKwh,
+        cost: sum.optimizedCost,
+        baseline: sum.baselineCost, // 不裝 HEMS（無太陽能、無電池，全部向台電買）的電費
+        savings: sum.savings,
+        selfUse: sum.selfUseRate,
+        profileFrom: prof?.date ?? null,
+      })
+    }
+    rows.push(usageCache.get(key))
+  }
+  const profileDates = Object.fromEntries(Object.entries(profiles).map(([w, d]) => [w, d.date]))
+  return { rows, profileDates }
 }
 
 /**

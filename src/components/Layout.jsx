@@ -31,7 +31,7 @@ const PAGE_META = {
   '/': { title: '主頁面', sub: '太陽能・電池・負載・電網 即時總覽' },
   '/loads': { title: '各負載即時功率', sub: '家中各設備即時消耗與分布' },
   '/planning': { title: '用電規劃', sub: '隔日 24 小時最佳化排程（以 15 分鐘為單位）' },
-  '/history': { title: '歷史紀錄', sub: '逐日查詢負載預測表現與 HEMS 運轉，並匯出報表' },
+  '/history': { title: '歷史紀錄', sub: '依日／週／月查詢用電、發電、購電與電費，並匯出日報／月報' },
 }
 
 export default function Layout() {

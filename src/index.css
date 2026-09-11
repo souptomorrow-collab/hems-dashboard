@@ -1084,29 +1084,65 @@ body {
   justify-content: space-between;
   gap: 16px;
 }
-.day-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.day-chip {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  min-width: 62px;
+.history-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-muted); }
+.field input[type="date"] {
   padding: 7px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-panel-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color-scheme: dark;          /* 讓瀏覽器內建的日期選單跟著用深色 */
+}
+:root[data-theme="light"] .field input[type="date"] { color-scheme: light; }
+.field input[type="date"]:focus { outline: none; border-color: var(--accent); }
+
+/* 分段按鈕（日／週／月） */
+.seg {
+  display: inline-flex;
+  padding: 3px;
+  gap: 3px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--bg-panel-2);
+}
+.seg button {
+  min-width: 40px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
   color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
-  line-height: 1.3;
-  transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
-.day-chip strong { font-size: 14px; color: var(--text); font-variant-numeric: tabular-nums; }
-.day-chip span { font-size: 11px; }
-.day-chip:hover { border-color: var(--accent); }
-.day-chip.active {
-  border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 16%, var(--bg-panel-2));
+.seg button:hover { color: var(--text); }
+.seg button.active { background: var(--accent); color: #fff; }
+
+.quick-ranges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
 }
-.day-chip.active strong { color: var(--accent); }
+.quick-ranges button {
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.quick-ranges button:hover { border-color: var(--accent); color: var(--text); }
 .export-btns { display: flex; flex-wrap: wrap; gap: 8px; }
 
 /* 表格太寬時只讓表格自己橫向捲動，整頁不跟著被撐開 */
@@ -1126,10 +1162,10 @@ body {
 .history-table th { color: var(--text-muted); font-weight: 600; font-size: 12px; }
 .history-table .num { text-align: right; font-variant-numeric: tabular-nums; }
 .history-table .save { color: var(--c-save); font-weight: 700; }
-.history-table tbody tr { cursor: pointer; transition: background 0.12s; }
+.history-table tbody tr { transition: background 0.12s; }
 .history-table tbody tr:hover { background: var(--overlay-soft); }
-.history-table tbody tr.active { background: color-mix(in srgb, var(--accent) 12%, transparent); }
-.history-table tbody tr.active td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+.history-table tbody tr.weekend { background: var(--overlay-soft); }
+.history-table tbody tr.weekend td:first-child { color: var(--t-offpeak); }
 .history-table tfoot td { font-weight: 700; border-bottom: none; border-top: 2px solid var(--border-strong); }
 
 /* 只在列印時出現的報表抬頭 */
@@ -1155,7 +1191,7 @@ body {
     border-color: #ccc !important;
   }
   .stat-card::after, .stat-card::before { display: none; }
-  .history-table tbody tr.active { background: #eef6fb !important; }
+  .history-table tbody tr.weekend { background: #f3f6f4 !important; }
   /* 瀏覽器預設不印背景色，會讓選中列、色塊都消失 */
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
