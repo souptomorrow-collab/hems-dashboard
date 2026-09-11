@@ -861,6 +861,9 @@ h1, h2, h3, h4 {
   align-items: center;
   gap: 6px;
 }
+/* 多行、內含 <strong> 等行內元素的說明段落：flex 會把每個行內元素切成一欄，
+   段落必須回到一般的文字排版 */
+.hint.prose { display: block; line-height: 1.75; }
 
 /* 載入動畫 */
 .spinner {
@@ -1086,7 +1089,7 @@ body {
 }
 .history-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
 .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-muted); }
-.field input[type="date"] {
+.date-input {
   padding: 7px 10px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border-strong);
@@ -1097,7 +1100,7 @@ body {
   font-variant-numeric: tabular-nums;
   color-scheme: dark;          /* 讓瀏覽器內建的日期選單跟著用深色 */
 }
-:root[data-theme="light"] .field input[type="date"] { color-scheme: light; }
+:root[data-theme="light"] .date-input { color-scheme: light; }
 .field input[type="date"]:focus { outline: none; border-color: var(--accent); }
 
 /* 分段按鈕（日／週／月） */
@@ -1163,6 +1166,7 @@ body {
 .history-table .num { text-align: right; font-variant-numeric: tabular-nums; }
 .history-table .save { color: var(--c-save); font-weight: 700; }
 .history-table tbody tr { transition: background 0.12s; }
+.history-table tbody tr.clickable { cursor: pointer; }
 .history-table tbody tr:hover { background: var(--overlay-soft); }
 .history-table tbody tr.weekend { background: var(--overlay-soft); }
 .history-table tbody tr.weekend td:first-child { color: var(--t-offpeak); }
@@ -1195,3 +1199,171 @@ body {
   /* 瀏覽器預設不印背景色，會讓選中列、色塊都消失 */
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
+
+/* ---------- 歷史紀錄：分頁 ---------- */
+.tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.tabs button {
+  padding: 8px 18px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tabs button:hover { color: var(--text); }
+.tabs button.active { background: var(--accent); color: #fff; }
+
+/* ---------- 單日紀錄：日期導覽 ---------- */
+.day-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.day-nav .btn { min-width: 38px; justify-content: center; }
+.day-nav-wd { font-size: 15px; margin: 0 4px; }
+.day-nav-wx { font-size: 13px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 6px; }
+.day-nav-wx .wx-icon { font-size: 20px; }
+
+/* ---------- 天氣條（每 3 小時一格） ---------- */
+.weather-strip {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.ws-block {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 4px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.ws-block .ws-time { font-size: 10.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.ws-block .ws-icon { font-size: 22px; line-height: 1.2; }
+.ws-block .ws-label { font-size: 11px; color: var(--text-muted); }
+.ws-block .ws-temp { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ws-block .ws-pop { font-size: 10.5px; color: var(--t-rain); }
+@media (max-width: 720px) {
+  .weather-strip { grid-template-columns: repeat(4, 1fr); }
+}
+
+/* ---------- 電費拆解表 ---------- */
+.history-table.compact td, .history-table.compact th { padding: 8px 10px; }
+.history-table .more { color: var(--t-peak); font-weight: 700; }
+.tier-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+.tier-dot.peak { background: var(--c-peak); }
+.tier-dot.offpeak { background: var(--c-offpeak); }
+
+/* ---------- 能源來源與去向：100% 堆疊橫條 ---------- */
+.stackbar { margin-bottom: 18px; }
+.stackbar-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.stackbar-head strong { color: var(--text); font-variant-numeric: tabular-nums; }
+.stackbar-track {
+  display: flex;
+  height: 26px;
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--overlay-soft);
+}
+.stackbar-seg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+  min-width: 0;
+}
+.stackbar-seg + .stackbar-seg { box-shadow: inset 2px 0 0 var(--bg-panel); } /* 段與段之間留一條細縫 */
+.stackbar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.stackbar-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  margin-right: 5px;
+  vertical-align: -1px;
+}
+
+/* ---------- 可轉移設備時間軸 ---------- */
+.timeline { margin-bottom: 14px; }
+.tl-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.tl-name { width: 52px; flex-shrink: 0; font-size: 12px; color: var(--text-muted); text-align: right; }
+.tl-track {
+  position: relative;
+  flex: 1;
+  height: 18px;
+  border-radius: 5px;
+  background: var(--overlay-soft);
+  overflow: hidden;
+}
+.tl-track.bare { background: none; overflow: visible; height: 14px; }
+.tl-track.bare span {
+  position: absolute;
+  transform: translateX(-50%);
+  font-size: 10.5px;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+.tl-track.bare span:first-child { transform: none; }
+.tl-track.bare span:last-child { transform: translateX(-100%); }
+.tl-peak { position: absolute; top: 0; bottom: 0; background: var(--gantt-peak-bg); }
+.tl-run { position: absolute; top: 3px; bottom: 3px; border-radius: 3px; }
+.tl-legend { font-size: 11px; color: var(--text-dim); margin-left: 62px; }
+.tl-peak-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 5px;
+  vertical-align: -1px;
+  background: var(--gantt-peak-bg);
+  border: 1px solid color-mix(in srgb, var(--c-peak) 40%, transparent);
+}
+
+.run-list { display: flex; flex-direction: column; gap: 8px; }
+.run-row { display: flex; align-items: baseline; gap: 10px; font-size: 13px; }
+.run-name { width: 78px; flex-shrink: 0; }
+.run-times { display: flex; flex-wrap: wrap; gap: 6px; }
+.run-chip {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid var(--border);
+}
+.run-chip.offpeak { color: var(--t-offpeak); background: color-mix(in srgb, var(--c-offpeak) 12%, transparent); }
+.run-chip.peak { color: var(--t-peak); background: color-mix(in srgb, var(--c-peak) 12%, transparent); }

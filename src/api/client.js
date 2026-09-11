@@ -134,22 +134,49 @@ export const parseYmd = (s) => {
 export const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n)
 
 const usageCache = new Map() // 'YYYY-MM-DD' → 當日紀錄；切換區間時不必重算
+const simCache = new Map() // 'YYYY-MM-DD' → 當日完整模擬結果（單日紀錄頁用）
+
+/** 星期幾（0=日）→ 資料集中那一天的 { date, actual[96] } */
+async function weekdayProfiles() {
+  const hist = await fetchHistory()
+  const profiles = {}
+  for (const d of hist?.days ?? []) profiles[parseYmd(d.date).getDay()] = d
+  return profiles
+}
+
+/**
+ * 某一天的完整模擬結果（每 15 分鐘的能量流、排程、各設備功率、天氣）。
+ * 與 fetchDailyUsage 用同一套負載曲線與模擬引擎，所以兩邊的數字一致。
+ */
+function simulateOn(t, profiles) {
+  const key = ymd(t)
+  if (!simCache.has(key)) {
+    const prof = profiles[t.getDay()]
+    simCache.set(key, {
+      sim: simulateDay(t, simulateWeather(t), prof?.actual ?? null),
+      profileFrom: prof?.date ?? null,
+    })
+  }
+  return simCache.get(key)
+}
+
+export async function fetchDaySim(dateStr) {
+  return simulateOn(parseYmd(dateStr), await weekdayProfiles())
+}
 
 /**
  * 區間內每天一筆的用電紀錄（含頭尾兩天）。
  * @returns {Promise<{rows:Array, profileDates:object}>}
  */
 export async function fetchDailyUsage(fromStr, toStr) {
-  const hist = await fetchHistory()
-  const profiles = {} // 星期幾（0=日）→ { date, actual[96] }
-  for (const d of hist?.days ?? []) profiles[parseYmd(d.date).getDay()] = d
+  const profiles = await weekdayProfiles()
 
   const rows = []
   for (let t = parseYmd(fromStr), end = parseYmd(toStr); t <= end; t = addDays(t, 1)) {
     const key = ymd(t)
     if (!usageCache.has(key)) {
-      const prof = profiles[t.getDay()]
-      const sum = simulateDay(t, simulateWeather(t), prof?.actual ?? null).summary
+      const { sim, profileFrom } = simulateOn(t, profiles)
+      const sum = sim.summary
       usageCache.set(key, {
         date: key,
         weekday: t.getDay(),
@@ -161,7 +188,7 @@ export async function fetchDailyUsage(fromStr, toStr) {
         baseline: sum.baselineCost, // 不裝 HEMS（無太陽能、無電池，全部向台電買）的電費
         savings: sum.savings,
         selfUse: sum.selfUseRate,
-        profileFrom: prof?.date ?? null,
+        profileFrom,
       })
     }
     rows.push(usageCache.get(key))
