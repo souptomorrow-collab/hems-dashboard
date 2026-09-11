@@ -83,6 +83,23 @@ async function realFixedLoad(atSlot = null) {
 }
 
 /**
+ * 滾動預測的原始資料（真實值 + 96×96 的發布矩陣），給「滾動預測」那張圖用。
+ *
+ * 其他圖拿到的是已經組好的單一條負載曲線，看不出滾動；
+ * 這張圖要把「不同時間點發布的預測」並排畫出來，所以需要整個矩陣。
+ * 讀不到時回 null，那張圖就不顯示。
+ */
+export async function fetchRollingForecast() {
+  try {
+    const d = await cached('day-ahead-forecast', fetchDayAheadForecast)
+    if (!d.rolling || !d.actual) return null
+    return { rolling: d.rolling, actual: d.actual, targetDate: d.targetDate }
+  } catch {
+    return null
+  }
+}
+
+/**
  * 目前負載資料的來源（UI 標示用）。
  * @returns {{source:'rf'|'sim', refresh:string|null, datasetDate:string|null, error:string|null}}
  */

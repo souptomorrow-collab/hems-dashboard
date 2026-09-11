@@ -3,8 +3,7 @@ import Panel from '../components/Panel.jsx'
 import StatCard from '../components/StatCard.jsx'
 import EChart from '../components/EChart.jsx'
 import EnergyFlow from '../components/EnergyFlow.jsx'
-import WeatherStrip from '../components/WeatherStrip.jsx'
-import { fetchLive, fetchToday, fetchPlanning, loadForecastMeta } from '../api/client.js'
+import { fetchLive, fetchToday, fetchRollingForecast } from '../api/client.js'
 import { COLORS, BATTERY } from '../lib/constants.js'
 import { useTheme } from '../lib/theme.js'
 import { useDemoClock, slotToDate } from '../lib/demoClock.js'
@@ -17,7 +16,6 @@ import {
   baseLegend,
   baseGrid,
   peakMarkArea,
-  rainMarkArea,
   AXIS_TEXT,
   TEXT_MAIN,
   TRACK,
@@ -36,8 +34,7 @@ export default function Dashboard() {
   const kwRange = useRef({ min: 0, max: 0 })
   const [live, setLive] = useState(null)
   const [today, setToday] = useState(null)
-  const [plan, setPlan] = useState(null)
-  const [loadMeta, setLoadMeta] = useState(null) // 負載預測的資料來源
+  const [roll, setRoll] = useState(null) // 滾動預測的原始矩陣（給滾動預測那張圖）
 
   // 即時快照。
   // 真實時間：每 5 秒抓一次。
@@ -65,12 +62,9 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [curSlot, demo.enabled])
 
-  // 隔日預測 + 最佳化：載入一次（那是明天的事，不隨今天的進度改變）
+  // 滾動預測的原始矩陣：載入一次就好，之後只是依目前格數取不同的列
   useEffect(() => {
-    fetchPlanning().then((d) => {
-      setPlan(d)
-      setLoadMeta(loadForecastMeta())
-    })
+    fetchRollingForecast().then(setRoll)
   }, [])
 
   // ---- 主圖：今日功率總覽 ----
@@ -234,6 +228,110 @@ export default function Dashboard() {
     [today, theme, demo.enabled, demo.slot]
   )
 
+  /* ------------------------------------------------------------
+     滾動預測：把「不同時間點發布的預測」並排畫出來
+
+     為什麼需要獨立一張：滾動在「今日預測與排程」那張圖上幾乎看不出來。
+     實測相鄰兩次刷新對同一時刻平均只差 0.015 kW，而那張圖的軸被
+     00:00 的預充尖刺撐到 9 kW 高，差異只佔軸高約 0.2%，大概一個像素。
+     這張只畫不可轉移負載、用它自己的尺度，滾動才看得見。
+
+       紫色實線  現在這一格發布的最新預測
+       淡色虛線  1～4 小時前發布的預測（越舊越淡）
+       實線      當天真實值（只畫到現在，未來還不知道）
+     ------------------------------------------------------------ */
+  // y 軸用整份資料算一次、之後固定，播放時才不會跳
+  const rollRange = useMemo(() => {
+    if (!roll) return { min: 0, max: 1, interval: 0.2 }
+    const vals = [...roll.actual, ...roll.rolling.flat()].filter((v) => Number.isFinite(v))
+    const peak = Math.max(...vals)
+    // 刻度間距和最大值要一起決定，否則最大值不在刻度上，
+    // 頂端會出現 1.5、1.6 兩個標籤疊在一起
+    const interval = peak > 1.2 ? 0.4 : 0.2
+    return { min: 0, max: Math.ceil(peak / interval) * interval, interval }
+  }, [roll])
+
+  const rollingOption = useMemo(() => {
+    if (!roll) return {}
+    const s = curSlot
+    // 第 iss 格發布的那次預測，攤回一日 96 格；發布之前的時段沒有值
+    const issued = (iss) => {
+      const row = roll.rolling[iss]
+      return Array.from({ length: 96 }, (_, i) =>
+        row && i > iss ? (row[i - iss - 1] ?? null) : null
+      )
+    }
+    const earlier = [16, 12, 8, 4].map((k) => s - k).filter((x) => x >= 0)
+    const actual = roll.actual.map((v, i) => (i <= s ? v : null))
+    const base = { type: 'line', smooth: true, symbol: 'none', connectNulls: false }
+
+    // tooltip 要標出每條虛線是幾點發布的，但圖例不能每格都換名字（會一直閃），
+    // 所以圖例統一叫「較早的預測」，發布時間另外記在這裡給 tooltip 用
+    const issueOf = [...earlier, s, null]
+
+    return {
+      tooltip: {
+        ...baseTooltip,
+        formatter: (ps) =>
+          `${ps[0].axisValueLabel}<br/>` +
+          ps
+            .filter((p) => p.value != null)
+            .map((p) => {
+              const iss = issueOf[p.seriesIndex]
+              const who =
+                iss == null ? '真實值' : iss === s ? `${slotToTime(iss)} 發布（最新）` : `${slotToTime(iss)} 發布`
+              return `${p.marker}${who}: ${(+p.value).toFixed(3)} kW`
+            })
+            .join('<br/>'),
+      },
+      legend: { ...baseLegend, data: ['真實值', '最新預測', '較早的預測'] },
+      grid: { ...baseGrid, right: 24 },
+      xAxis: slotXAxis(),
+      yAxis: valueYAxis('kW', { min: rollRange.min, max: rollRange.max, interval: rollRange.interval }),
+      series: [
+        ...earlier.map((iss, j) => ({
+          ...base,
+          name: '較早的預測',
+          data: issued(iss),
+          // j 越大越接近現在：越新越清楚
+          lineStyle: { width: 1.2, type: 'dashed', color: COLORS.load, opacity: 0.2 + j * 0.15 },
+          itemStyle: { color: COLORS.load, opacity: 0.45 },
+        })),
+        {
+          ...base,
+          name: '最新預測',
+          // 從「現在」這一點接出去：預測本來就是站在目前已知的資料往後推，
+          // 不接的話真實值和預測中間會斷一格，看起來像少了資料
+          data: issued(s).map((v, i) => (i === s ? (roll.actual[s] ?? v) : v)),
+          lineStyle: { width: 2.6, color: COLORS.load },
+          itemStyle: { color: COLORS.load },
+          markLine: {
+            silent: true,
+            symbol: 'none',
+            label: {
+              formatter: `現在 ${slotToTime(s)}`,
+              rotate: 0,
+              position: 'end',
+              distance: 4,
+              color: TEXT_MAIN,
+              fontSize: 11,
+              fontWeight: 700,
+            },
+            lineStyle: { color: COLORS.save, width: 1.5, type: 'solid' },
+            data: [{ xAxis: s }],
+          },
+        },
+        {
+          ...base,
+          name: '真實值',
+          data: actual,
+          lineStyle: { width: 2, color: TEXT_MAIN },
+          itemStyle: { color: TEXT_MAIN },
+        },
+      ],
+    }
+  }, [roll, curSlot, theme, rollRange])
+
 
   // ---- 電池 SOC 儀表 ----
   const gaugeOption = useMemo(() => {
@@ -269,59 +367,8 @@ export default function Dashboard() {
   }, [live, theme])
 
   // ---- 隔日預測：太陽能發電 + 家庭負載 + 淨負載（鴨子曲線）----
-  const forecastOption = useMemo(() => {
-    if (!plan) return {}
-    const fixedLoad = plan.fixedLoad ?? plan.load
-    const netLoad = fixedLoad.map((v, i) => +(v - plan.pv[i]).toFixed(3))
-    return {
-      tooltip: { ...baseTooltip, valueFormatter: (v) => `${(+v).toFixed(2)} kW` },
-      color: [COLORS.solar, COLORS.load, '#06b6d4'],
-      legend: { ...baseLegend, data: ['太陽能發電預測', '不可轉移負載預測', '淨負載'] },
-      grid: baseGrid,
-      xAxis: slotXAxis(),
-      yAxis: valueYAxis('kW'),
-      series: [
-        {
-          name: '太陽能發電預測',
-          type: 'line',
-          smooth: true,
-          symbol: 'none',
-          data: plan.pv,
-          lineStyle: { width: 2, color: COLORS.solar },
-          areaStyle: {
-            color: {
-              type: 'linear',
-              x: 0, y: 0, x2: 0, y2: 1,
-              colorStops: [
-                { offset: 0, color: 'rgba(255,176,32,0.35)' },
-                { offset: 1, color: 'rgba(255,176,32,0.02)' },
-              ],
-            },
-          },
-          markArea: rainMarkArea(plan.weather),
-        },
-        {
-          name: '不可轉移負載預測',
-          type: 'line',
-          smooth: true,
-          symbol: 'none',
-          data: fixedLoad,
-          lineStyle: { width: 2, color: COLORS.load },
-        },
-        {
-          name: '淨負載',
-          type: 'line',
-          smooth: true,
-          symbol: 'none',
-          data: netLoad,
-          lineStyle: { width: 1.5, color: '#06b6d4', type: 'dashed' },
-        },
-      ],
-    }
-  }, [plan, theme])
 
   const s = today?.summary
-  const ps = plan?.summary
 
   return (
     <>
@@ -435,6 +482,18 @@ export default function Dashboard() {
         <EChart option={realtimeOption} height={300} />
       </Panel>
 
+      {/* 滾動預測：同一段未來在不同時間點被預測成什麼樣子 */}
+      {roll && (
+        <Panel
+          title="不可轉移負載滾動預測"
+          sub={`RF 每 15 分鐘重發一次未來 24 小時的預測・紫色實線為 ${slotToTime(curSlot)} 發布的最新一次，淡色虛線為 1～4 小時前發布的`}
+          className="mt-16"
+          right={<span className="badge">RF 雲端預測・資料集 {roll.targetDate}</span>}
+        >
+          <EChart option={rollingOption} height={260} />
+        </Panel>
+      )}
+
       {/* 預測與排程：整天都畫，和上面那張刻意分開，避免把「已發生」和「還沒發生」混為一談 */}
       <Panel
         title="今日預測與排程"
@@ -443,70 +502,6 @@ export default function Dashboard() {
       >
         <EChart option={dayPlanOption} height={300} />
       </Panel>
-
-      {/* 隔日預測 + 最佳化結果 */}
-      <div className="grid cols-2 mt-16">
-        <Panel
-          title="隔日預測：發電 vs 負載"
-          sub={
-            '太陽能 LSTM／不可轉移負載 RF 預測；可轉移負載由排程決定（見用電規劃）' +
-            (loadMeta?.datasetDate ? `・負載取自資料集 ${loadMeta.datasetDate}` : '')
-          }
-          right={
-            <div style={{ display: 'flex', gap: 6 }}>
-              {plan && (
-                <span
-                  className="badge"
-                  title={
-                    plan.loadSource === 'rf'
-                      ? `不可轉移負載＝RF 真實預測\n刷新時刻 ${loadMeta?.refresh ?? '—'}\n依一日中的時段對齊到畫面日期`
-                      : '雲端連不上，暫時使用模擬負載'
-                  }
-                >
-                  {plan.loadSource === 'rf' ? '🌐 RF 雲端預測' : '🧪 模擬負載'}
-                </span>
-              )}
-              {plan?.weather && (
-                <span className="badge" title="天氣資料來源">
-                  {plan.weather.source === 'cwa' ? '🌐 CWA 即時天氣' : '🧪 模擬天氣'}
-                </span>
-              )}
-            </div>
-          }
-        >
-          {plan?.weather && (
-            <div className="wx-head">
-              <span className="wx-big">{plan.weather.summary.icon}</span>
-              <div>
-                <div className="wx-title">明日天氣：{plan.weather.summary.label}</div>
-                <div className="dim" style={{ fontSize: 12 }}>
-                  {plan.weather.summary.tempMin}–{plan.weather.summary.tempMax}°C・
-                  降雨機率最高 {plan.weather.summary.popMax}%
-                </div>
-              </div>
-            </div>
-          )}
-          <WeatherStrip weather={plan?.weather} />
-          <EChart option={forecastOption} height={260} />
-        </Panel>
-        <Panel title="隔日最佳化結果" sub="GA 排程摘要（省錢模式）" className="fill-col">
-          {ps ? (
-            <div className="grid cols-2 grow" style={{ gap: 12 }}>
-              <Metric label="預測發電" value={`${ps.pvKwh} 度`} color={COLORS.solar} />
-              <Metric label="預估用電" value={`${ps.loadKwh} 度`} color={COLORS.load} />
-              <Metric label="向電網購電" value={`${ps.gridImportKwh} 度`} color={COLORS.grid} />
-              <Metric label="太陽能自用率" value={`${ps.selfUseRate}%`} color={COLORS.battery} />
-              <Metric label="預估電費" value={`${ps.optimizedCost} 元`} />
-              <Metric label="預估省電費" value={`${ps.savings} 元`} color={COLORS.save} />
-            </div>
-          ) : (
-            <div className="skeleton" style={{ height: 160 }} />
-          )}
-          <p className="hint mt-16">
-            💡 詳細排程與手動調整請見「用電規劃」頁面
-          </p>
-        </Panel>
-      </div>
     </>
   )
 }
@@ -518,27 +513,6 @@ function InfoRow({ label, value, color }) {
       <strong style={{ fontSize: 16, color: color || 'var(--text)', fontVariantNumeric: 'tabular-nums' }}>
         {value}
       </strong>
-    </div>
-  )
-}
-
-function Metric({ label, value, color }) {
-  return (
-    <div
-      className="panel"
-      style={{
-        padding: '12px 14px',
-        background: 'var(--bg-panel-2)',
-        // 這張卡片可能被拉高以填滿面板（見 .panel.fill-col），內容置中才不會黏在上緣
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center',
-      }}
-    >
-      <div className="muted" style={{ fontSize: 12 }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 800, marginTop: 4, color: color || 'var(--text)' }}>
-        {value}
-      </div>
     </div>
   )
 }

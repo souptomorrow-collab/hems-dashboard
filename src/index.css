@@ -492,17 +492,6 @@ h1, h2, h3, h4 {
 .grid.kpi {
   grid-template-columns: repeat(5, 1fr);
 }
-/* 面板高度被同列的鄰居撐高時，讓內容跟著長滿，
-   而不是把空白全部留在底下 */
-.panel.fill-col {
-  display: flex;
-  flex-direction: column;
-}
-.panel.fill-col > .grow {
-  flex: 1;
-  align-content: stretch;   /* 列高為 auto，會平均吸收多出來的高度 */
-}
-
 /* 這幾條要寫成 .grid.cols-N：.grid.kpi 預設 5 欄、是兩個 class，
    單寫 .cols-N 優先級較低會被它蓋掉，卡片數量對不上就會空一格 */
 .grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
@@ -823,43 +812,6 @@ h1, h2, h3, h4 {
 }
 @keyframes shimmer { to { background-position: -200% 0; } }
 
-/* ============================================================
-   天氣標注（預測圖）
-   ============================================================ */
-.wx-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-.wx-head .wx-big { font-size: 34px; line-height: 1; }
-.wx-head .wx-title { font-size: 15px; font-weight: 700; }
-
-.weather-strip {
-  display: grid;
-  grid-template-columns: repeat(8, 1fr);
-  gap: 6px;
-  margin-bottom: 12px;
-}
-.ws-block {
-  background: var(--bg-panel-2);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 8px 4px;
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-}
-.ws-block .ws-time { font-size: 10.5px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
-.ws-block .ws-icon { font-size: 22px; line-height: 1.2; }
-.ws-block .ws-label { font-size: 11px; color: var(--text-muted); }
-.ws-block .ws-temp { font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.ws-block .ws-pop { font-size: 10.5px; color: var(--t-rain); }
-@media (max-width: 720px) {
-  .weather-strip { grid-template-columns: repeat(4, 1fr); }
-}
 
 .tag-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .muted { color: var(--text-muted); }
