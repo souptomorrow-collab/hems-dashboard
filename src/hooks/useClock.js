@@ -20,3 +20,14 @@ export function useClock(intervalMs = 1000) {
 
   return demo.enabled ? slotToDate(demo.slot, now) : now
 }
+
+/**
+ * 目前在一天中的第幾格（0~95，每格 15 分鐘）。
+ * 展示模式下 useClock() 已經回傳虛擬時間，所以同一條公式兩種模式都適用。
+ * 各頁都靠它決定「過去／未來」的分界與滾動預測要取哪一筆，
+ * 集中在這裡，頁面一和頁面二的分界才保證一致。
+ */
+export function useCurrentSlot() {
+  const now = useClock()
+  return Math.floor((now.getHours() * 60 + now.getMinutes()) / 15)
+}

@@ -6,6 +6,7 @@ import { fetchLive, fetchToday } from '../api/client.js'
 import { DEVICES, DEVICE_COLORS, CATEGORY_LABEL, COLORS } from '../lib/constants.js'
 import { useTheme } from '../lib/theme.js'
 import { useDemoClock, slotToDate } from '../lib/demoClock.js'
+import { useClock, useCurrentSlot } from '../hooks/useClock.js'
 import { slotToTime } from '../lib/constants.js'
 import {
   slotXAxis,
@@ -22,6 +23,8 @@ const STATUS_LABEL = { on: '運轉中', off: '關閉', standby: '待機' }
 export default function Loads() {
   const theme = useTheme() // 主題一換，下面的圖表 option 就會重算
   const demo = useDemoClock()
+  const now = useClock()
+  const curSlot = useCurrentSlot()
   const [live, setLive] = useState(null)
   const [today, setToday] = useState(null)
 
@@ -29,7 +32,7 @@ export default function Loads() {
     let on = true
     // 展示模式時改由「播到第幾格」驅動，和頁面一的節奏一致
     const at = demo.enabled ? slotToDate(demo.slot) : undefined
-    const tick = () => fetchLive(at).then((d) => on && setLive(d))
+    const tick = () => fetchLive(at, curSlot).then((d) => on && setLive(d))
     tick()
     if (demo.enabled) return () => { on = false }
     const id = setInterval(tick, 4000)
@@ -37,11 +40,13 @@ export default function Loads() {
       on = false
       clearInterval(id)
     }
-  }, [demo.enabled, demo.slot])
+  }, [demo.enabled, demo.slot, curSlot])
 
+  // 整日各設備用電：和頁面一一樣吃滾動預測，每前進一格重算一次
   useEffect(() => {
-    fetchToday().then(setToday)
-  }, [])
+    fetchToday(now, curSlot).then(setToday)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [curSlot, demo.enabled])
 
   const devices = live?.devices ?? []
   const shiftable = devices.filter((d) => d.category === 'shiftable')

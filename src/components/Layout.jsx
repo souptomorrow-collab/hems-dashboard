@@ -4,12 +4,15 @@ import { fmtClock, fmtDate } from '../lib/format.js'
 import { getCurrentTier, isSummer, TIER_LABEL } from '../lib/tou.js'
 import { LOCATION } from '../lib/time.js'
 import { useTheme, toggleTheme } from '../lib/theme.js'
+import DemoBar from './DemoBar.jsx'
 
 const NAV = [
   { to: '/', label: '主頁面', icon: '🏠', end: true },
   { to: '/loads', label: '各負載功率', icon: '🔌', end: false },
   { to: '/planning', label: '用電規劃', icon: '📅', end: false },
 ]
+
+const DEMO_PAGES = new Set(['/', '/loads'])
 
 const PAGE_META = {
   '/': { title: '主頁面', sub: '太陽能・電池・負載・電網 即時總覽' },
@@ -91,6 +94,10 @@ export default function Layout() {
         </header>
 
         <main className="content">
+          {/* 展示模式是全站共用的虛擬時鐘，所以控制列放在版面層而不是單一頁面：
+              原本只放在主頁面，切到頁面二時展示仍在背景播，卻沒地方暫停或拖曳。
+              頁面三是隔日規劃，不受今天的播放進度影響，那一頁就不顯示。 */}
+          {DEMO_PAGES.has(pathname) && <DemoBar />}
           <Outlet />
         </main>
       </div>

@@ -8,8 +8,7 @@ import { fetchLive, fetchToday, fetchPlanning, loadForecastMeta } from '../api/c
 import { COLORS, BATTERY } from '../lib/constants.js'
 import { useTheme } from '../lib/theme.js'
 import { useDemoClock, slotToDate } from '../lib/demoClock.js'
-import { useClock } from '../hooks/useClock.js'
-import DemoBar from '../components/DemoBar.jsx'
+import { useClock, useCurrentSlot } from '../hooks/useClock.js'
 import { slotToTime } from '../lib/constants.js'
 import {
   slotXAxis,
@@ -29,10 +28,7 @@ export default function Dashboard() {
   const theme = useTheme() // 主題一換，下面的圖表 option 就會重算
   const demo = useDemoClock()
   const now = useClock() // 展示模式開著時，這個已經是虛擬時間
-  // 目前在一天中的第幾格：展示模式看播放進度，否則看真實時間
-  const curSlot = demo.enabled
-    ? demo.slot
-    : Math.floor((now.getHours() * 60 + now.getMinutes()) / 15)
+  const curSlot = useCurrentSlot() // 過去／未來的分界，也決定滾動預測取哪一筆
 
   // kW 軸的範圍「只增不減」。
   // 滾動預測每前進一格就換一次資料，若讓軸自動縮放，播放時整張圖會不停上下跳，
@@ -329,7 +325,6 @@ export default function Dashboard() {
 
   return (
     <>
-      <DemoBar />
       {/* KPI 列 */}
       <div className="grid kpi">
         <StatCard
