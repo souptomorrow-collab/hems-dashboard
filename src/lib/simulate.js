@@ -76,6 +76,9 @@ function fixedOn(id, slot, summer, weather) {
       return h >= 20 && h < 23.5 // 晚上在家才用
     case 'microwave':
       return (h >= 7 && h < 7.5) || (h >= 18 && h < 18.75) // 早餐、晚餐
+    case 'waterHeater':
+      // 儲熱式：早上出門前補一次，傍晚洗澡前加熱（台灣多半晚上洗澡）
+      return (h >= 6 && h < 7) || (h >= 17 && h < 20)
     case 'ac':
       if (summer) {
         // 雙薪外出型：白天沒人，傍晚回家才開冷氣
@@ -110,7 +113,6 @@ function devicePowerWhenOn(dev, slot, weather) {
 const SHIFTABLE_DURATION = {
   washer: 4, // 1.0 h
   dryer: 6, // 1.5 h
-  waterHeater: 8, // 2.0 h
   dishwasher: 4, // 1.0 h
 }
 

@@ -37,7 +37,6 @@ export const DEVICES = [
   // 可轉移
   { id: 'washer', name: '洗衣機', category: 'shiftable', ratedW: 500, icon: '🧺' },
   { id: 'dryer', name: '烘衣機', category: 'shiftable', ratedW: 1500, icon: '🌀' },
-  { id: 'waterHeater', name: '熱水器', category: 'shiftable', ratedW: 2000, icon: '🚿' },
   { id: 'dishwasher', name: '洗碗機', category: 'shiftable', ratedW: 1200, icon: '🍽️' },
   // 不可轉移
   { id: 'computer', name: '電腦', category: 'fixed', ratedW: 250, icon: '💻' },
@@ -47,6 +46,7 @@ export const DEVICES = [
   { id: 'tv', name: '電視', category: 'fixed', ratedW: 120, icon: '📺' },
   { id: 'lighting', name: '照明設備', category: 'fixed', ratedW: 200, icon: '💡' },
   { id: 'ac', name: '冷氣機', category: 'fixed', ratedW: 1400, icon: '❄️' },
+  { id: 'waterHeater', name: '熱水器', category: 'fixed', ratedW: 2000, icon: '🚿' },
 ]
 
 export const CATEGORY_LABEL = {
