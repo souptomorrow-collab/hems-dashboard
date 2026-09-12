@@ -98,10 +98,11 @@ function fixedOn(id, slot, summer, weather) {
 function devicePowerWhenOn(dev, slot, weather) {
   let p = dev.ratedW / 1000
   if (dev.id === 'fridge') {
-    p *= 0.7 + 0.3 * Math.abs(Math.sin(slot)) // 壓縮機循環（小幅起伏）
+    // 900 W 是壓縮機額定；冰箱一天實際壓縮約 8–10 小時，故以 18~30% 的工作週期換算即時功率（平均約 220 W）
+    p *= 0.18 + 0.12 * Math.abs(Math.sin(slot))
   } else if (dev.id === 'ac') {
     const t = weather?.tempSlots?.[slot] ?? 28
-    const f = Math.max(0.5, Math.min(1.35, (t - 24) / 9 + 0.7)) // 越熱功率越高
+    const f = Math.max(0.45, Math.min(1.0, (t - 24) / 9 + 0.55)) // 越熱功率越高，額定為上限
     p *= f
   } else if (dev.category === 'fixed') {
     p *= 0.9

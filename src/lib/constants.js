@@ -34,19 +34,19 @@ export const BATTERY = {
 // category: 'shiftable' 可轉移 / 'fixed' 不可轉移
 // ratedW: 額定功率 (瓦)
 export const DEVICES = [
-  // 可轉移（功率參考文獻之家電額定值；運轉時間依家庭作息設定，見 simulate.js）
+  // 可轉移（額定功率採用 Dinh et al., IEEE Access 2020, Table 4；運轉時間依台灣家庭作息設定）
   { id: 'washer', name: '洗衣機', category: 'shiftable', ratedW: 800, icon: '🧺' },
   { id: 'dryer', name: '烘衣機', category: 'shiftable', ratedW: 700, icon: '🌀' },
   { id: 'dishwasher', name: '洗碗機', category: 'shiftable', ratedW: 200, icon: '🍽️' },
-  // 不可轉移
-  { id: 'computer', name: '電腦', category: 'fixed', ratedW: 250, icon: '💻' },
-  { id: 'security', name: '監控設備', category: 'fixed', ratedW: 40, icon: '📹' },
-  { id: 'microwave', name: '微波爐', category: 'fixed', ratedW: 1000, icon: '🍱' },
-  { id: 'fridge', name: '冰箱', category: 'fixed', ratedW: 150, icon: '🧊' },
-  { id: 'tv', name: '電視', category: 'fixed', ratedW: 120, icon: '📺' },
-  { id: 'lighting', name: '照明設備', category: 'fixed', ratedW: 200, icon: '💡' },
-  { id: 'ac', name: '冷氣機', category: 'fixed', ratedW: 1400, icon: '❄️' },
-  { id: 'waterHeater', name: '熱水器', category: 'fixed', ratedW: 2000, icon: '🚿' },
+  // 不可轉移（同樣採用文獻之額定功率；冰箱為壓縮機額定，實際功率見 simulate.js 的工作週期）
+  { id: 'computer', name: '電腦', category: 'fixed', ratedW: 200, icon: '💻' },
+  { id: 'security', name: '監控設備', category: 'fixed', ratedW: 100, icon: '📹' },
+  { id: 'microwave', name: '微波爐', category: 'fixed', ratedW: 500, icon: '🍱' },
+  { id: 'fridge', name: '冰箱', category: 'fixed', ratedW: 900, icon: '🧊' },
+  { id: 'tv', name: '電視', category: 'fixed', ratedW: 200, icon: '📺' },
+  { id: 'lighting', name: '照明設備', category: 'fixed', ratedW: 100, icon: '💡' },
+  { id: 'ac', name: '冷氣機', category: 'fixed', ratedW: 1300, icon: '❄️' },
+  { id: 'waterHeater', name: '熱水器', category: 'fixed', ratedW: 1000, icon: '🚿' },
 ]
 
 export const CATEGORY_LABEL = {
