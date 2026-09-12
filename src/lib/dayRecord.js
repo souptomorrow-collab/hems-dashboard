@@ -10,13 +10,6 @@
    ============================================================ */
 import { DEVICES, BATTERY, SLOT_HOURS, SLOTS_PER_DAY, slotToTime } from './constants.js'
 
-/**
- * 電力排碳係數（公斤 CO₂e／度）：經濟部能源署公告之 112 年度係數。
- * 用來換算「少向電網買的電」等於少排多少碳；每年公告一次，更新時改這裡即可。
- */
-export const GRID_CO2_KG_PER_KWH = 0.494
-export const GRID_CO2_SOURCE = '經濟部能源署 112 年度電力排碳係數'
-
 const kwh = (arr) => arr.reduce((a, v) => a + v * SLOT_HOURS, 0)
 
 /** 布林陣列中連續為 true 的區段 → [{start, end}]（end 為最後一格的下一格） */
@@ -101,15 +94,11 @@ export function dayRecord(sim) {
     socMin: soc[socMinAt], socMinAt: slotToTime(socMinAt),
   }
 
-  /* ---- 減碳：少向電網買的電 × 排碳係數 ---- */
   const gridBought = kwh(gridIn)
-  const avoidedKwh = Math.max(0, load - gridBought) // 沒裝的話全部要向電網買
-  const co2Kg = avoidedKwh * GRID_CO2_KG_PER_KWH
 
   return {
     summary: sim.summary,
     load, pv, gridBought,
     touRows, sources, pvDest, devices, runs, battery,
-    avoidedKwh, co2Kg,
   }
 }

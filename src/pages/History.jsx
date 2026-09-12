@@ -3,7 +3,7 @@
 
    兩個分頁：
    - 單日紀錄（預設）：某一天完整的運轉紀錄——當天的即時運轉曲線、
-     省下多少錢、電費拆解、能源來源與去向、設備與排程、電池、減碳與天氣
+     省下多少錢、電費拆解、能源來源與去向、設備與排程、電池與天氣
    - 區間統計：電費帳單式，選一段日期依日／週／月彙整，可匯出日報／月報
    在區間統計點某一天，會跳到那天的單日紀錄。
 
@@ -23,7 +23,7 @@ import { TIER_LABEL, isSummer } from '../lib/tou.js'
 import { nowTaipei } from '../lib/time.js'
 import { useTheme, getTheme, setTheme } from '../lib/theme.js'
 import { toCsv, downloadCsv, printReport } from '../lib/exportFile.js'
-import { dayRecord, GRID_CO2_SOURCE, GRID_CO2_KG_PER_KWH } from '../lib/dayRecord.js'
+import { dayRecord } from '../lib/dayRecord.js'
 import {
   baseTooltip,
   baseLegend,
@@ -233,13 +233,12 @@ function DayView({ date, setDate, yesterday, minDay }) {
       ) : (
         <>
           {/* 省下多少錢 */}
-          <div className="grid cols-6 mt-16">
+          <div className="grid cols-5 mt-16">
             <Tile label="當日電費" value={s.optimizedCost.toFixed(1)} unit="元" sub={`向電網購電 ${rec.gridBought.toFixed(1)} 度`} />
             <Tile label="不裝 HEMS 的電費" value={s.baselineCost.toFixed(1)} unit="元" sub="無太陽能、無電池，全部向台電購買" />
             <Tile label="省下電費" value={s.savings.toFixed(1)} unit="元" sub={`省 ${s.savingPct}%`} color={COLORS.save} />
             <Tile label="用電" value={rec.load.toFixed(1)} unit="kWh" sub="家庭總負載" color={COLORS.load} />
             <Tile label="太陽能發電" value={rec.pv.toFixed(1)} unit="kWh" sub={`自用率 ${s.selfUseRate}%`} color={COLORS.solar} />
-            <Tile label="減碳" value={rec.co2Kg.toFixed(1)} unit="kg CO₂" sub={`少向電網買 ${rec.avoidedKwh.toFixed(1)} 度`} color={COLORS.battery} />
           </div>
 
           {/* 即時運轉曲線 */}
@@ -357,7 +356,6 @@ function DayView({ date, setDate, yesterday, minDay }) {
           <p className="hint prose mt-16">
             🧪 系統尚未接上實際電表，以上是依當日天氣與台電簡易二段式電價模擬的運轉紀錄；
             不可轉移負載採用資料集（UCI household_power_consumption）{res.profileFrom ? ` ${res.profileFrom}（同為週${weekdayOf(date)}）` : ''}的實測曲線。
-            減碳量以{GRID_CO2_SOURCE}（{GRID_CO2_KG_PER_KWH} 公斤 CO₂e／度）乘上少向電網購買的度數計算。
           </p>
         </>
       )}
