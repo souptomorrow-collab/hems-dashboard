@@ -34,10 +34,10 @@ export const BATTERY = {
 // category: 'shiftable' 可轉移 / 'fixed' 不可轉移
 // ratedW: 額定功率 (瓦)
 export const DEVICES = [
-  // 可轉移
-  { id: 'washer', name: '洗衣機', category: 'shiftable', ratedW: 500, icon: '🧺' },
-  { id: 'dryer', name: '烘衣機', category: 'shiftable', ratedW: 1500, icon: '🌀' },
-  { id: 'dishwasher', name: '洗碗機', category: 'shiftable', ratedW: 1200, icon: '🍽️' },
+  // 可轉移（功率參考文獻之家電額定值；運轉時間依家庭作息設定，見 simulate.js）
+  { id: 'washer', name: '洗衣機', category: 'shiftable', ratedW: 800, icon: '🧺' },
+  { id: 'dryer', name: '烘衣機', category: 'shiftable', ratedW: 700, icon: '🌀' },
+  { id: 'dishwasher', name: '洗碗機', category: 'shiftable', ratedW: 200, icon: '🍽️' },
   // 不可轉移
   { id: 'computer', name: '電腦', category: 'fixed', ratedW: 250, icon: '💻' },
   { id: 'security', name: '監控設備', category: 'fixed', ratedW: 40, icon: '📹' },
