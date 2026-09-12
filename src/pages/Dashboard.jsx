@@ -381,7 +381,7 @@ export default function Dashboard() {
         <StatCard
           icon="☀️"
           color={COLORS.solar}
-          label="太陽能即時發電"
+          label={`太陽能即時發電${today?.pvSource === 'lstm' ? '（LSTM 預測）' : ''}`}
           value={live ? live.pvKw.toFixed(2) : '—'}
           unit="kW"
           sub={
@@ -489,7 +489,16 @@ export default function Dashboard() {
       {/* 預測與排程：整天都畫，和上面那張刻意分開，避免把「已發生」和「還沒發生」混為一談 */}
       <Panel
         title="今日預測與排程"
-        sub={`過去用真實值、未來用 ${slotToTime(curSlot)} 發布的最新一次 RF 預測重新規劃・紅底為尖峰時段`}
+        sub={`負載：過去用真實值、未來用 ${slotToTime(curSlot)} 發布的最新一次 RF 預測重新規劃`
+             + (today?.pvSource === 'lstm'
+                ? '・太陽能：前一晚 23:45 發布的 LSTM 預測（一天一次）'
+                : '')
+             + '・紅底為尖峰時段'}
+        right={
+          today?.pvSource === 'lstm' ? (
+            <span className="badge">RF + LSTM 雲端預測</span>
+          ) : null
+        }
         className="mt-16"
       >
         <EChart option={dayPlanOption} height={300} />

@@ -8,7 +8,12 @@
      本檔讀那份快照，覆蓋掉模擬的不可轉移負載（詳見 api/forecastData.js）。
      讀不到時自動退回模擬值，UI 不會壞掉（badge 會標示資料來源）。
 
-   太陽能發電（LSTM）、GA 排程：仍為模擬引擎（simulate.js）。
+   太陽能發電（LSTM）：**已接真實資料**。
+     發電量預測組的 LSTM 結果存在 hems.pv_forecast（每天 23:45 發布一次，
+     不像負載每 15 分鐘滾動），同樣由 04_export_web.py 匯出到同一份快照。
+     讀不到時退回模擬的晴空曲線。
+
+   GA 排程：仍為模擬引擎（simulate.js）。
      之後接後端時，把對應函式內容換成 fetch() 即可，回傳格式不變。
 
    所有函式都回傳 Promise。
@@ -38,6 +43,8 @@ let lastForecastMeta = {
   datasetDate: null,
   error: null,
 }
+
+let lastPvMeta = { source: 'sim', datasetDate: null, error: null }
 
 /**
  * 組出「站在第 atSlot 格往後看」的一日 96 格不可轉移負載。
@@ -78,6 +85,26 @@ async function realFixedLoad(atSlot = null) {
   } catch (e) {
     lastForecastMeta = { source: 'sim', refresh: null, datasetDate: null, error: e.message }
     if (import.meta.env.DEV) console.warn('[HEMS] 取雲端負載預測失敗，改用模擬值：', e.message)
+    return null
+  }
+}
+
+/**
+ * 真實的發電量預測（96 格 kW）。
+ *
+ * 和負載不同，發電量一天只發布一次（前一晚 23:45），所以這裡沒有「站在第幾格」
+ * 的概念 —— 整天用的都是同一條日前曲線，這正是排程實際拿到的東西。
+ * 讀不到就回 null，simulateDay() 會自動退回模擬的晴空曲線。
+ */
+async function realPv() {
+  try {
+    const d = await cached('day-ahead-forecast', fetchDayAheadForecast)
+    if (!d.pv) throw new Error('快照無發電量預測')
+    lastPvMeta = { source: 'lstm', datasetDate: d.targetDate, error: null }
+    return d.pv
+  } catch (e) {
+    lastPvMeta = { source: 'sim', datasetDate: null, error: e.message }
+    if (import.meta.env.DEV) console.warn('[HEMS] 取雲端發電量預測失敗，改用模擬值：', e.message)
     return null
   }
 }
@@ -152,8 +179,11 @@ function simulateOn(t, profiles) {
   const key = ymd(t)
   if (!simCache.has(key)) {
     const prof = profiles[t.getDay()]
+    // 負載與發電量都取「同一個星期幾」那天資料集的實際曲線，兩者來自同一天，
+    // 天氣條件才會一致（別讓晴天的太陽能配上陰天的負載）。
     simCache.set(key, {
-      sim: simulateDay(t, simulateWeather(t), prof?.actual ?? null),
+      sim: simulateDay(t, simulateWeather(t), prof?.actual ?? null,
+                       prof?.pv_day_ahead ?? null),
       profileFrom: prof?.date ?? null,
     })
   }
@@ -205,26 +235,34 @@ export function loadForecastMeta() {
   return lastForecastMeta
 }
 
+/**
+ * 目前發電量資料的來源（UI 標示用）。
+ * @returns {{source:'lstm'|'sim', datasetDate:string|null, error:string|null}}
+ */
+export function pvForecastMeta() {
+  return lastPvMeta
+}
+
 /** 主頁面即時快照（太陽能/電池/負載/電網/SOC/省電費…） */
 export async function fetchLive(now = nowTaipei(), atSlot = null) {
-  const fixed = await realFixedLoad(atSlot)
+  const [fixed, pv] = await Promise.all([realFixedLoad(atSlot), realPv()])
   await delay(60)
-  return liveSnapshot(now, fixed)
+  return liveSnapshot(now, fixed, pv)
 }
 
 /** 今日整日（主頁面的 24h 趨勢圖、最佳化結果） */
 export async function fetchToday(now = nowTaipei(), atSlot = null) {
-  const fixed = await realFixedLoad(atSlot)
+  const [fixed, pv] = await Promise.all([realFixedLoad(atSlot), realPv()])
   await delay(80)
-  return simulateDay(now, simulateWeather(now), fixed)
+  return simulateDay(now, simulateWeather(now), fixed, pv)
 }
 
 /** 隔日預測 + 最佳化排程（主頁面「預測結果」、頁面三規劃） */
 export async function fetchPlanning(baseDate = nowTaipei()) {
-  const fixed = await realFixedLoad()
+  const [fixed, pv] = await Promise.all([realFixedLoad(), realPv()])
   const date = tomorrow(baseDate)
   await delay(120)
-  return simulateDay(date, simulateWeather(date), fixed)
+  return simulateDay(date, simulateWeather(date), fixed, pv)
 }
 
 
@@ -233,10 +271,10 @@ export async function fetchPlanning(baseDate = nowTaipei()) {
  * @param {object} schedule  { deviceId: boolean[96] }
  */
 export async function recomputeSchedule(schedule, baseDate = nowTaipei()) {
-  const fixed = await realFixedLoad()
+  const [fixed, pv] = await Promise.all([realFixedLoad(), realPv()])
   const date = tomorrow(baseDate)
   await delay(60)
-  return simulateWithSchedule(date, schedule, simulateWeather(date), fixed)
+  return simulateWithSchedule(date, schedule, simulateWeather(date), fixed, pv)
 }
 
 /**

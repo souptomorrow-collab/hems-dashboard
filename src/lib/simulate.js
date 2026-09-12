@@ -364,13 +364,15 @@ export function dispatch(date, pv, load) {
 }
 
 /** 完整模擬一天（演算法排程 + 調度），含天氣
-   fixedOverride：真實 RF 不可轉移負載預測（96 格 kW），沒給就用模擬值 */
+   fixedOverride：真實 RF 不可轉移負載預測（96 格 kW），沒給就用模擬值
+   pvOverride：真實 LSTM 發電量預測（96 格 kW），沒給就用模擬的晴空曲線 */
 export function simulateDay(
   date,
   weather = simulateWeather(date),
-  fixedOverride = null
+  fixedOverride = null,
+  pvOverride = null
 ) {
-  const pv = pvForecastKw(date, weather)
+  const pv = pvOverride ?? pvForecastKw(date, weather)
   const schedule = buildSchedule(date, weather)
   const { power, total, fixed, shiftable } = powerAndLoadFromSchedule(
     schedule,
@@ -386,6 +388,7 @@ export function simulateDay(
     shiftableLoad: shiftable,
     weather,
     loadSource: fixedOverride ? 'rf' : 'sim',
+    pvSource: pvOverride ? 'lstm' : 'sim',
   }
 }
 
@@ -394,9 +397,10 @@ export function simulateWithSchedule(
   date,
   schedule,
   weather = simulateWeather(date),
-  fixedOverride = null
+  fixedOverride = null,
+  pvOverride = null
 ) {
-  const pv = pvForecastKw(date, weather)
+  const pv = pvOverride ?? pvForecastKw(date, weather)
   const { power, total, fixed, shiftable } = powerAndLoadFromSchedule(
     schedule,
     weather,
@@ -411,15 +415,16 @@ export function simulateWithSchedule(
     shiftableLoad: shiftable,
     weather,
     loadSource: fixedOverride ? 'rf' : 'sim',
+    pvSource: pvOverride ? 'lstm' : 'sim',
   }
 }
 
 /* ============================================================
    4) 即時快照（給主頁面 KPI / 頁面二設備卡用）
    ============================================================ */
-export function liveSnapshot(now = nowTaipei(), fixedOverride = null) {
+export function liveSnapshot(now = nowTaipei(), fixedOverride = null, pvOverride = null) {
   const weather = simulateWeather(now)
-  const day = simulateDay(now, weather, fixedOverride)
+  const day = simulateDay(now, weather, fixedOverride, pvOverride)
   const slot = Math.min(
     SLOTS_PER_DAY - 1,
     Math.floor((now.getHours() * 60 + now.getMinutes()) / 15)

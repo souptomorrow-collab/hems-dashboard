@@ -63,6 +63,11 @@ export async function fetchDayAheadForecast() {
       // RF 每 15 分鐘重發一次未來 96 步，同一個時刻會被預測很多次、
       // 越接近越更新，這個矩陣就是拿來重現那個滾動行為的。
       rolling: Array.isArray(d.rolling) ? d.rolling : null,
+      // 發電量（LSTM）：一天只發一次，所以只有一條日前曲線、沒有 rolling。
+      // pvActual 是「以實測日射量換算」的發電量，不是實測出力。
+      pv: Array.isArray(d.pv) && d.pv.length === 96 ? fillGaps(d.pv) : null,
+      pvActual: Array.isArray(d.pv_actual) ? d.pv_actual : null,
+      pvSource: d.pv_source ?? null,
       targetDate: d.target_date ?? null,
       hasActual: Boolean(d.has_actual),
       source: d.source ?? null,
