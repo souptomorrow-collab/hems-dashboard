@@ -199,6 +199,28 @@ export function powerAndLoadFromSchedule(schedule, weather = null, fixedOverride
       if (sim > 0.01) {
         const k = target / sim
         for (const dev of fixedDevs) power[dev.id][s] = +(power[dev.id][s] * k).toFixed(4)
+        // 縮放後可能有設備超過自己的額定；把超出的部分讓給還有餘裕、且正在運轉的設備，
+        // 總量不變，但每台顯示的功率不會高於額定值
+        let extra = 0
+        const room = []
+        for (const dev of fixedDevs) {
+          const cap = dev.ratedW / 1000
+          if (power[dev.id][s] > cap) {
+            extra += power[dev.id][s] - cap
+            power[dev.id][s] = cap
+          } else if (power[dev.id][s] > 0) {
+            room.push([dev.id, cap - power[dev.id][s]])
+          }
+        }
+        const roomSum = room.reduce((a, [, r]) => a + r, 0)
+        if (extra > 1e-6 && roomSum > 1e-6) {
+          const give = Math.min(extra, roomSum)
+          for (const [id, r] of room) {
+            power[id][s] = +(power[id][s] + give * (r / roomSum)).toFixed(4)
+          }
+          extra -= give
+        }
+        if (extra > 1e-6) fixed[s] = target - extra // 全部設備都滿載，差額無處可放
       } else {
         // 理論上不會發生（冰箱/監控 24h 常開），保險起見平均攤給常時設備
         const alwaysOn = fixedDevs.filter((d) => d.id === 'fridge' || d.id === 'security')
@@ -407,7 +429,8 @@ export function liveSnapshot(now = nowTaipei(), fixedOverride = null) {
   const devices = DEVICES.map((dev) => {
     const on = day.schedule[dev.id][slot]
     const base = day.devicePower[dev.id][slot]
-    const watt = on ? Math.round(base * 1000 * jitter()) : 0
+    // 擾動後仍夾在額定功率以內，畫面上不會出現「即時功率大於額定」
+    const watt = on ? Math.min(dev.ratedW, Math.round(base * 1000 * jitter())) : 0
     let status = on ? 'on' : 'off'
     if (!on && (dev.id === 'fridge' || dev.id === 'security')) status = 'standby'
     return { ...dev, watt, status }
