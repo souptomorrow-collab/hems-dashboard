@@ -8,7 +8,7 @@
    本系統設定「防逆送」（多的電不能賣回台電），pvToGrid 實際上是被削減、
    沒有被利用的太陽能，所以標成「削減」而不是「賣電」。
    ============================================================ */
-import { DEVICES, BATTERY, SLOT_HOURS, SLOTS_PER_DAY, slotToTime } from './constants.js'
+import { DEVICES, BATTERY, SLOT_HOURS, SLOTS_PER_DAY, slotToTime, UNASSIGNED } from './constants.js'
 
 const kwh = (arr) => arr.reduce((a, v) => a + v * SLOT_HOURS, 0)
 
@@ -57,7 +57,8 @@ export function dayRecord(sim) {
   ]
 
   /* ---- 設備用電排行 ---- */
-  const devices = DEVICES.map((d) => ({ ...d, kwh: kwh(sim.devicePower[d.id]) }))
+  const devices = [...DEVICES, UNASSIGNED].filter((d) => sim.devicePower[d.id])
+    .map((d) => ({ ...d, kwh: kwh(sim.devicePower[d.id]) }))
     .filter((d) => d.kwh > 0.001)
     .sort((a, b) => b.kwh - a.kwh)
 

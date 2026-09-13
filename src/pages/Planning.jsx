@@ -3,7 +3,7 @@ import Panel from '../components/Panel.jsx'
 import EChart from '../components/EChart.jsx'
 import Tile from '../components/Tile.jsx'
 import { fetchPlanning, recomputeSchedule } from '../api/client.js'
-import { DEVICES, COLORS, CATEGORY_LABEL, slotToTime, slotToHour } from '../lib/constants.js'
+import { DEVICES, COLORS, CATEGORY_LABEL, slotToTime, slotToHour, BATTERY } from '../lib/constants.js'
 import { tomorrow, fmtDate, pad2 } from '../lib/format.js'
 import { useTheme } from '../lib/theme.js'
 import {
@@ -134,7 +134,7 @@ export default function Planning() {
         { name: 'SOC', type: 'line', yAxisIndex: 1, symbol: 'none', smooth: true,
           lineStyle: { width: 2, color: COLORS.battery }, data: plan.socPct,
           markLine: { silent: true, symbol: 'none', lineStyle: { color: TRACK_LINE, type: 'dashed' },
-            data: [{ yAxis: 90 }, { yAxis: 10 }] } },
+            data: [{ yAxis: Math.round(BATTERY.socMax * 100) }, { yAxis: Math.round(BATTERY.socMin * 100) }] } },
       ],
     }
   }, [plan, theme])
@@ -189,7 +189,7 @@ export default function Planning() {
       </Panel>
 
       {/* 電池充放電 */}
-      <Panel title="電池充放電規劃" sub="太陽能充電 / 電網充電 / 放電 與 SOC（虛線為 10%–90% 上下限）" className="mt-16">
+      <Panel title="電池充放電規劃" sub={`太陽能充電 / 電網充電 / 放電 與 SOC（虛線為 ${Math.round(BATTERY.socMin * 100)}%–${Math.round(BATTERY.socMax * 100)}% 上下限）`} className="mt-16">
         <EChart option={battOption} height={300} />
       </Panel>
 

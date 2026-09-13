@@ -3,7 +3,7 @@ import Panel from '../components/Panel.jsx'
 import StatCard from '../components/StatCard.jsx'
 import EChart from '../components/EChart.jsx'
 import { fetchLive, fetchToday } from '../api/client.js'
-import { DEVICES, DEVICE_COLORS, CATEGORY_LABEL, COLORS } from '../lib/constants.js'
+import { DEVICES, DEVICE_COLORS, CATEGORY_LABEL, COLORS, UNASSIGNED } from '../lib/constants.js'
 import { useTheme } from '../lib/theme.js'
 import { useDemoClock, slotToDate } from '../lib/demoClock.js'
 import { useClock, useCurrentSlot } from '../hooks/useClock.js'
@@ -108,14 +108,16 @@ export default function Loads() {
   // 今日各設備用電堆疊（24h，15 分鐘）
   const stackOption = useMemo(() => {
     if (!today) return {}
+    // 有未分項才畫；少了它，堆疊高度會比總負載矮
+    const stackDevs = [...DEVICES, UNASSIGNED].filter((d) => today.devicePower[d.id]?.some((v) => v > 0))
     return {
       tooltip: { ...baseTooltip, valueFormatter: (v) => `${(+v).toFixed(2)} kW` },
-      color: DEVICES.map((d) => DEVICE_COLORS[d.id]),
-      legend: { ...baseLegend, type: 'scroll', data: DEVICES.map((d) => d.name) },
+      color: stackDevs.map((d) => DEVICE_COLORS[d.id]),
+      legend: { ...baseLegend, type: 'scroll', data: stackDevs.map((d) => d.name) },
       grid: { ...baseGrid, top: 50 },
       xAxis: slotXAxis(),
       yAxis: valueYAxis('kW'),
-      series: DEVICES.map((dev) => ({
+      series: stackDevs.map((dev) => ({
         name: dev.name,
         type: 'line',
         stack: 'load',
@@ -132,7 +134,7 @@ export default function Loads() {
   return (
     <>
       <div className="grid kpi cols-4">
-        <StatCard icon="🏠" color={COLORS.load} label="即時總負載" value={live ? (sumW(devices) / 1000).toFixed(2) : '—'} unit="kW" sub={`${devices.length} 項設備`} />
+        <StatCard icon="🏠" color={COLORS.load} label="即時總負載" value={live ? (sumW(devices) / 1000).toFixed(2) : '—'} unit="kW" sub={`${devices.filter((d) => d.ratedW).length} 項設備`} />
         <StatCard icon="🟢" color={COLORS.battery} label="運轉中設備" value={live ? onCount : '—'} unit="項" sub={`待機 ${devices.filter((d) => d.status === 'standby').length} 項`} />
         <StatCard icon="🔄" color={COLORS.grid} label="可轉移負載" value={live ? (sumW(shiftable) / 1000).toFixed(2) : '—'} unit="kW" sub="洗衣/烘衣/洗碗機" />
         <StatCard icon="📌" color="#a855f7" label="不可轉移負載" value={live ? (sumW(fixed) / 1000).toFixed(2) : '—'} unit="kW" sub="冰箱/冷氣/熱水器 等" />
@@ -157,7 +159,8 @@ export default function Loads() {
         </div>
         <div className="device-grid">
           {devices.map((d) => {
-            const pct = Math.min(100, (d.watt / d.ratedW) * 100)
+            // 未分項沒有額定功率，進度條改看它佔即時總負載的比例
+            const pct = Math.min(100, (d.watt / (d.ratedW ?? Math.max(1, sumW(devices)))) * 100)
             return (
               <div className="device-card" key={d.id}>
                 <div className="dc-top">
@@ -165,7 +168,7 @@ export default function Loads() {
                   <div>
                     <div className="dc-name">{d.name}</div>
                     <div className="dc-cat">
-                      {CATEGORY_LABEL[d.category]}・額定 {d.ratedW} W
+                      {d.ratedW ? `${CATEGORY_LABEL[d.category]}・額定 ${d.ratedW} W` : '預測總量中無法歸到特定設備的用電'}
                     </div>
                   </div>
                   <span className={`status-pill ${d.status}`}>{STATUS_LABEL[d.status]}</span>
@@ -185,7 +188,7 @@ export default function Loads() {
         </div>
       </Panel>
 
-      <Panel title="今日各設備用電堆疊" sub="24 小時・15 分鐘為單位（堆疊面積 = 家中總負載）" className="mt-16">
+      <Panel title="今日各設備用電堆疊" sub="24 小時・15 分鐘為單位（堆疊面積 = 家中總負載；灰色「未分項」是預測總量中無法歸到特定設備的用電）" className="mt-16">
         <EChart option={stackOption} height={340} />
       </Panel>
     </>

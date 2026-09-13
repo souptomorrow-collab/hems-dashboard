@@ -215,7 +215,7 @@ export default function Dashboard() {
             symbol: 'none',
             label: { color: AXIS_TEXT, fontSize: 10, formatter: '{c}%' },
             lineStyle: { color: TRACK_LINE, type: 'dashed' },
-            data: [{ yAxis: 90 }, { yAxis: 10 }],
+            data: [{ yAxis: Math.round(BATTERY.socMax * 100) }, { yAxis: Math.round(BATTERY.socMin * 100) }],
           },
         },
       ],
@@ -250,7 +250,10 @@ export default function Dashboard() {
     const peak = Math.max(...vals)
     // 刻度間距和最大值要一起決定，否則最大值不在刻度上，
     // 頂端會出現 1.5、1.6 兩個標籤疊在一起
-    const interval = peak > 1.2 ? 0.4 : 0.2
+    // 間距挑 1、2、5 的倍數裡「刻度不超過 6 格」的最小值。
+    // 放大後尖峰到 7 kW 以上時，原本固定 0.4 會排出十幾個標籤擠成一團
+    const steps = [0.1, 0.2, 0.5, 1, 2, 5, 10]
+    const interval = steps.find((st) => peak / st <= 6) ?? 10
     return { min: 0, max: Math.ceil(peak / interval) * interval, interval }
   }, [roll])
 

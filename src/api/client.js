@@ -23,6 +23,7 @@ import { tomorrow } from '../lib/format.js'
 import { nowTaipei } from '../lib/time.js'
 import { simulateWeather } from '../lib/weather.js'
 import { fetchDayAheadForecast, cached } from './forecastData.js'
+import { isSummer } from '../lib/tou.js'
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms))
 
@@ -148,9 +149,9 @@ export async function fetchHistory() {
    平日／假日）算出太陽能、電池、電網與電費。模擬引擎的天氣是以日期為
    種子產生，同一天每次算出來都一樣，紀錄才不會每次打開都不同。
 
-   不可轉移負載改用資料集裡「同一個星期幾」的實測曲線：資料集
-   （2010-11-18～24）剛好週一到週日各一天，平日／週末的用電差異是真的，
-   而不是模擬值。
+   不可轉移負載與太陽能改用資料集裡「同季節、同一個星期幾」的實際曲線：
+   交接資料有夏月（2010-09-06～12）與非夏月（2010-11-18～24）各一週，
+   剛好週一到週日各一天，平日／週末與季節的差異都是真的，而不是模擬值。
    ------------------------------------------------------------ */
 const pad = (n) => String(n).padStart(2, '0')
 export const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
@@ -163,12 +164,24 @@ export const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDa
 const usageCache = new Map() // 'YYYY-MM-DD' → 當日紀錄；切換區間時不必重算
 const simCache = new Map() // 'YYYY-MM-DD' → 當日完整模擬結果（單日紀錄頁用）
 
-/** 星期幾（0=日）→ 資料集中那一天的 { date, actual[96] } */
+/**
+ * 資料集的日子依「夏月／非夏月」與星期幾分組：{ summer: {0..6}, other: {0..6} }。
+ * 只照星期幾挑的話，後面的 11 月會蓋掉 9 月，夏天的日期就會用到非夏月的負載與太陽能。
+ */
 async function weekdayProfiles() {
   const hist = await fetchHistory()
-  const profiles = {}
-  for (const d of hist?.days ?? []) profiles[parseYmd(d.date).getDay()] = d
+  const profiles = { summer: {}, other: {} }
+  for (const d of hist?.days ?? []) {
+    const day = parseYmd(d.date)
+    profiles[isSummer(day) ? 'summer' : 'other'][day.getDay()] = d
+  }
   return profiles
+}
+
+/** 挑同季節、同星期幾的那天；該季節沒有就退回另一季 */
+function profileFor(profiles, t) {
+  const [want, alt] = isSummer(t) ? ['summer', 'other'] : ['other', 'summer']
+  return profiles[want][t.getDay()] ?? profiles[alt][t.getDay()] ?? null
 }
 
 /**
@@ -178,7 +191,7 @@ async function weekdayProfiles() {
 function simulateOn(t, profiles) {
   const key = ymd(t)
   if (!simCache.has(key)) {
-    const prof = profiles[t.getDay()]
+    const prof = profileFor(profiles, t)
     // 負載與發電量都取「同一個星期幾」那天資料集的實際曲線，兩者來自同一天，
     // 天氣條件才會一致（別讓晴天的太陽能配上陰天的負載）。
     simCache.set(key, {
@@ -223,7 +236,8 @@ export async function fetchDailyUsage(fromStr, toStr) {
     }
     rows.push(usageCache.get(key))
   }
-  const profileDates = Object.fromEntries(Object.entries(profiles).map(([w, d]) => [w, d.date]))
+  const dates = (g) => Object.fromEntries(Object.entries(g).map(([w, d]) => [w, d.date]))
+  const profileDates = { summer: dates(profiles.summer), other: dates(profiles.other) }
   return { rows, profileDates }
 }
 

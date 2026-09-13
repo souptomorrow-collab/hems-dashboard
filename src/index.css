@@ -506,9 +506,10 @@ h1, h2, h3, h4 {
 .grid.cols-2 { grid-template-columns: repeat(2, 1fr); }
 .grid.cols-3 { grid-template-columns: repeat(3, 1fr); }
 .grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+.grid.cols-5 { grid-template-columns: repeat(5, 1fr); }
 .grid.cols-6 { grid-template-columns: repeat(6, 1fr); }
 @media (max-width: 1100px) {
-  .grid.cols-6 { grid-template-columns: repeat(3, 1fr); }
+  .grid.cols-5, .grid.cols-6 { grid-template-columns: repeat(3, 1fr); }
 }
 .span-2 { grid-column: span 2; }
 
@@ -1055,7 +1056,7 @@ body {
   .panel { padding: 14px 12px; }
 
   /* KPI 兩欄：五張卡片各佔一列會讓首頁長到要滑很久 */
-  .grid.kpi, .grid.cols-4, .grid.cols-6 { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .grid.kpi, .grid.cols-4, .grid.cols-5, .grid.cols-6 { grid-template-columns: repeat(2, 1fr); gap: 10px; }
 
   /* 流向圖直式版面：來源在上、家在中、電池在下（座標見 EnergyFlow.jsx） */
 

@@ -42,7 +42,8 @@ export const DEVICES = [
   { id: 'computer', name: '電腦', category: 'fixed', ratedW: 200, icon: '💻' },
   { id: 'security', name: '監控設備', category: 'fixed', ratedW: 100, icon: '📹' },
   { id: 'microwave', name: '微波爐', category: 'fixed', ratedW: 500, icon: '🍱' },
-  { id: 'fridge', name: '冰箱', category: 'fixed', ratedW: 900, icon: '🧊' },
+  // capW：分配預測總量時的上限。冰箱 24 小時開著，用額定 900 W 當上限會被塞進一整天的電
+  { id: 'fridge', name: '冰箱', category: 'fixed', ratedW: 900, capW: 90, icon: '🧊' },
   { id: 'tv', name: '電視', category: 'fixed', ratedW: 200, icon: '📺' },
   { id: 'lighting', name: '照明設備', category: 'fixed', ratedW: 100, icon: '💡' },
   { id: 'ac', name: '冷氣機', category: 'fixed', ratedW: 1300, icon: '❄️' },
@@ -55,7 +56,11 @@ export const CATEGORY_LABEL = {
 }
 
 // 各設備配色（圖表用）
+// 未分項：RF 預測的不可轉移總量裡，各設備都到合理上限後仍放不下、無法歸到特定設備的部分
+export const UNASSIGNED = { id: 'unassigned', name: '未分項', category: 'fixed', ratedW: null, icon: '📦' }
+
 export const DEVICE_COLORS = {
+  unassigned: '#94a3b8',
   washer: '#60a5fa',
   dryer: '#818cf8',
   waterHeater: '#38bdf8',

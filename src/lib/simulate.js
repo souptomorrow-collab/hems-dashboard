@@ -10,13 +10,7 @@
    - 太陽能發電：雲量越多、發電越低（陰雨/颱風驟降）
    - 家庭負載：氣溫越高、冷氣用電越多；陰雨天白天也開燈
    ============================================================ */
-import {
-  SLOTS_PER_DAY,
-  SLOT_HOURS,
-  BATTERY,
-  DEVICES,
-  slotToHour,
-} from './constants.js'
+import { SLOTS_PER_DAY, SLOT_HOURS, BATTERY, DEVICES, slotToHour, UNASSIGNED } from './constants.js'
 import { isSummer, getPriceSlots, getTierSlots } from './tou.js'
 import { nowTaipei } from './time.js'
 import { mulberry32, seedFromDate, dayOfYear } from './rng.js'
@@ -98,8 +92,8 @@ function fixedOn(id, slot, summer, weather) {
 function devicePowerWhenOn(dev, slot, weather) {
   let p = dev.ratedW / 1000
   if (dev.id === 'fridge') {
-    // 900 W 是壓縮機額定；冰箱一天實際壓縮約 8–10 小時，故以 18~30% 的工作週期換算即時功率（平均約 220 W）
-    p *= 0.18 + 0.12 * Math.abs(Math.sin(slot))
+    // 900 W 是壓縮機額定；換算成 6~10% 的等效工作週期（平均約 76 W，一天約 1.8 度，接近一般家用冰箱）
+    p *= 0.06 + 0.04 * Math.abs(Math.sin(slot))
   } else if (dev.id === 'ac') {
     const t = weather?.tempSlots?.[slot] ?? 28
     const f = Math.max(0.45, Math.min(1.0, (t - 24) / 9 + 0.55)) // 越熱功率越高，額定為上限
@@ -189,6 +183,8 @@ export function powerAndLoadFromSchedule(schedule, weather = null, fixedOverride
     }
   }
 
+  power.unassigned = new Array(SLOTS_PER_DAY).fill(0)
+
   // 以真實預測取代模擬的不可轉移負載
   if (fixedOverride?.length === SLOTS_PER_DAY) {
     const fixedDevs = DEVICES.filter((d) => d.category === 'fixed')
@@ -204,7 +200,7 @@ export function powerAndLoadFromSchedule(schedule, weather = null, fixedOverride
         let extra = 0
         const room = []
         for (const dev of fixedDevs) {
-          const cap = dev.ratedW / 1000
+          const cap = (dev.capW ?? dev.ratedW) / 1000
           if (power[dev.id][s] > cap) {
             extra += power[dev.id][s] - cap
             power[dev.id][s] = cap
@@ -220,12 +216,17 @@ export function powerAndLoadFromSchedule(schedule, weather = null, fixedOverride
           }
           extra -= give
         }
-        if (extra > 1e-6) fixed[s] = target - extra // 全部設備都滿載，差額無處可放
+        // 所有設備都到合理上限後還放不下的部分歸到「未分項」，各設備加總才會等於總負載
+        if (extra > 1e-6) power.unassigned[s] = +extra.toFixed(4)
       } else {
-        // 理論上不會發生（冰箱/監控 24h 常開），保險起見平均攤給常時設備
-        const alwaysOn = fixedDevs.filter((d) => d.id === 'fridge' || d.id === 'security')
-        const share = target / (alwaysOn.length || 1)
-        for (const dev of alwaysOn) power[dev.id][s] = +share.toFixed(4)
+        // 理論上不會發生（冰箱/監控 24h 常開）；保險起見先給常時設備到上限，剩下歸未分項
+        let left = target
+        for (const dev of fixedDevs.filter((d) => d.id === 'fridge' || d.id === 'security')) {
+          const give = Math.min(left, (dev.capW ?? dev.ratedW) / 1000)
+          power[dev.id][s] = +give.toFixed(4)
+          left -= give
+        }
+        if (left > 1e-6) power.unassigned[s] = +left.toFixed(4)
       }
       total[s] = total[s] - sim + target
       fixed[s] = target
@@ -267,7 +268,15 @@ export function dispatch(date, pv, load) {
     expectedSurplus += Math.max(0, pv[s] - load[s]) * SLOT_HOURS
   }
   const reserve = Math.min(expectedSurplus, maxKwh - minKwh)
-  const prechargeCeiling = Math.max(minKwh, maxKwh - reserve)
+  // 預充只是為了尖峰要用的電：當天沒有尖峰（週末、假日整天離峰）就不預充，
+  // 否則半夜買的電一整天放不出去，裝了 HEMS 反而比較貴。
+  // 要預充的量 = 尖峰時段的缺口 − 白天太陽能可以補進電池的量
+  let peakDeficit = 0
+  for (let s = 0; s < SLOTS_PER_DAY; s++) {
+    if (tier[s] === 'peak') peakDeficit += Math.max(0, load[s] - pv[s]) * SLOT_HOURS
+  }
+  const needFromGrid = Math.max(0, peakDeficit - expectedSurplus)
+  const prechargeCeiling = Math.max(minKwh, Math.min(maxKwh - reserve, minKwh + needFromGrid))
 
   const pvToLoad = [], pvToBatt = [], pvToGrid = []
   const battToLoad = [], gridToLoad = [], gridToBatt = []
@@ -312,7 +321,7 @@ export function dispatch(date, pv, load) {
         }
       }
     } else if (shouldPrecharge(s)) {
-      const chg = Math.min(maxE - p2b, maxKwh - soc)
+      const chg = Math.min(maxE - p2b, prechargeCeiling - soc)
       if (chg > 0) { g2b = chg; soc += chg }
     }
 
@@ -440,6 +449,9 @@ export function liveSnapshot(now = nowTaipei(), fixedOverride = null, pvOverride
     if (!on && (dev.id === 'fridge' || dev.id === 'security')) status = 'standby'
     return { ...dev, watt, status }
   })
+  // 未分項：預測總量裡無法歸到特定設備的部分，要算進總負載，畫面上的數字才加得起來
+  const un = day.devicePower.unassigned?.[slot] ?? 0
+  if (un > 0.005) devices.push({ ...UNASSIGNED, watt: Math.round(un * 1000 * jitter()), status: 'on' })
 
   const totalLoadKwRaw = devices.reduce((a, d) => a + d.watt / 1000, 0)
 
