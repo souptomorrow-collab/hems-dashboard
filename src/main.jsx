@@ -10,7 +10,9 @@ import './lib/theme.js'
 // 用 hash (#/loads) 可以避免重新整理子頁面時出現 404。
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <HashRouter>
+    {/* 先開啟 React Router v7 的兩個新行為，開發模式就不會一直提醒。
+        本專案的路由都是絕對路徑（萬用路由只做 Navigate to="/"），兩個變更都不影響 */}
+    <HashRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <App />
     </HashRouter>
   </React.StrictMode>,

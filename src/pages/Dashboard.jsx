@@ -358,7 +358,8 @@ export default function Dashboard() {
             })
             .join('<br/>'),
       },
-      legend: { ...baseLegend, data: ['真實值', '最新預測', '較早的預測'] },
+      // 01:00 以前還沒有「1 小時前發布」的預測可畫，圖例不能列出不存在的系列（ECharts 會警告）
+      legend: { ...baseLegend, data: ['真實值', '最新預測', ...(earlier.length ? ['較早的預測'] : [])] },
       grid: { ...baseGrid, right: 24 },
       xAxis: slotXAxis(),
       yAxis: valueYAxis('kW', { min: rollRange.min, max: rollRange.max, interval: rollRange.interval }),
