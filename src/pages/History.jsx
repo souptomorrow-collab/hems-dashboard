@@ -54,6 +54,8 @@ import {
 } from '../lib/charts.js'
 
 const WEEK = ['日', '一', '二', '三', '四', '五', '六']
+/** 千分位＋固定小數位（區間統計一年份會到上萬度，沒有千分位很難讀） */
+const fmt = (v, d) => v.toLocaleString('zh-TW', { minimumFractionDigits: d, maximumFractionDigits: d })
 const weekdayOf = (s) => WEEK[parseYmd(s).getDay()]
 
 // 列印時白紙上要看得清楚：夜間模式先切到日間，印完再切回來（不寫入使用者的偏好）
@@ -491,6 +493,8 @@ function groupRows(rows, unit) {
   }
   return [...map.values()].map((g) => ({
     ...g,
+    // 這一週／這個月完整應該有幾天；區間頭尾常常只涵蓋一部分，長條會比較矮
+    full: unit === 'week' ? 7 : new Date(+g.key.slice(0, 4), +g.key.slice(5, 7), 0).getDate(),
     // 區間頭尾可能只涵蓋半週，標籤寫實際涵蓋的日期，不寫整週
     label:
       unit === 'week'
@@ -542,6 +546,12 @@ function RangeView({ yesterday, minDay, onPickDay }) {
     axisLabel: { color: AXIS_TEXT, fontSize: 11, hideOverlap: true },
   }), [groups, theme])
   const dense = groups.length > 45 // 長條太多時拿掉間距，不然擠成一片
+  // 提示框標題：不完整的週／月註明實際天數，免得以為那個月用電特別少
+  const periodTitle = (ps) => {
+    const g = groups[ps[0]?.dataIndex]
+    const note = g?.full && g.days < g.full ? `（區間只涵蓋 ${g.days} 天）` : ''
+    return `${ps[0].axisValueLabel}${note}<br/>`
+  }
   const barGaps = { barGap: dense ? '0%' : '15%', barCategoryGap: dense ? '10%' : '30%' }
 
   // 用電、太陽能發電、向電網購電（kWh）
@@ -550,7 +560,11 @@ function RangeView({ yesterday, minDay, onPickDay }) {
     const bar = { type: 'bar', ...barGaps }
     const top = { borderRadius: [3, 3, 0, 0] }
     return {
-      tooltip: { ...baseTooltip, valueFormatter: (v) => `${(+v).toFixed(2)} kWh` },
+      tooltip: {
+        ...baseTooltip,
+        formatter: (ps) => periodTitle(ps) +
+          ps.map((p) => `${p.marker}${p.seriesName}: ${fmt(+p.value, 2)} kWh`).join('<br/>'),
+      },
       legend: { ...baseLegend, data: ['用電', '太陽能發電', '向電網購電'] },
       grid: { ...baseGrid, bottom: 44 },
       xAxis: catAxis,
@@ -572,9 +586,9 @@ function RangeView({ yesterday, minDay, onPickDay }) {
         ...baseTooltip,
         formatter: (ps) => {
           const val = (name) => +(ps.find((p) => p.seriesName === name)?.value ?? 0)
-          return `${ps[0].axisValueLabel}<br/>` +
-            ps.map((p) => `${p.marker}${p.seriesName}: ${(+p.value).toFixed(1)} 元`).join('<br/>') +
-            `<br/>不裝 HEMS: ${(val('實際電費') + val('省下電費')).toFixed(1)} 元`
+          return periodTitle(ps) +
+            ps.map((p) => `${p.marker}${p.seriesName}: ${fmt(+p.value, 1)} 元`).join('<br/>') +
+            `<br/>不裝 HEMS: ${fmt(val('實際電費') + val('省下電費'), 1)} 元`
         },
       },
       legend: { ...baseLegend, data: ['實際電費', '省下電費'] },
@@ -664,9 +678,9 @@ function RangeView({ yesterday, minDay, onPickDay }) {
       ) : (
         <>
           <div className="grid cols-6 mt-16">
-            <Tile label="區間用電" value={sum.loadKwh.toFixed(1)} unit="kWh" sub={`${rows.length} 天，日均 ${(sum.loadKwh / rows.length).toFixed(1)} kWh`} color={COLORS.load} />
-            <Tile label="太陽能發電" value={sum.pvKwh.toFixed(1)} unit="kWh" color={COLORS.solar} />
-            <Tile label="向電網購電" value={sum.gridKwh.toFixed(1)} unit="kWh" color={COLORS.grid} />
+            <Tile label="區間用電" value={fmt(sum.loadKwh, 1)} unit="kWh" sub={`${rows.length} 天，日均 ${(sum.loadKwh / rows.length).toFixed(1)} kWh`} color={COLORS.load} />
+            <Tile label="太陽能發電" value={fmt(sum.pvKwh, 1)} unit="kWh" color={COLORS.solar} />
+            <Tile label="向電網購電" value={fmt(sum.gridKwh, 1)} unit="kWh" color={COLORS.grid} />
             <Tile label="電費" value={Math.round(sum.cost).toLocaleString()} unit="元" sub={`日均 ${(sum.cost / rows.length).toFixed(1)} 元`} />
             <Tile label="不裝 HEMS 的電費" value={Math.round(sum.baseline).toLocaleString()} unit="元" sub="無太陽能、無電池，全部向台電購買" />
             <Tile label="省下電費" value={Math.round(sum.savings).toLocaleString()} unit="元" sub={`省 ${savePct.toFixed(1)}%`} color={COLORS.save} />
@@ -708,12 +722,12 @@ function RangeView({ yesterday, minDay, onPickDay }) {
                     >
                       <td>{g.label}</td>
                       {unit !== 'day' && <td className="num">{g.days}</td>}
-                      <td className="num">{g.loadKwh.toFixed(2)}</td>
-                      <td className="num">{g.pvKwh.toFixed(2)}</td>
-                      <td className="num">{g.gridKwh.toFixed(2)}</td>
-                      <td className="num">{g.cost.toFixed(1)} 元</td>
-                      <td className="num dim">{g.baseline.toFixed(1)} 元</td>
-                      <td className="num save">{g.savings.toFixed(1)} 元</td>
+                      <td className="num">{fmt(g.loadKwh, 2)}</td>
+                      <td className="num">{fmt(g.pvKwh, 2)}</td>
+                      <td className="num">{fmt(g.gridKwh, 2)}</td>
+                      <td className="num">{fmt(g.cost, 1)} 元</td>
+                      <td className="num dim">{fmt(g.baseline, 1)} 元</td>
+                      <td className="num save">{fmt(g.savings, 1)} 元</td>
                     </tr>
                   ))}
                 </tbody>
@@ -721,12 +735,12 @@ function RangeView({ yesterday, minDay, onPickDay }) {
                   <tr>
                     <td>合計</td>
                     {unit !== 'day' && <td className="num">{rows.length}</td>}
-                    <td className="num">{sum.loadKwh.toFixed(2)}</td>
-                    <td className="num">{sum.pvKwh.toFixed(2)}</td>
-                    <td className="num">{sum.gridKwh.toFixed(2)}</td>
-                    <td className="num">{sum.cost.toFixed(1)} 元</td>
-                    <td className="num">{sum.baseline.toFixed(1)} 元</td>
-                    <td className="num save">{sum.savings.toFixed(1)} 元</td>
+                    <td className="num">{fmt(sum.loadKwh, 2)}</td>
+                    <td className="num">{fmt(sum.pvKwh, 2)}</td>
+                    <td className="num">{fmt(sum.gridKwh, 2)}</td>
+                    <td className="num">{fmt(sum.cost, 1)} 元</td>
+                    <td className="num">{fmt(sum.baseline, 1)} 元</td>
+                    <td className="num save">{fmt(sum.savings, 1)} 元</td>
                   </tr>
                 </tfoot>
               </table>

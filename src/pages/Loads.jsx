@@ -173,8 +173,11 @@ export default function Loads() {
         symbol: 'none',
         // 每一層上緣畫一條底色細線，相鄰色塊之間留出縫隙，才分得出層與層
         lineStyle: { width: 1, color: PANEL_BG },
+        // itemStyle 決定提示框裡的色點；只設 areaStyle 的話色點會用 ECharts 預設色盤，和圖上的顏色對不起來
+        itemStyle: { color: DEVICE_COLORS[g.id] },
         areaStyle: { color: DEVICE_COLORS[g.id], opacity: 0.92 },
-        emphasis: { focus: 'series' },
+        // 不做「滑到哪一層就淡化其他層」：手機上手指一碰整張圖就變淡，反而看不清楚
+        emphasis: { disabled: true },
         data: g.data,
       })),
     }
