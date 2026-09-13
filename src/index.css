@@ -1512,6 +1512,11 @@ body {
 /* 讀不到雲端預測、改用模擬值時的標示 */
 .badge.sim-badge { color: var(--t-standby); background: rgba(251, 191, 36, 0.12); border-color: rgba(251, 191, 36, 0.35); }
 
+/* 甘特表拖曳調整：可編輯的格子上按住拖曳時不要選取文字、手指拖曳時不要捲動畫面
+   （手機上要左右捲動表格，從不可轉移設備那幾列或斜線格滑即可）；拖過的範圍加外框預覽 */
+.gantt .cell.editable { touch-action: none; user-select: none; -webkit-user-select: none; }
+.gantt .cell.painting { box-shadow: inset 0 0 0 2px var(--accent); }
+
 /* 點到不允許運轉的格子時的提示 */
 .hint.plan-notice { color: var(--t-peak); font-weight: 600; }
 

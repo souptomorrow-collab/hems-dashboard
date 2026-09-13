@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Panel from '../components/Panel.jsx'
 import EChart from '../components/EChart.jsx'
 import Tile from '../components/Tile.jsx'
@@ -76,22 +76,85 @@ export default function Planning() {
     setEdits(0)
   }
 
-  // 手動切換可轉移設備的某時段 → 即時重算電池調度與成本
-  const toggleCell = (devId, slot) => {
-    const dev = DEVICES.find((d) => d.id === devId)
-    if (dev.category !== 'shiftable' || !schedule) return
-    if (!isAllowedSlot(devId, slot)) {
-      setNotice(`${dev.name}的允許運轉時段是 ${SHIFTABLE_RULES[devId].text}，${slotToTime(slot)} 不能排`)
-      return
+  /* ---- 手動調整可轉移設備：按住拖曳一段，放開時一次套用 ----
+     按下的那一格原本是關就整段打開、原本是開就整段關掉；只點一下（沒拖）就是切換那一格。
+     拖曳中只更新畫面上的預覽，放開才重算電池調度與成本，拖的過程不會卡。
+     拖過不允許運轉的時段會自動跳過，放開後提示略過了幾格。 */
+  const [drag, setDrag] = useState(null) // { devId, from, to, value }
+  const dragRef = useRef(null)
+  const scheduleRef = useRef(schedule)
+  scheduleRef.current = schedule
+
+  const applyRange = (d) => {
+    const cur = scheduleRef.current
+    if (!d || !cur) return
+    const lo = Math.min(d.from, d.to)
+    const hi = Math.max(d.from, d.to)
+    let changed = 0
+    let skipped = 0
+    const row = cur[d.devId].map((v, i) => {
+      if (i < lo || i > hi) return v
+      if (!isAllowedSlot(d.devId, i)) {
+        skipped++
+        return v
+      }
+      if (v !== d.value) changed++
+      return d.value
+    })
+    if (skipped) {
+      const dev = DEVICES.find((x) => x.id === d.devId)
+      setNotice(`⚠️ 已略過 ${skipped} 格不允許運轉的時段（${dev.name}可運轉 ${SHIFTABLE_RULES[d.devId].text}）`)
     }
-    const next = {
-      ...schedule,
-      [devId]: schedule[devId].map((v, i) => (i === slot ? !v : v)),
-    }
+    if (!changed) return
+    const next = { ...cur, [d.devId]: row }
     setSchedule(next)
-    setEdits((n) => n + 1)
+    setEdits((n) => n + changed)
     // 切換情境的瞬間，舊情境的重算可能晚一步才回來，不能蓋掉新情境的結果
     recomputeSchedule(next).then((p) => p.season === getScenario().season && setPlan(p))
+  }
+
+  const startDrag = (e, devId, slot) => {
+    const dev = DEVICES.find((d) => d.id === devId)
+    if (dev.category !== 'shiftable' || !schedule || e.button > 0) return // 滑鼠右鍵、中鍵不算
+    if (!isAllowedSlot(devId, slot)) {
+      setNotice(`⛔ ${dev.name}的允許運轉時段是 ${SHIFTABLE_RULES[devId].text}，${slotToTime(slot)} 不能排`)
+      return
+    }
+    e.preventDefault() // 拖曳時不要選取到文字
+    const d = { devId, from: slot, to: slot, value: !schedule[devId][slot] }
+    dragRef.current = d
+    setDrag(d)
+
+    // 監聽在按下的當下就掛上，不能等 useEffect：useEffect 要等畫面更新後才執行，
+    // 手指很快點一下時「放開」可能比監聽先發生，拖曳狀態會卡住、畫面停在預覽
+    // 手指拖曳時 pointer 事件會一直送給按下的那一格，所以用座標找出現在停在哪一格；
+    // 只認同一台設備那一列，拖出這一列就停在最後經過的那一格
+    const move = (ev) => {
+      const cur = dragRef.current
+      const cell = document.elementFromPoint(ev.clientX, ev.clientY)?.closest?.('td[data-slot]')
+      if (!cur || !cell || cell.dataset.dev !== cur.devId) return
+      const s = Number(cell.dataset.slot)
+      if (s === cur.to) return
+      dragRef.current = { ...cur, to: s }
+      setDrag(dragRef.current)
+    }
+    const finish = (commit) => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      window.removeEventListener('pointercancel', cancel)
+      window.removeEventListener('keydown', esc)
+      const cur = dragRef.current
+      dragRef.current = null
+      setDrag(null)
+      if (commit) applyRange(cur)
+    }
+    const up = () => finish(true)
+    const cancel = () => finish(false)
+    const esc = (ev) => ev.key === 'Escape' && finish(false) // 拖到一半按 Esc 可以放棄
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+    window.addEventListener('pointercancel', cancel)
+    window.addEventListener('keydown', esc)
   }
 
   // ---- 電力供需與電池調度 ----
@@ -227,7 +290,7 @@ export default function Planning() {
         sub="隔日 24 小時・15 分鐘為單位"
         right={
           <span className={`hint ${notice ? 'plan-notice' : ''}`} role="status" aria-live="polite">
-            {notice ? `⛔ ${notice}` : '✏️ 可轉移設備可在允許時段內點擊格子手動調整，電池與成本會即時重算'}
+            {notice || '✏️ 可轉移設備在允許時段內按住拖曳，一次排入或取消一整段（點一下只改一格），放開後電池與成本即時重算'}
           </span>
         }
         className="mt-16"
@@ -264,18 +327,25 @@ export default function Planning() {
                         const shiftable = dev.category === 'shiftable'
                         const allowed = isAllowedSlot(dev.id, slot)
                         const editable = shiftable && allowed
+                        // 拖曳中：這一格在拖過的範圍內，就先照放開後的結果顯示
+                        const inDrag = editable && drag?.devId === dev.id &&
+                          slot >= Math.min(drag.from, drag.to) && slot <= Math.max(drag.from, drag.to)
+                        const shownOn = inDrag ? drag.value : on
                         const cls = ['cell']
                         if (peak) cls.push('peak-bg')
-                        if (on) cls.push('on', shiftable ? 'shiftable' : 'fixed')
+                        if (shownOn) cls.push('on', shiftable ? 'shiftable' : 'fixed')
                         if (editable) cls.push('editable')
+                        if (inDrag) cls.push('painting')
                         if (shiftable && !allowed) cls.push('blocked')
-                        const note = editable ? '（可點擊調整）' : shiftable ? '（不在允許運轉的時段）' : ''
+                        const note = editable ? '（可按住拖曳調整）' : shiftable ? '（不在允許運轉的時段）' : ''
                         return (
                           <td
                             key={slot}
                             className={cls.join(' ')}
+                            data-dev={dev.id}
+                            data-slot={slot}
                             title={`${dev.name}｜${slotToTime(slot)}｜${peak ? '尖峰' : '離峰'}${note}`}
-                            onClick={() => toggleCell(dev.id, slot)}
+                            onPointerDown={shiftable ? (e) => startDrag(e, dev.id, slot) : undefined}
                           />
                         )
                       })}
