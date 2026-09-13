@@ -8,7 +8,8 @@
     "dev": "vite",
     "dev:host": "vite --host",
     "build": "vite build",
-    "preview": "vite preview --host"
+    "preview": "vite preview --host",
+    "check": "node scripts/check.mjs"
   },
   "dependencies": {
     "echarts": "^5.5.1",

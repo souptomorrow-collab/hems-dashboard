@@ -26,6 +26,8 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      # 先檢查模擬引擎（能量平衡、SOC 上下限、排程時段…），沒過就不部署，免得把算錯的畫面推上線
+      - run: npm run check
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:

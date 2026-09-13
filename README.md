@@ -32,6 +32,18 @@ npm run build    # 產出靜態檔到 dist/
 npm run preview  # 本機預覽 build 結果
 ```
 
+## 檢查模擬引擎
+
+```bash
+npm run check    # scripts/check.mjs，幾秒鐘跑完
+```
+
+改了 `src/lib` 的調度、排程、防逆送或天氣之後跑一次，確認沒有算出物理上不可能的結果：
+即時快照的能量平衡與非負、電池放電時不削太陽能、SOC 與充放電功率在電池規格內、
+可轉移設備只在允許時段運轉且烘衣機排在洗衣機之後、情境換日期時星期幾不變、
+天氣標籤和實際發電一致。用的是 `public/data` 的快照，不需要連資料庫；
+有任何一項不過會回傳錯誤碼 1，GitHub Actions 部署前也會先跑這支，沒過就不部署。
+
 ## 部署到 GitHub Pages（已設定自動化）
 
 專案內含 `.github/workflows/deploy.yml`，**push 到 `main` 分支會自動 build 並部署**。
