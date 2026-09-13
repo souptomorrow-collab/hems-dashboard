@@ -148,6 +148,15 @@ export default function Planning() {
   }, [plan, theme])
 
   const s = plan?.summary
+  // 手動調整過排程時，電費和演算法給的最佳排程差多少（手動改一格就看得出代價）
+  const costDiff = s && optimal && edits > 0
+    ? +(s.optimizedCost - optimal.summary.optimizedCost).toFixed(1)
+    : null
+  const costDiffText = costDiff == null
+    ? ''
+    : costDiff === 0
+    ? '和最佳排程相同'
+    : `比最佳排程${costDiff > 0 ? '多' : '少'} ${Math.abs(costDiff)} 元`
 
   return (
     <>
@@ -185,7 +194,7 @@ export default function Planning() {
 
       {/* 結果摘要 */}
       <div className="grid cols-6 mt-16">
-        <Tile label="預估電費" value={s ? s.optimizedCost : '—'} unit="元" />
+        <Tile label="預估電費" value={s ? s.optimizedCost : '—'} unit="元" sub={costDiffText} />
         <Tile label="預估省電費" value={s ? s.savings : '—'} unit="元" color={COLORS.save} sub={s ? `省 ${s.savingPct}%` : ''} />
         <Tile label="太陽能自用率" value={s ? s.selfUseRate : '—'} unit="%" color={COLORS.solar} />
         <Tile label="向電網購電" value={s ? s.gridImportKwh : '—'} unit="度" color={COLORS.grid} />
