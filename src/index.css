@@ -1283,6 +1283,18 @@ body {
 
 /* ---------- 電費拆解表 ---------- */
 .history-table.compact td, .history-table.compact th { padding: 8px 10px; }
+/* 時數、「元/度」、「省／多」換到下一行，表格才塞得進窄面板。
+   不只手機：1280px 以下桌機是兩欄排版，這張表所在的面板只剩 340～450px，
+   原本「不裝 HEMS」「差額」兩欄會被切掉、要左右滑才看得到 */
+@media (max-width: 760px), (min-width: 1101px) and (max-width: 1280px) {
+  /* 761～1100px 之間歷史紀錄改成單欄（見下一條），面板夠寬，不必換行 */
+  .history-table.compact .tou-break { display: block; }
+}
+/* 側欄還在的窄桌機（761～1100px）：歷史紀錄的兩欄面板只剩 300px 左右，
+   表格與堆疊橫條都擠不下，改成上下排 */
+@media (max-width: 1100px) and (min-width: 761px) {
+  .history .grid.cols-2 { grid-template-columns: 1fr; }
+}
 .history-table .more { color: var(--t-peak); font-weight: 700; }
 .tier-dot {
   display: inline-block;
@@ -1649,7 +1661,6 @@ body {
   .history-table.compact { font-size: 12px; }
   .history-table.compact td,
   .history-table.compact th { padding: 7px 6px; }
-  .history-table.compact .tou-break { display: block; }
 
   /* 區間明細表：手機上要左右滑才看得到電費，日期欄固定在左邊，滑過去還知道是哪一天 */
   .history-table:not(.compact) th:first-child,
