@@ -98,7 +98,17 @@ async function weatherData() {
 function era5For(wx, dateStr) {
   const rows = dateStr ? wx?.days?.[dateStr] : null
   if (!rows) return null
-  if (!era5Memo.has(dateStr)) era5Memo.set(dateStr, weatherFromEra5(rows, dateStr))
+  if (!era5Memo.has(dateStr)) {
+    // 天氣檔某一天的欄位不齊（例如少了晴空指數）時，原本轉換會丟例外、整條資料流斷掉，
+    // 圖表一直停在載入中。改成那一天退回模擬天氣，其他資料照常顯示
+    let w = null
+    try {
+      w = weatherFromEra5(rows, dateStr)
+    } catch (e) {
+      if (import.meta.env.DEV) console.warn(`[HEMS] ${dateStr} 的天氣資料格式不對，改用模擬天氣：`, e.message)
+    }
+    era5Memo.set(dateStr, w)
+  }
   return era5Memo.get(dateStr)
 }
 
@@ -170,7 +180,10 @@ export async function fetchHistory() {
     const r = await fetch(`${import.meta.env.BASE_URL}data/history.json`, { cache: 'no-cache' })
     if (!r.ok) throw new Error(`讀取歷史紀錄失敗 ${r.status}`)
     const d = await r.json()
-    return { days: d.days ?? [], source: d.source ?? null, generatedAt: d.generated_at ?? null }
+    // 只收日期格式正確的日子：日期欄位壞掉（例如變成數字）時，後面拆日期會丟例外，頁面會一直停在載入中
+    const days = (Array.isArray(d.days) ? d.days : [])
+      .filter((x) => typeof x?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x.date))
+    return { days, source: d.source ?? null, generatedAt: d.generated_at ?? null }
   }).catch(() => null)
 }
 

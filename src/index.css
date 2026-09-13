@@ -1457,6 +1457,12 @@ body {
 
 /* ---------- 用電規劃：規劃日區塊（窄螢幕折行時仍靠右） ---------- */
 .plan-date { margin-left: auto; text-align: right; }
+/* 頁面出錯時的說明（components/ErrorBoundary.jsx） */
+.error-panel { display: grid; gap: 12px; justify-items: start; border-color: color-mix(in srgb, var(--c-peak) 40%, var(--border)); }
+.error-panel h3 { font-size: 16px; color: var(--t-peak); }
+.error-panel details { font-size: 12px; color: var(--text-muted); }
+.error-panel pre { margin: 6px 0 0; white-space: pre-wrap; word-break: break-word; }
+
 /* 讀不到雲端預測、改用模擬值時的標示 */
 .badge.sim-badge { color: var(--t-standby); background: rgba(251, 191, 36, 0.12); border-color: rgba(251, 191, 36, 0.35); }
 

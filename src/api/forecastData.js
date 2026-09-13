@@ -82,8 +82,9 @@ export async function fetchDayAheadForecast(season = 'summer') {
     // pvActual 是「以實測日射量換算」的發電量，不是實測出力。
     pv: Array.isArray(d.pv) && d.pv.length === 96 ? fillGaps(d.pv) : null,
     pvActual: Array.isArray(d.pv_actual) ? d.pv_actual : null,
-    pvSource: d.pv_source ?? null,
-    targetDate: d.target_date ?? null,
+    pvSource: typeof d.pv_source === 'string' ? d.pv_source : null,
+    // 會直接顯示在畫面上，型別不對（例如變成物件）時 React 會整頁出錯，先擋掉
+    targetDate: typeof d.target_date === 'string' ? d.target_date : null,
     hasActual: Boolean(d.has_actual),
     source: d.source ?? null,
     generatedAt: d.generated_at ?? null,

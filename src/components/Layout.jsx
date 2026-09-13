@@ -6,6 +6,7 @@ import { getCurrentTier, isSummer, TIER_LABEL } from '../lib/tou.js'
 import { LOCATION } from '../lib/time.js'
 import { useTheme, toggleTheme } from '../lib/theme.js'
 import DemoBar from './DemoBar.jsx'
+import ErrorBoundary from './ErrorBoundary.jsx'
 import { useScenario, setSeason, SEASONS, scenarioDate, seasonOf } from '../lib/scenario.js'
 
 const NAV = [
@@ -196,7 +197,9 @@ export default function Layout() {
             </div>
           )}
           {DEMO_PAGES.has(pathname) && <DemoBar />}
-          <Outlet />
+          <ErrorBoundary key={pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
 

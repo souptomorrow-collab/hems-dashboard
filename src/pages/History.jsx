@@ -106,11 +106,16 @@ export default function History() {
 function DayView({ date, setDate, yesterday, minDay }) {
   const theme = useTheme()
   const [res, setRes] = useState(null)
+  const [loadError, setLoadError] = useState(null)
 
   useEffect(() => {
     let on = true
     setRes(null)
-    fetchDaySim(date).then((r) => on && setRes(r))
+    setLoadError(null)
+    // 讀取或計算失敗時要顯示原因，不能讓畫面一直停在載入中
+    fetchDaySim(date)
+      .then((r) => on && setRes(r))
+      .catch((e) => on && setLoadError(e?.message ?? String(e)))
     return () => { on = false }
   }, [date])
 
@@ -260,7 +265,9 @@ function DayView({ date, setDate, yesterday, minDay }) {
         </div>
       </Panel>
 
-      {!rec ? (
+      {loadError ? (
+        <LoadError message={loadError} />
+      ) : !rec ? (
         <div className="skeleton mt-16" style={{ height: 420 }} />
       ) : (
         <>
@@ -399,6 +406,20 @@ function DayView({ date, setDate, yesterday, minDay }) {
   )
 }
 
+/** 紀錄讀取或計算失敗時的說明（取代一直轉圈的載入畫面） */
+function LoadError({ message }) {
+  return (
+    <section className="panel error-panel load-error mt-16" role="alert">
+      <h3>用電紀錄暫時無法顯示</h3>
+      <p className="hint prose">{'讀取或計算紀錄時發生問題，可能是資料檔格式有誤。可以換一個日期或重新整理再試一次。'}</p>
+      <details>
+        <summary>錯誤訊息</summary>
+        <pre>{message}</pre>
+      </details>
+    </section>
+  )
+}
+
 /** 一條 100% 的堆疊橫條：各段寬度依占比 */
 function StackBar({ title, total, parts, colors }) {
   return (
@@ -531,11 +552,15 @@ function RangeView({ yesterday, minDay, onPickDay }) {
   const [to, setTo] = useState(() => ymd(yesterday))
   const [unit, setUnit] = useState('day')
   const [data, setData] = useState(null)
+  const [loadError, setLoadError] = useState(null)
 
   useEffect(() => {
     let on = true
     const [a, b] = from <= to ? [from, to] : [to, from] // 起訖選反了就自動對調
-    fetchDailyUsage(a, b).then((d) => on && setData(d))
+    setLoadError(null)
+    fetchDailyUsage(a, b)
+      .then((d) => on && setData(d))
+      .catch((e) => on && setLoadError(e?.message ?? String(e)))
     return () => { on = false }
   }, [from, to])
 
@@ -690,7 +715,9 @@ function RangeView({ yesterday, minDay, onPickDay }) {
         </div>
       </Panel>
 
-      {!data ? (
+      {loadError ? (
+        <LoadError message={loadError} />
+      ) : !data ? (
         <div className="skeleton mt-16" style={{ height: 320 }} />
       ) : (
         <>

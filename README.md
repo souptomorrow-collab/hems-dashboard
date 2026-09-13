@@ -285,6 +285,7 @@ src/
     dayRecord.js       ← 單日紀錄的彙整
     demoClock.js       ← 展示模式的虛擬時鐘
   hooks/               ← useClock / useMediaQuery
-  components/          ← Layout / Panel / StatCard / Tile / EChart / EnergyFlow / WeatherStrip / DemoBar
+  components/          ← Layout / Panel / StatCard / Tile / EChart / EnergyFlow / WeatherStrip / DemoBar /
+                         ErrorBoundary（某一頁出錯時只有那一頁顯示錯誤說明，側欄與其他頁照常可用）
   pages/               ← Dashboard / Loads / Planning / History
 ```
