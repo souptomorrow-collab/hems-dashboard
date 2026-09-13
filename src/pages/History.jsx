@@ -42,7 +42,6 @@ import {
   baseTooltip,
   baseLegend,
   baseGrid,
-  slotXAxis,
   valueYAxis,
   peakMarkArea,
   powerSocLayout,

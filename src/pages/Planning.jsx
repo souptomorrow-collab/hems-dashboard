@@ -9,11 +9,9 @@ import { useScenario, getScenario, SEASONS } from '../lib/scenario.js'
 import { tomorrow, fmtDate, pad2 } from '../lib/format.js'
 import { useTheme } from '../lib/theme.js'
 import {
-  slotXAxis,
   valueYAxis,
   baseTooltip,
   baseLegend,
-  baseGrid,
   peakMarkArea,
   powerSocLayout,
   powerSocFormatter,
