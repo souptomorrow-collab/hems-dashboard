@@ -91,7 +91,17 @@ export default function Planning() {
     return {
       tooltip: { ...baseTooltip, formatter: powerSocFormatter },
       color: ['#ffb020', '#f97316', '#3b82f6', TEXT_MAIN, COLORS.battery],
-      legend: { ...baseLegend, data: ['太陽能供電', '電池放電', '電網供電', '總負載', 'SOC'] },
+      // 三個供電來源畫成面積（線寬 0），圖例預設只剩一個小圓點，指定成方塊才和面積對得上
+      legend: {
+        ...baseLegend,
+        data: [
+          { name: '太陽能供電', icon: 'roundRect' },
+          { name: '電池放電', icon: 'roundRect' },
+          { name: '電網供電', icon: 'roundRect' },
+          '總負載',
+          'SOC',
+        ],
+      },
       ...powerSocLayout(),
       yAxis: [valueYAxis('kW'), socYAxis()],
       series: [
