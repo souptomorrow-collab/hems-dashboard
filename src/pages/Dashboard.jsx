@@ -28,8 +28,14 @@ import {
   TRACK_LINE,
 } from '../lib/charts.js'
 
+/** 時間線標籤的對齊：清晨往右長、深夜往左長，才不會壓到左上角的軸名「kW」或超出右邊界 */
+function edgeAlign(s) {
+  return s < 24 ? 'left' : s > 72 ? 'right' : 'center'
+}
+
 /** 「現在」那條垂直線（滾動預測、太陽能預測與實際兩張圖共用） */
 function nowLine(s) {
+  const align = edgeAlign(s)
   return {
     silent: true,
     symbol: 'none',
@@ -38,6 +44,9 @@ function nowLine(s) {
       rotate: 0, // 垂直的 markLine 標籤預設會跟著線轉成直排，要明確轉回水平
       position: 'end',
       distance: 4,
+      align,
+      // 往右長時和線、軸名再隔開一點（00:00 時線剛好在 y 軸上）
+      padding: align === 'left' ? [0, 0, 0, 12] : align === 'right' ? [0, 6, 0, 0] : 0,
       color: TEXT_MAIN,
       fontSize: 11,
       fontWeight: 700,
@@ -129,6 +138,14 @@ export default function Dashboard() {
       max: Math.max(prev.max, Math.ceil(Math.max(0, ...all))),
       min: Math.min(prev.min, Math.floor(Math.min(0, ...all))),
     })
+    // 刻度間距挑 1、2、5、10 裡「不超過 7 格」的最小值，上下限對齊到間距上；
+    // 直接拿資料的最大最小值當上下限，軸上會出現 8、6、3、0、-3、-5 這種不等距的刻度
+    const kwStep = [1, 2, 5, 10].find((st) => (kwMax - kwMin) / st <= 7) ?? 10
+    const kwAxis = {
+      min: Math.floor(kwMin / kwStep) * kwStep,
+      max: Math.ceil(kwMax / kwStep) * kwStep,
+      interval: kwStep,
+    }
     return {
       // 展示模式每秒換一次資料：保留動畫的話，每次更新都會重播一段進場，
       // 播放頭的時間標籤看起來會一直抖。真實時間模式更新慢，動畫留著比較順
@@ -138,7 +155,7 @@ export default function Dashboard() {
       legend: { ...baseLegend, data: ['太陽能發電', '家庭負載', '電網購電', '電池充電', '電池放電', 'SOC'] },
       // 功率在上、SOC 在下面一小格，不再共用一張圖的左右兩條 y 軸（見 charts.js 的 powerSocLayout）
       ...powerSocLayout(),
-      yAxis: [valueYAxis('kW', { min: kwMin, max: kwMax }), socYAxis()],
+      yAxis: [valueYAxis('kW', kwAxis), socYAxis()],
       series: [
         {
           name: '太陽能發電',
@@ -159,6 +176,7 @@ export default function Dashboard() {
                   rotate: 0,
                   position: 'end',
                   distance: 4,
+                  align: edgeAlign(demo.slot),
                   color: TEXT_MAIN,
                   fontSize: 11,
                   fontWeight: 700,
