@@ -7,6 +7,11 @@
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0d1224" />
     <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
+    <!-- 加到手機主畫面：Android 讀 manifest、iPhone 讀 apple-touch-icon（圖示由 scripts/make_icons.py 產生）。
+         用相對路徑，部署在 GitHub Pages 的子路徑下才找得到 -->
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-title" content="HEMS" />
     <title>家庭能源管理系統 | HEMS</title>
     <meta name="description" content="基於發電量與負載預測之家庭能源管理系統 — 顯示及操作介面" />
     <!-- 網址貼到 LINE、Discord、Messenger 時的預覽標題與說明 -->

@@ -267,6 +267,9 @@ KPI 卡與設備卡兩欄，單數張時最後一張橫跨兩欄。
 ```
 scripts/
   fetch_weather.py     ← 抓展示日期的台北 ERA5 天氣
+  make_icons.py        ← 產生手機「加到主畫面」用的 PNG 圖示（public/icons/）
+  check.mjs            ← npm run check：模擬引擎健全性檢查
+public/manifest.webmanifest ← 加到主畫面後以全螢幕 App 的樣子開啟
 public/data/           ← 匯出的快照（見 README.txt）
 src/
   api/
