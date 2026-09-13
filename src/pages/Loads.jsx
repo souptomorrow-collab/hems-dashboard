@@ -62,7 +62,8 @@ export default function Loads() {
   const shiftable = devices.filter((d) => d.category === 'shiftable')
   const fixed = devices.filter((d) => d.category === 'fixed')
   const sumW = (arr) => arr.reduce((a, d) => a + d.watt, 0)
-  const onCount = devices.filter((d) => d.status === 'on').length
+  // 「未分項」不是一台設備，不算進運轉中的設備數（和旁邊「N 項設備」的算法一致）
+  const onCount = devices.filter((d) => d.status === 'on' && d.ratedW).length
 
   // 各設備即時功率（橫向長條，由大到小）；顏色跟著圖表分組，和下面兩張圖一致
   const barOption = useMemo(() => {
