@@ -247,7 +247,7 @@ function DayView({ date, setDate, yesterday, minDay }) {
         <div className="history-bar">
           <div className="day-nav">
             <button className="btn" onClick={() => step(-1)} disabled={atFirst} aria-label="前一天" title="前一天（鍵盤 ←）">◀</button>
-            <input type="date" className="date-input" value={date} min={ymd(minDay)} max={ymd(yesterday)} onChange={(e) => e.target.value && setDate(e.target.value)} />
+            <input type="date" className="date-input" aria-label="紀錄日期" value={date} min={ymd(minDay)} max={ymd(yesterday)} onChange={(e) => e.target.value && setDate(e.target.value)} />
             <button className="btn" onClick={() => step(1)} disabled={atLast} aria-label="後一天" title="後一天（鍵盤 →）">▶</button>
             <strong className="day-nav-wd">週{weekdayOf(date)}</strong>
             {w && (

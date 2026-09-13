@@ -234,7 +234,8 @@ export default function Planning() {
       >
         {schedule && plan ? (
           <>
-            <div className="gantt">
+            {/* 手機上表格比螢幕寬、要左右捲動：tabIndex 讓鍵盤也能選到這個區塊再用方向鍵捲 */}
+            <div className="gantt" tabIndex={0} role="region" aria-label="各設備運行時段表，可左右捲動">
               <table>
                 <thead>
                   <tr>

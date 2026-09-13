@@ -58,6 +58,10 @@
   --c-offpeak: #22c55e; /* 離峰 */
 
   --accent: #38bdf8;
+  /* 白字底色用的實心強調色：--accent 本身太亮，白字在上面只有 2.1:1（夜間）／4.1:1（日間）。
+     兩個主題共用同一個深一階的藍，白字 5.9:1；--save-solid 是展示模式按鈕用的深青綠 */
+  --accent-solid: #0369a1;
+  --save-solid: #0f766e;
 
   --radius: 14px;
   --radius-sm: 10px;
@@ -344,7 +348,7 @@ h1, h2, h3, h4 {
   --t-summer: #b45309;
   --t-shiftable: #1d4ed8;
   --t-fixed: #7e22ce;
-  --t-on: #15803d;
+  --t-on: #166534; /* 淺綠底上的小字：#15803d 只有 4.45:1，差一點不到 4.5 */
   --t-standby: #b45309;
   --t-up: #dc2626;
   --t-down: #15803d;
@@ -414,7 +418,7 @@ h1, h2, h3, h4 {
 .objective .objective-tag {
   padding: 2px 8px;
   border-radius: 999px;
-  background: var(--accent);
+  background: var(--accent-solid);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
@@ -455,8 +459,8 @@ h1, h2, h3, h4 {
   white-space: nowrap;
 }
 .demo-power.on {
-  background: var(--c-save);
-  border-color: var(--c-save);
+  background: var(--save-solid);
+  border-color: var(--save-solid);
   color: #fff;
 }
 .demo-btn {
@@ -471,8 +475,8 @@ h1, h2, h3, h4 {
 }
 .demo-btn:hover { border-color: var(--accent); color: var(--text); }
 .demo-btn.active {
-  background: var(--accent);
-  border-color: var(--accent);
+  background: var(--accent-solid);
+  border-color: var(--accent-solid);
   color: #fff;
   font-weight: 700;
 }
@@ -689,7 +693,7 @@ h1, h2, h3, h4 {
   font-weight: 600;
 }
 .status-pill.on { color: var(--t-on); background: rgba(34, 197, 94, 0.14); }
-.status-pill.off { color: var(--text-dim); background: var(--overlay-soft); }
+.status-pill.off { color: var(--text-muted); background: var(--overlay-soft); } /* 最淡的字色疊在半透明底上只有 4.4:1 */
 .status-pill.standby { color: var(--t-standby); background: rgba(251, 191, 36, 0.12); }
 
 /* ============================================================
@@ -1148,7 +1152,7 @@ body {
   cursor: pointer;
 }
 .seg button:hover { color: var(--text); }
-.seg button.active { background: var(--accent); color: #fff; }
+.seg button.active { background: var(--accent-solid); color: #fff; }
 
 .quick-ranges {
   display: flex;
@@ -1245,7 +1249,7 @@ body {
   cursor: pointer;
 }
 .tabs button:hover { color: var(--text); }
-.tabs button.active { background: var(--accent); color: #fff; }
+.tabs button.active { background: var(--accent-solid); color: #fff; }
 
 /* ---------- 單日紀錄：日期導覽 ---------- */
 .day-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -1328,11 +1332,11 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  /* 深色字：白字在太陽能橘、電池綠上只有 1.8～2.3:1，深色字在四種色塊上都有 5:1 以上 */
+  color: #0b1220;
   font-size: 11.5px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   min-width: 0;
 }
 .stackbar-seg + .stackbar-seg { box-shadow: inset 2px 0 0 var(--bg-panel); } /* 段與段之間留一條細縫 */
@@ -1457,6 +1461,12 @@ body {
 
 /* ---------- 用電規劃：規劃日區塊（窄螢幕折行時仍靠右） ---------- */
 .plan-date { margin-left: auto; text-align: right; }
+/* 小型數字卡（components/Tile.jsx）：標題前的色塊代表能源種類，數字用文字色 */
+.tile-label { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.tile-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+/* 可捲動的甘特表被鍵盤選到時的外框 */
+.gantt:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 /* 頁面出錯時的說明（components/ErrorBoundary.jsx） */
 .error-panel { display: grid; gap: 12px; justify-items: start; border-color: color-mix(in srgb, var(--c-peak) 40%, var(--border)); }
 .error-panel h3 { font-size: 16px; color: var(--t-peak); }
