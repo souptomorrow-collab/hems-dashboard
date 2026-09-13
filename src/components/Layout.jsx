@@ -6,7 +6,7 @@ import { getCurrentTier, isSummer, TIER_LABEL } from '../lib/tou.js'
 import { LOCATION } from '../lib/time.js'
 import { useTheme, toggleTheme } from '../lib/theme.js'
 import DemoBar from './DemoBar.jsx'
-import { useScenario, setSeason, SEASONS, scenarioDate } from '../lib/scenario.js'
+import { useScenario, setSeason, SEASONS, scenarioDate, seasonOf } from '../lib/scenario.js'
 
 const NAV = [
   { to: '/', label: '主頁面', icon: '🏠', end: true },
@@ -46,6 +46,10 @@ export default function Layout() {
   // 情境頁的電價徽章跟著情境走（非夏月情境下，九月的今天也照非夏月的尖離峰顯示）
   const tier = getCurrentTier(scenarioPage ? scenarioDate(now, season) : now)
   const summer = isSummer(now)
+  // 展示的情境和今天實際的季節不同時（例如九月切到非夏月），頁首下方說明一下，免得看的人搞混
+  const shown = SEASONS.find((s) => s.key === season)
+  const natural = SEASONS.find((s) => s.key === seasonOf(now))
+  const offSeason = scenarioPage && shown && natural && shown.key !== natural.key
   const theme = useTheme()
   const [collapsed, setCollapsed] = useState(readCollapsed)
 
@@ -174,6 +178,17 @@ export default function Layout() {
           {/* 展示模式是全站共用的虛擬時鐘，所以控制列放在版面層而不是單一頁面：
               原本只放在主頁面，切到頁面二時展示仍在背景播，卻沒地方暫停或拖曳。
               頁面三是隔日規劃，不受今天的播放進度影響，那一頁就不顯示。 */}
+          {offSeason && (
+            <div className="scenario-note" role="note">
+              <span>
+                {`🔁 目前展示${shown.label}情境：負載、太陽能與天氣換成資料集 ${shown.dataset}，`}
+                {`電價照${shown.label}的尖離峰時段計算；畫面上的日期與時鐘仍是今天。`}
+              </span>
+              <button className="scenario-back" onClick={() => setSeason(natural.key)}>
+                回到{natural.label}
+              </button>
+            </div>
+          )}
           {DEMO_PAGES.has(pathname) && <DemoBar />}
           <Outlet />
         </main>

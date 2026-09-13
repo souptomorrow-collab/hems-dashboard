@@ -1401,6 +1401,34 @@ body {
 .season-seg button { min-width: 0; padding: 4px 11px; font-size: 12px; }
 .season-seg button.active.summer { background: #b45309; }
 
+/* 展示情境和今天實際季節不同時的說明列 */
+.scenario-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin-bottom: 16px;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-panel));
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+.scenario-back {
+  margin-left: auto;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-panel-2);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.scenario-back:hover { border-color: var(--accent); }
+
 /* ---------- 用電規劃：規劃日區塊（窄螢幕折行時仍靠右） ---------- */
 .plan-date { margin-left: auto; text-align: right; }
 /* 點到不允許運轉的格子時的提示 */

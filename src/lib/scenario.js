@@ -14,9 +14,10 @@ import { useSyncExternalStore } from 'react'
 import { isSummer } from './tou.js'
 import { nowTaipei } from './time.js'
 
+// dataset：該情境用的資料集展示日（public/data 的快照，見 README.txt）
 export const SEASONS = [
-  { key: 'summer', label: '夏月', hint: '夏月情境（6/1～9/30）：平日尖峰 09:00–24:00' },
-  { key: 'non_summer', label: '非夏月', hint: '非夏月情境（10/1～5/31）：平日尖峰 06:00–11:00、14:00–24:00' },
+  { key: 'summer', label: '夏月', dataset: '2010-09-06', hint: '夏月情境（6/1～9/30）：平日尖峰 09:00–24:00' },
+  { key: 'non_summer', label: '非夏月', dataset: '2010-11-18', hint: '非夏月情境（10/1～5/31）：平日尖峰 06:00–11:00、14:00–24:00' },
 ]
 
 export const seasonOf = (date) => (isSummer(date) ? 'summer' : 'non_summer')
