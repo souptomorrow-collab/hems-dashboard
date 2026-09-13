@@ -20,16 +20,18 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # 官方步驟用 2026 年的版本：v4 以前的版本以已停止支援的 Node.js 20 為目標，Actions 會一直出現警告
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24 # 和本機開發環境一致；Node 20 已於 2026-04 停止支援
           cache: npm
       - run: npm ci
       # 先檢查模擬引擎（能量平衡、SOC 上下限、排程時段…），沒過就不部署，免得把算錯的畫面推上線
       - run: npm run check
       - run: npm run build
-      - uses: actions/upload-pages-artifact@v3
+      # v4 起預設不上傳點開頭的隱藏檔；dist 裡沒有這種檔案，不受影響
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: dist
 
@@ -41,4 +43,4 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
