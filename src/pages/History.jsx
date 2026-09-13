@@ -8,8 +8,8 @@
    在區間統計點某一天，會跳到那天的單日紀錄。
 
    資料來源見 api/client.js 的 fetchDaySim()／fetchDailyUsage()：系統尚未接
-   實際電表，每一天是用同一套模擬引擎依當日天氣與電價重跑的紀錄；
-   不可轉移負載採用資料集中同一個星期幾的實測曲線。畫面上會標明。
+   實際電表，每一天是用同一套模擬引擎依當日電價重跑的紀錄；
+   不可轉移負載、太陽能與天氣採用資料集中同季節、同一個星期幾那天的資料。畫面上會標明。
    只收已經結束的日子（到昨天為止）——和電費帳單一樣，今天要到 24:00 才結算。
    ============================================================ */
 import { useEffect, useMemo, useState } from 'react'
@@ -298,8 +298,9 @@ function DayView({ date, setDate, yesterday, minDay }) {
                 </table>
               </div>
               <p className="hint prose mt-16">
-                錢主要是從<strong>尖峰</strong>省下來的：白天的太陽能先存進電池，傍晚尖峰改用電池供電，
-                少向台電買最貴的電。離峰若出現「多」，是半夜趁便宜先充電池，換掉尖峰的昂貴購電。
+                {/* 中文段落分行要用 {'…'} 包起來：JSX 會把跨行的文字用空白接起來，中文句子中間就多出空格 */}
+                {'錢主要是從'}<strong>尖峰</strong>{'省下來的：白天的太陽能先存進電池，傍晚尖峰改用電池供電，'}
+                {'少向台電買最貴的電。離峰若出現「多」，是半夜趁便宜先充電池，換掉尖峰的昂貴購電。'}
               </p>
             </Panel>
 
@@ -308,8 +309,8 @@ function DayView({ date, setDate, yesterday, minDay }) {
               <StackBar title="家庭用電" total={rec.load} parts={rec.sources} colors={{ pv: COLORS.solar, batt: COLORS.battery, grid: COLORS.grid }} />
               <StackBar title="太陽能發電" total={rec.pv} parts={rec.pvDest} colors={{ self: COLORS.solar, batt: COLORS.battery, cut: '#94a3b8' }} />
               <p className="hint prose">
-                非電網供應比例 {nonGridPct.toFixed(1)}%。
-                「削減」是本系統設定防逆送，太陽能發多了又充不進電池時，不能賣回台電而被捨棄的部分。
+                {`非電網供應比例 ${nonGridPct.toFixed(1)}%。`}
+                {'「削減」是本系統設定防逆送，太陽能發多了又充不進電池時，不能賣回台電而被捨棄的部分。'}
               </p>
             </Panel>
           </div>
@@ -355,10 +356,10 @@ function DayView({ date, setDate, yesterday, minDay }) {
           </Panel>
 
           <p className="hint prose mt-16">
-            🧪 系統尚未接上實際電表，以上是依台電簡易二段式電價模擬的運轉紀錄。
-            不可轉移負載、太陽能與天氣都取資料集中同季節、同為週{weekdayOf(date)}的那一天{res.profileFrom ? `（${res.profileFrom}）` : ''}：
-            負載是 UCI household_power_consumption 的實測曲線，太陽能是 LSTM 日前預測，
-            天氣是{res.weatherFrom === 'era5' ? '同一天台北的 ERA5 再分析資料' : '模擬天氣（讀不到 ERA5 資料）'}。
+            {'🧪 系統尚未接上實際電表，以上是依台電簡易二段式電價模擬的運轉紀錄。'}
+            {`不可轉移負載、太陽能與天氣都取資料集中同季節、同為週${weekdayOf(date)}的那一天${res.profileFrom ? `（${res.profileFrom}）` : ''}：`}
+            {'負載是 UCI household_power_consumption 的實測曲線，太陽能是 LSTM 日前預測，'}
+            {`天氣是${res.weatherFrom === 'era5' ? '同一天台北的 ERA5 再分析資料' : '模擬天氣（讀不到 ERA5 資料）'}。`}
           </p>
         </>
       )}
@@ -514,41 +515,61 @@ function RangeView({ yesterday, minDay, onPickDay }) {
     if (kind === 'year') { set(addDays(y, -364), y); setUnit('month') }
   }
 
-  const chartOption = useMemo(() => {
+  /* 原本是「kWh 長條＋電費折線」共用一張圖、左右兩個 y 軸：兩把尺各自縮放，
+     線和長條的高低關係沒有意義，看起來卻像可以比。拆成兩張，各用自己的單位。 */
+  const catAxis = useMemo(() => ({
+    type: 'category',
+    data: groups.map((g) => g.label),
+    axisLine: { lineStyle: { color: SPLIT_LINE } },
+    axisTick: { show: false },
+    axisLabel: { color: AXIS_TEXT, fontSize: 11, hideOverlap: true },
+  }), [groups, theme])
+  const dense = groups.length > 45 // 長條太多時拿掉間距，不然擠成一片
+  const barGaps = { barGap: dense ? '0%' : '15%', barCategoryGap: dense ? '10%' : '30%' }
+
+  // 用電、太陽能發電、向電網購電（kWh）
+  const energyOption = useMemo(() => {
     if (!groups.length) return {}
-    const dense = groups.length > 45 // 長條太多時拿掉間距，不然擠成一片
-    const bar = { type: 'bar', barGap: dense ? '0%' : '15%', barCategoryGap: dense ? '10%' : '30%' }
+    const bar = { type: 'bar', ...barGaps }
+    const top = { borderRadius: [3, 3, 0, 0] }
+    return {
+      tooltip: { ...baseTooltip, valueFormatter: (v) => `${(+v).toFixed(2)} kWh` },
+      legend: { ...baseLegend, data: ['用電', '太陽能發電', '向電網購電'] },
+      grid: { ...baseGrid, bottom: 44 },
+      xAxis: catAxis,
+      yAxis: valueYAxis('kWh'),
+      series: [
+        { ...bar, name: '用電', data: groups.map((g) => +g.loadKwh.toFixed(2)), itemStyle: { color: COLORS.load, ...top } },
+        { ...bar, name: '太陽能發電', data: groups.map((g) => +g.pvKwh.toFixed(2)), itemStyle: { color: COLORS.solar, ...top } },
+        { ...bar, name: '向電網購電', data: groups.map((g) => +g.gridKwh.toFixed(2)), itemStyle: { color: COLORS.grid, ...top } },
+      ],
+    }
+  }, [groups, theme, catAxis])
+
+  // 電費（元）：一根長條的總高 = 不裝 HEMS 的電費，下段是實際付的、上段是省下的
+  const costOption = useMemo(() => {
+    if (!groups.length) return {}
+    const bar = { type: 'bar', stack: 'cost', ...barGaps }
     return {
       tooltip: {
         ...baseTooltip,
-        formatter: (ps) =>
-          `${ps[0].axisValueLabel}<br/>` +
-          ps.map((p) => `${p.marker}${p.seriesName}: ${(+p.value).toFixed(p.seriesName.includes('元') ? 1 : 2)} ${p.seriesName.includes('元') ? '元' : 'kWh'}`).join('<br/>'),
-      },
-      legend: { ...baseLegend, data: ['用電（kWh）', '太陽能發電（kWh）', '向電網購電（kWh）', '電費（元）'] },
-      grid: { ...baseGrid, right: 52, bottom: 44 },
-      xAxis: {
-        type: 'category',
-        data: groups.map((g) => g.label),
-        axisLine: { lineStyle: { color: SPLIT_LINE } },
-        axisTick: { show: false },
-        axisLabel: { color: AXIS_TEXT, fontSize: 11, hideOverlap: true },
-      },
-      yAxis: [
-        { type: 'value', name: 'kWh', nameTextStyle: { color: AXIS_TEXT, fontSize: 11 }, axisLabel: { color: AXIS_TEXT, fontSize: 11 }, splitLine: { lineStyle: { color: SPLIT_LINE } } },
-        { type: 'value', name: '元', position: 'right', nameTextStyle: { color: AXIS_TEXT, fontSize: 11 }, axisLabel: { color: AXIS_TEXT, fontSize: 11 }, splitLine: { show: false } },
-      ],
-      series: [
-        { ...bar, name: '用電（kWh）', data: groups.map((g) => +g.loadKwh.toFixed(2)), itemStyle: { color: COLORS.load, borderRadius: [3, 3, 0, 0] } },
-        { ...bar, name: '太陽能發電（kWh）', data: groups.map((g) => +g.pvKwh.toFixed(2)), itemStyle: { color: COLORS.solar, borderRadius: [3, 3, 0, 0] } },
-        { ...bar, name: '向電網購電（kWh）', data: groups.map((g) => +g.gridKwh.toFixed(2)), itemStyle: { color: COLORS.grid, borderRadius: [3, 3, 0, 0] } },
-        {
-          type: 'line', name: '電費（元）', yAxisIndex: 1, smooth: true, symbol: dense ? 'none' : 'circle', symbolSize: 6,
-          data: groups.map((g) => +g.cost.toFixed(1)), lineStyle: { width: 2.2, color: COLORS.save }, itemStyle: { color: COLORS.save },
+        formatter: (ps) => {
+          const val = (name) => +(ps.find((p) => p.seriesName === name)?.value ?? 0)
+          return `${ps[0].axisValueLabel}<br/>` +
+            ps.map((p) => `${p.marker}${p.seriesName}: ${(+p.value).toFixed(1)} 元`).join('<br/>') +
+            `<br/>不裝 HEMS: ${(val('實際電費') + val('省下電費')).toFixed(1)} 元`
         },
+      },
+      legend: { ...baseLegend, data: ['實際電費', '省下電費'] },
+      grid: { ...baseGrid, bottom: 44 },
+      xAxis: catAxis,
+      yAxis: valueYAxis('元'),
+      series: [
+        { ...bar, name: '實際電費', data: groups.map((g) => +g.cost.toFixed(1)), itemStyle: { color: COLORS.grid } },
+        { ...bar, name: '省下電費', data: groups.map((g) => +g.savings.toFixed(1)), itemStyle: { color: COLORS.save, borderRadius: [3, 3, 0, 0] } },
       ],
     }
-  }, [groups, theme])
+  }, [groups, theme, catAxis])
 
   const [a, b] = from <= to ? [from, to] : [to, from]
   const COLS = (first) => [
@@ -634,9 +655,14 @@ function RangeView({ yesterday, minDay, onPickDay }) {
             <Tile label="省下電費" value={Math.round(sum.savings).toLocaleString()} unit="元" sub={`省 ${savePct.toFixed(1)}%`} color={COLORS.save} />
           </div>
 
-          <Panel title={`用電與電費（依${unitLabel}）`} sub={`${a} ～ ${b}`} className="mt-16" right={<span className="badge">🧪 模擬紀錄</span>}>
-            <EChart option={chartOption} height={300} />
-          </Panel>
+          <div className="grid cols-2 mt-16">
+            <Panel title={`用電、發電與購電（依${unitLabel}）`} sub={`${a} ～ ${b}・單位 kWh`} right={<span className="badge">🧪 模擬紀錄</span>}>
+              <EChart option={energyOption} height={300} />
+            </Panel>
+            <Panel title={`電費（依${unitLabel}）`} sub="長條總高＝不裝 HEMS 的電費，下段是實際付的、上段是省下的・單位 元">
+              <EChart option={costOption} height={300} />
+            </Panel>
+          </div>
 
           <Panel title={`用電明細（依${unitLabel}）`} sub={unit === 'day' ? `共 ${groups.length} 筆・點任一天看當日完整紀錄` : `共 ${groups.length} 筆`} className="mt-16">
             <div className="table-wrap">
@@ -689,10 +715,10 @@ function RangeView({ yesterday, minDay, onPickDay }) {
               </table>
             </div>
             <p className="hint prose mt-16">
-              🧪 系統尚未接上實際電表，以上是依台電簡易二段式電價（夏月／非夏月、平日／假日）
-              逐日模擬的運轉紀錄；不可轉移負載、太陽能與天氣採用資料集中同季節、同一個星期幾那天的資料，
-              因此同一季裡同一個星期幾的用電量每週相同。
-              {unit === 'day' && ' 週末列以底色標示：週末全天離峰、沒有尖離峰價差，電池能省的錢明顯較少。'}
+              {'🧪 系統尚未接上實際電表，以上是依台電簡易二段式電價（夏月／非夏月、平日／假日）'}
+              {'逐日模擬的運轉紀錄；不可轉移負載、太陽能與天氣採用資料集中同季節、同一個星期幾那天的資料，'}
+              {'因此同一季裡同一個星期幾的用電量每週相同。'}
+              {unit === 'day' && '週末列以底色標示：週末全天離峰、沒有尖離峰價差，電池能省的錢明顯較少。'}
             </p>
           </Panel>
         </>

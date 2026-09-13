@@ -2,7 +2,11 @@
 <html lang="zh-Hant">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- viewport-fit=cover：手機底部分頁列要用 env(safe-area-inset-bottom) 避開 iPhone 的橫條 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0d1224" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>" />
     <title>家庭能源管理系統 | HEMS</title>
     <meta name="description" content="基於發電量與負載預測之家庭能源管理系統 — 顯示及操作介面" />
   </head>

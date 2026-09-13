@@ -62,6 +62,11 @@ export default function Layout() {
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
+  // 瀏覽器分頁標題跟著頁面換，同時開好幾個分頁時才分得出來
+  useEffect(() => {
+    document.title = `${meta.title}｜家庭能源管理系統`
+  }, [meta.title])
+
   useEffect(() => {
     try {
       localStorage.setItem(SIDEBAR_KEY, collapsed ? '1' : '0')
