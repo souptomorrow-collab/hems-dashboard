@@ -24,6 +24,20 @@ import { nowTaipei } from '../lib/time.js'
 import { useTheme, getTheme, setTheme } from '../lib/theme.js'
 import { toCsv, downloadCsv, printReport } from '../lib/exportFile.js'
 import { dayRecord } from '../lib/dayRecord.js'
+import { SHIFTABLE_RULES } from '../lib/simulate.js'
+
+/** 可轉移設備不允許運轉的時段（小時區間）：允許時段的補集 */
+function blockedHours(id) {
+  const wins = [...(SHIFTABLE_RULES[id]?.windows ?? [[0, 24]])].sort((x, y) => x[0] - y[0])
+  const out = []
+  let t = 0
+  for (const [a, b] of wins) {
+    if (a > t) out.push([t, a])
+    t = Math.max(t, b)
+  }
+  if (t < 24) out.push([t, 24])
+  return out
+}
 import {
   baseTooltip,
   baseLegend,
@@ -415,6 +429,9 @@ function Timeline({ runs, tier }) {
         <div key={d.id} className="tl-row">
           <span className="tl-name">{d.name}</span>
           <div className="tl-track">
+            {blockedHours(d.id).map(([a, b], i) => (
+              <div key={`b${i}`} className="tl-blocked" style={{ left: `${(a / 24) * 100}%`, width: `${((b - a) / 24) * 100}%` }} />
+            ))}
             {peakRuns.map(([a, b], i) => (
               <div key={`p${i}`} className="tl-peak" style={{ left: pct(a), width: pct(b - a) }} />
             ))}
@@ -434,6 +451,7 @@ function Timeline({ runs, tier }) {
       </div>
       <div className="tl-legend">
         <span><i className="tl-peak-swatch" />尖峰時段</span>
+        <span><i className="tl-blocked-swatch" />不允許運轉的時段</span>
       </div>
     </div>
   )
