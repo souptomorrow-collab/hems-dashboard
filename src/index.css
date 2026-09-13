@@ -1595,6 +1595,18 @@ body {
     gap: 8px;
     padding: 10px 14px;
   }
+  /* index.html 設了 viewport-fit=cover（底部分頁列要避開 iPhone 橫條），畫面會延伸到瀏海底下：
+     加到主畫面全螢幕開啟、或手機橫放時，頂端列與左右內容要讓出瀏海的安全距離。
+     一般瀏覽器裡 env() 是 0，max() 會取原本的間距，不影響 */
+  .topbar {
+    padding-top: max(10px, env(safe-area-inset-top));
+    padding-left: max(14px, env(safe-area-inset-left));
+    padding-right: max(14px, env(safe-area-inset-right));
+  }
+  .content {
+    padding-left: max(14px, env(safe-area-inset-left));
+    padding-right: max(14px, env(safe-area-inset-right));
+  }
   .topbar-left { flex: 1; gap: 10px; }
   .topbar-logo {
     display: grid;
