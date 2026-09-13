@@ -1401,6 +1401,20 @@ body {
 .season-seg button { min-width: 0; padding: 4px 11px; font-size: 12px; }
 .season-seg button.active.summer { background: #b45309; }
 
+/* 頂端列右側（地點、情境切換、電價、主題、時鐘）一律不壓縮、不換行：
+   頁面副標題較長時（例如用電規劃），原本會把「夏月」擠成「夏／月」兩行、日期斷成「（週／一）」 */
+.topbar-right > * { flex-shrink: 0; }
+.season-seg button,
+.clock .time,
+.clock .date { white-space: nowrap; }
+.topbar .page-title { min-width: 0; }
+@media (max-width: 1100px) and (min-width: 761px) {
+  /* 中等寬度（平板、手機橫放）：先藏地點徽章騰出空間，還放不下就讓右側整排換到下一行 */
+  .topbar { flex-wrap: wrap; }
+  .topbar-right { margin-left: auto; }
+  .topbar-right .badge.loc { display: none; }
+}
+
 /* 展示情境和今天實際季節不同時的說明列 */
 .scenario-note {
   display: flex;
