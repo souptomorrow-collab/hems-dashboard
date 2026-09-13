@@ -16,6 +16,7 @@ import {
   baseLegend,
   baseGrid,
   AXIS_TEXT,
+  DIM_TEXT,
   SPLIT_LINE,
   PANEL_BG,
 } from '../lib/charts.js'
@@ -74,7 +75,11 @@ export default function Loads() {
       xAxis: { type: 'value', axisLabel: { color: AXIS_TEXT, fontSize: 11 }, splitLine: { lineStyle: { color: SPLIT_LINE } } },
       yAxis: {
         type: 'category',
-        data: sorted.map((d) => d.name),
+        // 沒在用電的設備名稱與「0 W」調淡，一眼看出現在是哪幾台在耗電
+        data: sorted.map((d) => ({
+          value: d.name,
+          textStyle: d.watt > 0 ? { color: AXIS_TEXT, fontWeight: 600 } : { color: DIM_TEXT },
+        })),
         axisLabel: { color: AXIS_TEXT, fontSize: 12 },
         axisLine: { show: false },
         axisTick: { show: false },
@@ -85,6 +90,7 @@ export default function Loads() {
           data: sorted.map((d) => ({
             value: d.watt,
             itemStyle: { color: DEVICE_COLORS[d.id], borderRadius: [0, 4, 4, 0] },
+            label: d.watt > 0 ? undefined : { color: DIM_TEXT },
           })),
           barWidth: '60%',
           label: { show: true, position: 'right', color: AXIS_TEXT, fontSize: 11, formatter: '{c} W' },

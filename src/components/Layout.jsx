@@ -71,6 +71,12 @@ export default function Layout() {
     document.title = `${meta.title}｜家庭能源管理系統`
   }, [meta.title])
 
+  // 換頁時回到頂端：React Router 不會自己重設捲動位置，
+  // 手機上從主頁面底部點分頁列切到其他頁，原本會停在新頁面的中間甚至底部
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [pathname])
+
   useEffect(() => {
     try {
       localStorage.setItem(SIDEBAR_KEY, collapsed ? '1' : '0')

@@ -15,6 +15,7 @@ import { SLOTS_PER_DAY, slotToTime, setDeviceColors } from './constants.js'
 const PALETTE = {
   dark: {
     axis: '#9aa4bd',
+    dim: '#7f8aa8', // 和 CSS 的 --text-dim 相同
     split: 'rgba(255,255,255,0.06)',
     tipBg: 'rgba(20,26,46,0.95)',
     tipBorder: 'rgba(255,255,255,0.12)',
@@ -28,6 +29,7 @@ const PALETTE = {
   },
   light: {
     axis: '#5a6478',
+    dim: '#667085',
     split: 'rgba(15,23,42,0.10)',
     tipBg: 'rgba(255,255,255,0.97)',
     tipBorder: 'rgba(15,23,42,0.12)',
@@ -42,6 +44,7 @@ const PALETTE = {
 }
 
 export let AXIS_TEXT = PALETTE.dark.axis
+export let DIM_TEXT = PALETTE.dark.dim // 次要的標籤（例如沒在運轉的設備）
 export let SPLIT_LINE = PALETTE.dark.split
 export let TEXT_MAIN = PALETTE.dark.text        // 圖上的主要數字（例如儀表中央的百分比）
 export let TRACK = PALETTE.dark.track           // 儀表底環
@@ -55,6 +58,7 @@ export let baseLegend = {}
 export function applyChartTheme(theme) {
   const c = PALETTE[theme] ?? PALETTE.dark
   AXIS_TEXT = c.axis
+  DIM_TEXT = c.dim
   SPLIT_LINE = c.split
   TEXT_MAIN = c.text
   TRACK = c.track
