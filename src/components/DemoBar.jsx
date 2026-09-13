@@ -6,8 +6,10 @@
    畫面本身不特別處理——整個 UI 的即時區塊都是由時鐘推導的，
    時鐘一加速，能源流向、KPI、設備開關、尖離峰標示就一起動起來。
    ============================================================ */
+import { useEffect } from 'react'
 import {
   useDemoClock,
+  getDemo,
   toggleDemo,
   togglePlay,
   restartDemo,
@@ -20,6 +22,28 @@ import { SLOTS_PER_DAY, slotToTime } from '../lib/constants.js'
 export default function DemoBar() {
   const demo = useDemoClock()
   const speed = SPEEDS.find((s) => s.key === demo.speed) ?? SPEEDS[0]
+
+  // 展示時用鍵盤操作，口試講解時不必回頭找滑鼠：
+  // 空白鍵暫停／繼續、← → 前後一格（按住 Shift 一次一小時）、Home 回到 00:00
+  useEffect(() => {
+    if (!demo.enabled) return
+    const onKey = (e) => {
+      if (e.altKey || e.ctrlKey || e.metaKey) return
+      const tag = e.target?.tagName
+      // 在輸入框、下拉選單裡打字不要攔；空白鍵在按鈕上本來就會按下去，也不要重複觸發
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag) || e.target?.isContentEditable) return
+      if (e.key === ' ' && ['BUTTON', 'A'].includes(tag)) return
+      const step = e.shiftKey ? 4 : 1
+      if (e.key === ' ') togglePlay()
+      else if (e.key === 'ArrowRight') seekDemo(getDemo().slot + step)
+      else if (e.key === 'ArrowLeft') seekDemo(getDemo().slot - step)
+      else if (e.key === 'Home') restartDemo()
+      else return
+      e.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [demo.enabled])
 
   return (
     <div className={`demo-bar ${demo.enabled ? 'on' : ''}`}>
@@ -74,7 +98,7 @@ export default function DemoBar() {
             ))}
           </div>
 
-          <span className="hint demo-note">{speed.hint}</span>
+          <span className="hint demo-note">{speed.hint}・空白鍵暫停、← → 前後一格</span>
         </>
       )}
     </div>
