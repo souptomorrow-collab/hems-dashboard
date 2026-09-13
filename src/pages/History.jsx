@@ -118,13 +118,29 @@ function DayView({ date, setDate, yesterday, minDay }) {
   const rec = useMemo(() => (sim ? dayRecord(sim) : null), [sim])
   const s = rec?.summary
 
-  const step = (n) => {
-    const t = addDays(parseYmd(date), n)
-    if (t < minDay || t > yesterday) return
-    setDate(ymd(t))
-  }
+  // 用函式形式更新：鍵盤連按時，每一下都要從「最新的日期」往前後推，不能用這次畫面拿到的舊值
+  const step = (n) => setDate((cur) => {
+    const t = addDays(parseYmd(cur), n)
+    return t < minDay || t > yesterday ? cur : ymd(t)
+  })
   const atFirst = date <= ymd(minDay)
   const atLast = date >= ymd(yesterday)
+
+  // 鍵盤 ← → 切換前後一天（口試講解時不必去點小按鈕）；游標在輸入框裡（例如日期欄）時不攔截
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+      const tag = e.target?.tagName
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag) || e.target?.isContentEditable) return
+      if (e.key === 'ArrowLeft') step(-1)
+      else if (e.key === 'ArrowRight') step(1)
+      else return
+      e.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date, minDay, yesterday])
 
   /* ---- 當天的即時運轉曲線（整天） ---- */
   const curveOption = useMemo(() => {
@@ -225,9 +241,9 @@ function DayView({ date, setDate, yesterday, minDay }) {
       <Panel className="no-print">
         <div className="history-bar">
           <div className="day-nav">
-            <button className="btn" onClick={() => step(-1)} disabled={atFirst} aria-label="前一天">◀</button>
+            <button className="btn" onClick={() => step(-1)} disabled={atFirst} aria-label="前一天" title="前一天（鍵盤 ←）">◀</button>
             <input type="date" className="date-input" value={date} min={ymd(minDay)} max={ymd(yesterday)} onChange={(e) => e.target.value && setDate(e.target.value)} />
-            <button className="btn" onClick={() => step(1)} disabled={atLast} aria-label="後一天">▶</button>
+            <button className="btn" onClick={() => step(1)} disabled={atLast} aria-label="後一天" title="後一天（鍵盤 →）">▶</button>
             <strong className="day-nav-wd">週{weekdayOf(date)}</strong>
             {w && (
               <span className="day-nav-wx">
@@ -720,6 +736,13 @@ function RangeView({ yesterday, minDay, onPickDay }) {
                         unit === 'day' ? 'clickable' : '',
                       ].join(' ')}
                       onClick={unit === 'day' ? () => onPickDay(g.date) : undefined}
+                      // 可點的日期列也要能用鍵盤選到（Tab）並打開（Enter／空白鍵）
+                      tabIndex={unit === 'day' ? 0 : undefined}
+                      onKeyDown={unit === 'day' ? (e) => {
+                        if (e.key !== 'Enter' && e.key !== ' ') return
+                        e.preventDefault()
+                        onPickDay(g.date)
+                      } : undefined}
                     >
                       <td>{g.label}</td>
                       {unit !== 'day' && <td className="num">{g.days}</td>}
