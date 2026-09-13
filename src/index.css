@@ -1726,6 +1726,18 @@ body {
   .history-table.compact td,
   .history-table.compact th { padding: 7px 6px; }
 
+  /* 區間統計的篩選列：原本開始、「～」、結束、日週月照順序換行，手機上變成
+     「開始」一整行、「～」孤零零掛在右邊、日週月擠在結束日期旁邊。改成開始／結束並排、日週月另起一行 */
+  .history-filters {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    width: 100%;
+  }
+  .history-filters > .dim { display: none; }
+  .history-filters .date-input { width: 100%; min-width: 0; }
+  .history-filters .seg { grid-column: 1 / -1; justify-self: start; }
+
   /* 區間明細表：手機上要左右滑才看得到電費，日期欄固定在左邊，滑過去還知道是哪一天 */
   .history-table:not(.compact) th:first-child,
   .history-table:not(.compact) td:first-child {
