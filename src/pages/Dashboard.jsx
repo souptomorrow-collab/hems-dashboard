@@ -10,6 +10,7 @@ import { useTheme } from '../lib/theme.js'
 import { useDemoClock, slotToDate } from '../lib/demoClock.js'
 import { useScenario } from '../lib/scenario.js'
 import { useClock, useCurrentSlot } from '../hooks/useClock.js'
+import { useMediaQuery } from '../hooks/useMediaQuery.js'
 import {
   slotXAxis,
   valueYAxis,
@@ -17,6 +18,10 @@ import {
   baseLegend,
   baseGrid,
   peakMarkArea,
+  powerSocLayout,
+  powerSocFormatter,
+  socYAxis,
+  SOC_EXTRA_HEIGHT,
   AXIS_TEXT,
   TEXT_MAIN,
   TRACK,
@@ -48,6 +53,7 @@ export default function Dashboard() {
   const now = useClock() // 展示模式開著時，這個已經是虛擬時間
   const curSlot = useCurrentSlot() // 過去／未來的分界，也決定滾動預測取哪一筆
   const { season } = useScenario() // 夏月／非夏月情境，一換就整頁重抓
+  const narrow = useMediaQuery('(max-width: 760px)')
 
   // kW 軸的範圍「只增不減」，而且兩個情境各記各的。
   // 滾動預測每前進一格就換一次資料，若讓軸自動縮放，播放時整張圖會不停上下跳，
@@ -127,38 +133,12 @@ export default function Dashboard() {
       // 展示模式每秒換一次資料：保留動畫的話，每次更新都會重播一段進場，
       // 播放頭的時間標籤看起來會一直抖。真實時間模式更新慢，動畫留著比較順
       animation: !demo.enabled,
-      tooltip: {
-        ...baseTooltip,
-        formatter: (ps) =>
-          `${ps[0].axisValueLabel}<br/>` +
-          ps
-            .map((p) => {
-              const val =
-                p.seriesName === 'SOC'
-                  ? `${Math.round(p.value)}%`
-                  : `${(+p.value).toFixed(2)} kW`
-              return `${p.marker}${p.seriesName}: ${val}`
-            })
-            .join('<br/>'),
-      },
+      tooltip: { ...baseTooltip, formatter: powerSocFormatter },
       color: [COLORS.solar, COLORS.load, COLORS.grid, 'rgba(34,197,94,0.55)', 'rgba(249,115,22,0.6)', COLORS.battery],
       legend: { ...baseLegend, data: ['太陽能發電', '家庭負載', '電網購電', '電池充電', '電池放電', 'SOC'] },
-      grid: { ...baseGrid, right: 48 },
-      xAxis: slotXAxis(),
-      yAxis: [
-        valueYAxis('kW', { min: kwMin, max: kwMax }),
-        {
-          type: 'value',
-          name: 'SOC %',
-          min: 0,
-          max: 100,
-          position: 'right',
-          nameTextStyle: { color: AXIS_TEXT, fontSize: 11 },
-          axisLabel: { color: AXIS_TEXT, fontSize: 11, formatter: '{value}%' },
-          axisLine: { show: false },
-          splitLine: { show: false },
-        },
-      ],
+      // 功率在上、SOC 在下面一小格，不再共用一張圖的左右兩條 y 軸（見 charts.js 的 powerSocLayout）
+      ...powerSocLayout(),
+      yAxis: [valueYAxis('kW', { min: kwMin, max: kwMax }), socYAxis()],
       series: [
         {
           name: '太陽能發電',
@@ -226,11 +206,13 @@ export default function Dashboard() {
         {
           name: 'SOC',
           type: 'line',
+          xAxisIndex: 1,
           yAxisIndex: 1,
           smooth: true,
           symbol: 'none',
           data: clip(today.socPct),
           lineStyle: { width: 2.5, color: COLORS.battery },
+          markArea: peakMarkArea(today.tier),
           markLine: {
             silent: true,
             symbol: 'none',
@@ -425,15 +407,18 @@ export default function Dashboard() {
           progress: { show: true, width: 14, itemStyle: { color: COLORS.battery } },
           axisLine: { lineStyle: { width: 14, color: [[1, TRACK]] } },
           axisTick: { show: false },
+          // 手機上儀表只剩一百多 px 寬，10 格刻度的數字會擠成一團，改成 4 格（0、25、50、75、100）
+          splitNumber: narrow ? 4 : 10,
           splitLine: { length: 10, lineStyle: { color: TRACK_LINE } },
           axisLabel: { color: AXIS_TEXT, fontSize: 10, distance: 14 },
           pointer: { width: 4, itemStyle: { color: COLORS.battery } },
           anchor: { show: true, size: 10, itemStyle: { color: COLORS.battery } },
           detail: {
             valueAnimation: true,
-            formatter: '{value}%',
+            // 取整數：數字動畫過程會帶小數（例如 20.8%），和 KPI 卡的「21%」對不上
+            formatter: (v) => `${Math.round(v)}%`,
             color: TEXT_MAIN,
-            fontSize: 26,
+            fontSize: narrow ? 22 : 26,
             fontWeight: 'bolder',
             offsetCenter: [0, '55%'],
           },
@@ -441,7 +426,7 @@ export default function Dashboard() {
         },
       ],
     }
-  }, [live, theme])
+  }, [live, theme, narrow])
 
   const s = today?.summary
   // 「今日累積」只加到目前這一格；summary 裡的是全天 96 格的預估值
@@ -557,7 +542,7 @@ export default function Dashboard() {
           </span>
         }
       >
-        <EChart option={realtimeOption} height={300} />
+        <EChart option={realtimeOption} height={300 + SOC_EXTRA_HEIGHT} />
       </Panel>
 
       {/* 預測與排程：整天都畫，和上面那張刻意分開，避免把「已發生」和「還沒發生」混為一談 */}
@@ -575,7 +560,7 @@ export default function Dashboard() {
         }
         className="mt-16"
       >
-        <EChart option={dayPlanOption} height={300} />
+        <EChart option={dayPlanOption} height={300 + SOC_EXTRA_HEIGHT} />
       </Panel>
 
       {/* 太陽能：預測與實際，上方是同一天台北的實際天氣 */}

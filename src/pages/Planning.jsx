@@ -15,6 +15,10 @@ import {
   baseLegend,
   baseGrid,
   peakMarkArea,
+  powerSocLayout,
+  powerSocFormatter,
+  socYAxis,
+  SOC_EXTRA_HEIGHT,
   AXIS_TEXT,
   TEXT_MAIN,
   TRACK_LINE,
@@ -85,18 +89,11 @@ export default function Planning() {
   const supplyOption = useMemo(() => {
     if (!plan) return {}
     return {
-      tooltip: { ...baseTooltip, valueFormatter: (v) => `${(+v).toFixed(2)}` },
+      tooltip: { ...baseTooltip, formatter: powerSocFormatter },
       color: ['#ffb020', '#f97316', '#3b82f6', TEXT_MAIN, COLORS.battery],
       legend: { ...baseLegend, data: ['太陽能供電', '電池放電', '電網供電', '總負載', 'SOC'] },
-      grid: { ...baseGrid, right: 48 },
-      xAxis: slotXAxis(),
-      yAxis: [
-        valueYAxis('kW'),
-        { type: 'value', name: 'SOC %', min: 0, max: 100, position: 'right',
-          nameTextStyle: { color: AXIS_TEXT, fontSize: 11 },
-          axisLabel: { color: AXIS_TEXT, fontSize: 11, formatter: '{value}%' },
-          axisLine: { show: false }, splitLine: { show: false } },
-      ],
+      ...powerSocLayout(),
+      yAxis: [valueYAxis('kW'), socYAxis()],
       series: [
         { name: '太陽能供電', type: 'line', stack: 'sup', symbol: 'none', lineStyle: { width: 0 },
           areaStyle: { color: 'rgba(255,176,32,0.7)' }, data: plan.pvToLoad,
@@ -107,8 +104,9 @@ export default function Planning() {
           areaStyle: { color: 'rgba(59,130,246,0.6)' }, data: plan.gridToLoad },
         { name: '總負載', type: 'line', symbol: 'none', smooth: true,
           lineStyle: { width: 2, color: TEXT_MAIN, type: 'dashed' }, data: plan.load },
-        { name: 'SOC', type: 'line', yAxisIndex: 1, symbol: 'none', smooth: true,
-          lineStyle: { width: 2, color: COLORS.battery }, data: plan.socPct },
+        { name: 'SOC', type: 'line', xAxisIndex: 1, yAxisIndex: 1, symbol: 'none', smooth: true,
+          lineStyle: { width: 2, color: COLORS.battery }, data: plan.socPct,
+          markArea: peakMarkArea(plan.tier) },
       ],
     }
   }, [plan, theme])
@@ -117,18 +115,11 @@ export default function Planning() {
   const battOption = useMemo(() => {
     if (!plan) return {}
     return {
-      tooltip: { ...baseTooltip, valueFormatter: (v) => `${(+v).toFixed(2)} kW` },
+      tooltip: { ...baseTooltip, formatter: powerSocFormatter },
       color: ['rgba(34,197,94,0.8)', 'rgba(20,184,166,0.8)', 'rgba(249,115,22,0.85)', COLORS.battery],
       legend: { ...baseLegend, data: ['太陽能充電', '電網充電', '電池放電', 'SOC'] },
-      grid: { ...baseGrid, right: 48 },
-      xAxis: slotXAxis(),
-      yAxis: [
-        valueYAxis('kW'),
-        { type: 'value', name: 'SOC %', min: 0, max: 100, position: 'right',
-          nameTextStyle: { color: AXIS_TEXT, fontSize: 11 },
-          axisLabel: { color: AXIS_TEXT, fontSize: 11, formatter: '{value}%' },
-          axisLine: { show: false }, splitLine: { show: false } },
-      ],
+      ...powerSocLayout(),
+      yAxis: [valueYAxis('kW'), socYAxis()],
       series: [
         { name: '太陽能充電', type: 'bar', stack: 'b', data: plan.pvToBatt,
           itemStyle: { color: 'rgba(34,197,94,0.8)' } },
@@ -136,9 +127,11 @@ export default function Planning() {
           itemStyle: { color: 'rgba(20,184,166,0.8)' } },
         { name: '電池放電', type: 'bar', stack: 'b', data: plan.dischargeKw.map((v) => -v),
           itemStyle: { color: 'rgba(249,115,22,0.85)' } },
-        { name: 'SOC', type: 'line', yAxisIndex: 1, symbol: 'none', smooth: true,
+        { name: 'SOC', type: 'line', xAxisIndex: 1, yAxisIndex: 1, symbol: 'none', smooth: true,
           lineStyle: { width: 2, color: COLORS.battery }, data: plan.socPct,
+          markArea: peakMarkArea(plan.tier),
           markLine: { silent: true, symbol: 'none', lineStyle: { color: TRACK_LINE, type: 'dashed' },
+            label: { color: AXIS_TEXT, fontSize: 10, formatter: '{c}%' },
             data: [{ yAxis: Math.round(BATTERY.socMax * 100) }, { yAxis: Math.round(BATTERY.socMin * 100) }] } },
       ],
     }
@@ -192,12 +185,12 @@ export default function Planning() {
 
       {/* 供需調度 */}
       <Panel title="電力供需與電池調度" sub="隔日 24 小時・各供電來源堆疊（紅底為尖峰時段）" className="mt-16">
-        <EChart option={supplyOption} height={330} />
+        <EChart option={supplyOption} height={330 + SOC_EXTRA_HEIGHT} />
       </Panel>
 
       {/* 電池充放電 */}
       <Panel title="電池充放電規劃" sub={`太陽能充電 / 電網充電 / 放電 與 SOC（虛線為 ${Math.round(BATTERY.socMin * 100)}%–${Math.round(BATTERY.socMax * 100)}% 上下限）`} className="mt-16">
-        <EChart option={battOption} height={300} />
+        <EChart option={battOption} height={300 + SOC_EXTRA_HEIGHT} />
       </Panel>
 
       {/* 設備運行時段甘特 */}

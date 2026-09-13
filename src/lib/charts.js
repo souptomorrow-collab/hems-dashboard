@@ -123,6 +123,70 @@ export function valueYAxis(name, extra = {}) {
 // top 需留給圖例（top:0）與 Y 軸軸名兩層，否則窄螢幕下軸名會疊在圖例上
 export const baseGrid = { left: 48, right: 20, top: 54, bottom: 28 }
 
+/* ------------------------------------------------------------
+   功率＋SOC：上下兩格共用時間軸
+
+   原本 SOC（%）疊在 kW 圖右側的第二條 y 軸：兩把尺各自縮放，
+   SOC 曲線會穿過電池放電的負值長條，看起來像 SOC 變成負的，兩條線的高低關係也沒有意義。
+   改成上面一格畫功率（kW）、下面一小格畫 SOC（%），x 軸對齊，
+   滑鼠移到任一格時兩格的十字線與提示框一起動。
+   用法：{ ...powerSocLayout(), yAxis: [valueYAxis('kW'), socYAxis()] }，
+        SOC 系列加 xAxisIndex: 1, yAxisIndex: 1；EChart 高度多加 SOC_EXTRA_HEIGHT。
+   ------------------------------------------------------------ */
+const SOC_H = 70 // SOC 小圖高度
+const SOC_GAP = 30 // 兩格之間的距離（放 SOC 軸名）
+export const SOC_EXTRA_HEIGHT = SOC_H + SOC_GAP
+
+export function powerSocLayout({ right = 24, boundaryGap } = {}) {
+  // boundaryGap 沒指定就不要傳：slotXAxis 會把 undefined 蓋上去，類別軸就變回預設的留邊
+  const bg = boundaryGap == null ? {} : { boundaryGap }
+  return {
+    axisPointer: { link: [{ xAxisIndex: 'all' }] },
+    grid: [
+      { left: baseGrid.left, right, top: baseGrid.top, bottom: baseGrid.bottom + SOC_H + SOC_GAP },
+      { left: baseGrid.left, right, height: SOC_H, bottom: baseGrid.bottom },
+    ],
+    xAxis: [
+      slotXAxis({ gridIndex: 0, ...bg, axisLabel: { show: false } }),
+      slotXAxis({ gridIndex: 1, ...bg }),
+    ],
+  }
+}
+
+/**
+ * 功率＋SOC 圖的提示框：兩格的資料合在同一個框、時間只列一次，
+ * 功率標 kW（放電畫成負值長條，但數字寫正的）、SOC 標 %，SOC 排最後。
+ */
+export function powerSocFormatter(ps) {
+  const list = [...ps]
+    .filter((p) => p.value != null)
+    .sort((a, b) => (a.seriesName === 'SOC') - (b.seriesName === 'SOC'))
+  if (!list.length) return ''
+  return `${list[0].axisValueLabel}<br/>` + list.map((p) => {
+    const v = +p.value
+    const text = p.seriesName === 'SOC'
+      ? `${Math.round(v)}%`
+      : `${(p.seriesName.includes('放電') ? Math.abs(v) : v).toFixed(2)} kW`
+    return `${p.marker}${p.seriesName}: ${text}`
+  }).join('<br/>')
+}
+
+export function socYAxis() {
+  return {
+    type: 'value',
+    gridIndex: 1,
+    name: 'SOC',
+    min: 0,
+    max: 100,
+    interval: 50,
+    nameGap: 8,
+    nameTextStyle: { color: AXIS_TEXT, fontSize: 11 },
+    axisLabel: { color: AXIS_TEXT, fontSize: 10, formatter: '{value}%' },
+    axisLine: { show: false },
+    splitLine: { lineStyle: { color: SPLIT_LINE } },
+  }
+}
+
 /** 把 tier 陣列轉成「尖峰時段」的 markArea 資料（淡紅底色） */
 export function peakMarkArea(tier) {
   const areas = []

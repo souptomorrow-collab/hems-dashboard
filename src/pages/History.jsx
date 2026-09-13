@@ -31,8 +31,13 @@ import {
   slotXAxis,
   valueYAxis,
   peakMarkArea,
+  powerSocLayout,
+  powerSocFormatter,
+  socYAxis,
+  SOC_EXTRA_HEIGHT,
   AXIS_TEXT,
   SPLIT_LINE,
+  TRACK_LINE,
 } from '../lib/charts.js'
 
 const WEEK = ['日', '一', '二', '三', '四', '五', '六']
@@ -111,31 +116,26 @@ function DayView({ date, setDate, yesterday, minDay }) {
     if (!sim) return {}
     const line = { type: 'line', smooth: true, symbol: 'none' }
     return {
-      tooltip: {
-        ...baseTooltip,
-        formatter: (ps) =>
-          `${ps[0].axisValueLabel}<br/>` +
-          ps.map((p) => `${p.marker}${p.seriesName}: ${p.seriesName === 'SOC' ? Math.round(p.value) + '%' : (+p.value).toFixed(2) + ' kW'}`).join('<br/>'),
-      },
+      tooltip: { ...baseTooltip, formatter: powerSocFormatter },
       legend: { ...baseLegend, data: ['太陽能發電', '家庭負載', '電網購電', '電池充電', '電池放電', 'SOC'] },
-      grid: { ...baseGrid, right: 48 },
-      xAxis: slotXAxis({ boundaryGap: true }),
-      yAxis: [
-        valueYAxis('kW'),
-        {
-          type: 'value', name: 'SOC %', min: 0, max: 100, position: 'right',
-          nameTextStyle: { color: AXIS_TEXT, fontSize: 11 },
-          axisLabel: { color: AXIS_TEXT, fontSize: 11, formatter: '{value}%' },
-          axisLine: { show: false }, splitLine: { show: false },
-        },
-      ],
+      ...powerSocLayout({ boundaryGap: true }),
+      yAxis: [valueYAxis('kW'), socYAxis()],
       series: [
         { ...line, name: '太陽能發電', data: sim.pv, lineStyle: { width: 2, color: COLORS.solar }, itemStyle: { color: COLORS.solar }, areaStyle: { color: 'rgba(255,176,32,0.16)' }, markArea: peakMarkArea(sim.tier) },
         { ...line, name: '家庭負載', data: sim.load, lineStyle: { width: 2, color: COLORS.load }, itemStyle: { color: COLORS.load } },
         { ...line, name: '電網購電', data: sim.gridKw, lineStyle: { width: 1.5, color: COLORS.grid, type: 'dashed' }, itemStyle: { color: COLORS.grid } },
         { type: 'bar', stack: 'b', name: '電池充電', data: sim.chargeKw, itemStyle: { color: 'rgba(34,197,94,0.55)' } },
         { type: 'bar', stack: 'b', name: '電池放電', data: sim.dischargeKw.map((v) => -v), itemStyle: { color: 'rgba(249,115,22,0.6)' } },
-        { ...line, name: 'SOC', yAxisIndex: 1, data: sim.socPct, lineStyle: { width: 2.4, color: COLORS.battery }, itemStyle: { color: COLORS.battery } },
+        {
+          ...line, name: 'SOC', xAxisIndex: 1, yAxisIndex: 1, data: sim.socPct,
+          lineStyle: { width: 2.4, color: COLORS.battery }, itemStyle: { color: COLORS.battery },
+          markArea: peakMarkArea(sim.tier),
+          markLine: {
+            silent: true, symbol: 'none', lineStyle: { color: TRACK_LINE, type: 'dashed' },
+            label: { color: AXIS_TEXT, fontSize: 10, formatter: '{c}%' },
+            data: [{ yAxis: Math.round(BATTERY.socMax * 100) }, { yAxis: Math.round(BATTERY.socMin * 100) }],
+          },
+        },
       ],
     }
   }, [sim, theme])
@@ -245,12 +245,12 @@ function DayView({ date, setDate, yesterday, minDay }) {
           {/* 即時運轉曲線 */}
           <Panel
             title="當日即時運轉曲線"
-            sub="太陽能・家庭負載・電網購電・電池充放電・SOC（右軸）；紅底為尖峰時段"
+            sub="太陽能・家庭負載・電網購電・電池充放電，SOC 在下方小圖；紅底為尖峰時段"
             className="mt-16"
             right={<span className="badge">🧪 模擬紀錄</span>}
           >
             <WeatherStrip weather={sim.weather} />
-            <EChart option={curveOption} height={300} />
+            <EChart option={curveOption} height={300 + SOC_EXTRA_HEIGHT} />
           </Panel>
 
           <div className="grid cols-2 mt-16">
