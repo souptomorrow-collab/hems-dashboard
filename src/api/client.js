@@ -13,6 +13,13 @@
      不像負載每 15 分鐘滾動），同樣由 04_export_web.py 匯出到同一份快照。
      讀不到時退回模擬的晴空曲線。
 
+   天氣：**已接真實資料**。
+     資料集那一天台北的 open-meteo ERA5 再分析資料（scripts/fetch_weather.py），
+     和發電量預測模型的輸入同一個來源，天氣條和太陽能曲線才對得起來。
+     讀不到時退回模擬天氣。
+
+   夏月／非夏月：兩個情境各一份展示日快照，由 lib/scenario.js 切換。
+
    GA 排程：仍為模擬引擎（simulate.js）。
      之後接後端時，把對應函式內容換成 fetch() 即可，回傳格式不變。
 
@@ -21,21 +28,20 @@
 import { liveSnapshot, simulateDay, simulateWithSchedule } from '../lib/simulate.js'
 import { tomorrow } from '../lib/format.js'
 import { nowTaipei } from '../lib/time.js'
-import { simulateWeather } from '../lib/weather.js'
-import { fetchDayAheadForecast, cached } from './forecastData.js'
+import { simulateWeather, weatherFromEra5 } from '../lib/weather.js'
+import { fetchDayAheadForecast, fetchWeatherData, cached } from './forecastData.js'
 import { isSummer } from '../lib/tou.js'
+import { getScenario, scenarioDate } from '../lib/scenario.js'
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms))
 
 /* ------------------------------------------------------------
-   不可轉移負載：取雲端「23:45 發布」那筆 96 步預測，整成 96 格陣列。
-   整個 app 只打一次 API（快取），失敗回 null → 各函式自動用模擬值。
-
    ★ 時間軸的處理 ★
    預測資料的時間戳是資料集本身的日期（UCI household_power_consumption，
-   2010 年 11 月的法國 Sceaux 住宅），而 UI 顯示的是當下的今日／明日。
+   法國 Sceaux 住宅；夏月情境 2010-09-06、非夏月情境 2010-11-18），
+   而 UI 顯示的是當下的今日／明日。
    這裡是**依「一日中的時段」(0~95) 對齊**，不做日期換算：
-   曲線形狀完全是 RF 的真實輸出，只是掛在畫面當天的日期標籤下。
+   曲線形狀完全是 RF／LSTM 的真實輸出，只是掛在畫面當天的日期標籤下。
    實際部署接上即時資料後，日期自然就會對上，這層對齊可以直接拿掉。
    ------------------------------------------------------------ */
 let lastForecastMeta = {
@@ -54,8 +60,7 @@ let lastPvMeta = { source: 'sim', datasetDate: null, error: null }
  *   未來（atSlot+1..） 用「在第 atSlot 格發布」的那次預測
  *
  * 這才是 RF 實際的產出方式：它每 15 分鐘重跑一次、重發未來 96 步，
- * 同一個時刻會被預測很多次，越接近越更新。原本 UI 只取一筆當成整天的
- * 固定曲線，等於把滾動預測畫成靜態預測。
+ * 同一個時刻會被預測很多次，越接近越更新。
  *
  * atSlot 給 null 就退回整日曲線（例如頁面三的隔日規劃，那時還沒有真實值）。
  */
@@ -71,57 +76,85 @@ function assembleFixed(d, atSlot) {
   return out
 }
 
-async function realFixedLoad(atSlot = null) {
+/** 某個情境的展示日快照；整個 app 每個情境只讀一次 */
+function showcase(season) {
+  return cached(`day-ahead-forecast:${season}`, () => fetchDayAheadForecast(season))
+}
+
+/* ------------------------------------------------------------
+   天氣：weather.json 以資料集日期為鍵，轉換結果記起來重複用
+   ------------------------------------------------------------ */
+const era5Memo = new Map()
+
+async function weatherData() {
   try {
-    const d = await cached('day-ahead-forecast', fetchDayAheadForecast)
-    if (!d.slots) throw new Error('快照無預測資料')
-    lastForecastMeta = {
-      source: 'rf',
-      refresh: atSlot == null ? null : `第 ${atSlot + 1} / 96 格發布`,
-      datasetDate: d.targetDate,
-      rolling: Boolean(d.rolling),
-      error: null,
-    }
-    return assembleFixed(d, atSlot)
+    return await cached('weather', fetchWeatherData)
+  } catch (e) {
+    if (import.meta.env.DEV) console.warn('[HEMS] 讀不到天氣資料，改用模擬天氣：', e.message)
+    return null
+  }
+}
+
+function era5For(wx, dateStr) {
+  const rows = dateStr ? wx?.days?.[dateStr] : null
+  if (!rows) return null
+  if (!era5Memo.has(dateStr)) era5Memo.set(dateStr, weatherFromEra5(rows, dateStr))
+  return era5Memo.get(dateStr)
+}
+
+/**
+ * 目前情境的輸入：不可轉移負載（96 格）、太陽能（96 格）、天氣。
+ * 讀不到快照時三者都回 null，各函式自動改用模擬值。
+ */
+async function scenarioInputs(atSlot = null) {
+  const season = getScenario().season
+  let d
+  try {
+    d = await showcase(season)
   } catch (e) {
     lastForecastMeta = { source: 'sim', refresh: null, datasetDate: null, error: e.message }
-    if (import.meta.env.DEV) console.warn('[HEMS] 取雲端負載預測失敗，改用模擬值：', e.message)
-    return null
-  }
-}
-
-/**
- * 真實的發電量預測（96 格 kW）。
- *
- * 和負載不同，發電量一天只發布一次（前一晚 23:45），所以這裡沒有「站在第幾格」
- * 的概念 —— 整天用的都是同一條日前曲線，這正是排程實際拿到的東西。
- * 讀不到就回 null，simulateDay() 會自動退回模擬的晴空曲線。
- */
-async function realPv() {
-  try {
-    const d = await cached('day-ahead-forecast', fetchDayAheadForecast)
-    if (!d.pv) throw new Error('快照無發電量預測')
-    lastPvMeta = { source: 'lstm', datasetDate: d.targetDate, error: null }
-    return d.pv
-  } catch (e) {
     lastPvMeta = { source: 'sim', datasetDate: null, error: e.message }
-    if (import.meta.env.DEV) console.warn('[HEMS] 取雲端發電量預測失敗，改用模擬值：', e.message)
-    return null
+    if (import.meta.env.DEV) console.warn('[HEMS] 取雲端預測快照失敗，改用模擬值：', e.message)
+    return { season, fixed: null, pv: null, weather: null }
+  }
+  lastForecastMeta = {
+    source: 'rf',
+    refresh: atSlot == null ? null : `第 ${atSlot + 1} / 96 格發布`,
+    datasetDate: d.targetDate,
+    rolling: Boolean(d.rolling),
+    error: null,
+  }
+  lastPvMeta = d.pv
+    ? { source: 'lstm', datasetDate: d.targetDate, error: null }
+    : { source: 'sim', datasetDate: null, error: '快照無發電量預測' }
+  return {
+    season,
+    fixed: assembleFixed(d, atSlot),
+    pv: d.pv,
+    weather: era5For(await weatherData(), d.targetDate),
   }
 }
 
 /**
- * 滾動預測的原始資料（真實值 + 96×96 的發布矩陣），給「滾動預測」那張圖用。
+ * 主頁面「滾動預測」與「太陽能預測 vs 實際」兩張圖要的原始資料。
  *
  * 其他圖拿到的是已經組好的單一條負載曲線，看不出滾動；
- * 這張圖要把「不同時間點發布的預測」並排畫出來，所以需要整個矩陣。
- * 讀不到時回 null，那張圖就不顯示。
+ * 這兩張要把「不同時間點發布的預測」、「預測與實際」並排畫出來，所以需要原始陣列。
+ * 讀不到時回 null，那兩張圖就不顯示。
  */
-export async function fetchRollingForecast() {
+export async function fetchShowcase() {
+  const season = getScenario().season
   try {
-    const d = await cached('day-ahead-forecast', fetchDayAheadForecast)
-    if (!d.rolling || !d.actual) return null
-    return { rolling: d.rolling, actual: d.actual, targetDate: d.targetDate }
+    const d = await showcase(season)
+    return {
+      season,
+      targetDate: d.targetDate,
+      rolling: d.rolling,
+      actual: d.actual,
+      pv: d.pv,
+      pvActual: d.pvActual,
+      weather: era5For(await weatherData(), d.targetDate),
+    }
   } catch {
     return null
   }
@@ -145,11 +178,10 @@ export async function fetchHistory() {
    用電紀錄（歷史紀錄頁，電費帳單式）
 
    系統還沒接實際電表，沒有真實的逐日量測紀錄，所以每個過去的日期都
-   「用同一套模擬引擎重跑一次」：依那天的天氣與電價（夏月／非夏月、
-   平日／假日）算出太陽能、電池、電網與電費。模擬引擎的天氣是以日期為
-   種子產生，同一天每次算出來都一樣，紀錄才不會每次打開都不同。
+   「用同一套模擬引擎重跑一次」：依那天的電價（夏月／非夏月、平日／假日）
+   算出太陽能、電池、電網與電費。
 
-   不可轉移負載與太陽能改用資料集裡「同季節、同一個星期幾」的實際曲線：
+   不可轉移負載、太陽能與天氣改用資料集裡「同季節、同一個星期幾」那天的實際資料：
    交接資料有夏月（2010-09-06～12）與非夏月（2010-11-18～24）各一週，
    剛好週一到週日各一天，平日／週末與季節的差異都是真的，而不是模擬值。
    ------------------------------------------------------------ */
@@ -188,23 +220,26 @@ function profileFor(profiles, t) {
  * 某一天的完整模擬結果（每 15 分鐘的能量流、排程、各設備功率、天氣）。
  * 與 fetchDailyUsage 用同一套負載曲線與模擬引擎，所以兩邊的數字一致。
  */
-function simulateOn(t, profiles) {
+function simulateOn(t, profiles, wx) {
   const key = ymd(t)
   if (!simCache.has(key)) {
     const prof = profileFor(profiles, t)
-    // 負載與發電量都取「同一個星期幾」那天資料集的實際曲線，兩者來自同一天，
-    // 天氣條件才會一致（別讓晴天的太陽能配上陰天的負載）。
+    // 負載、發電量、天氣都取資料集同一天，三者條件才會一致
+    // （別讓晴天的太陽能配上陰天的天氣條）
+    const era5 = era5For(wx, prof?.date)
     simCache.set(key, {
-      sim: simulateDay(t, simulateWeather(t), prof?.actual ?? null,
+      sim: simulateDay(t, era5 ?? simulateWeather(t), prof?.actual ?? null,
                        prof?.pv_day_ahead ?? null),
       profileFrom: prof?.date ?? null,
+      weatherFrom: era5 ? 'era5' : 'sim',
     })
   }
   return simCache.get(key)
 }
 
 export async function fetchDaySim(dateStr) {
-  return simulateOn(parseYmd(dateStr), await weekdayProfiles())
+  const [profiles, wx] = await Promise.all([weekdayProfiles(), weatherData()])
+  return simulateOn(parseYmd(dateStr), profiles, wx)
 }
 
 /**
@@ -212,13 +247,13 @@ export async function fetchDaySim(dateStr) {
  * @returns {Promise<{rows:Array, profileDates:object}>}
  */
 export async function fetchDailyUsage(fromStr, toStr) {
-  const profiles = await weekdayProfiles()
+  const [profiles, wx] = await Promise.all([weekdayProfiles(), weatherData()])
 
   const rows = []
   for (let t = parseYmd(fromStr), end = parseYmd(toStr); t <= end; t = addDays(t, 1)) {
     const key = ymd(t)
     if (!usageCache.has(key)) {
-      const { sim, profileFrom } = simulateOn(t, profiles)
+      const { sim, profileFrom } = simulateOn(t, profiles, wx)
       const sum = sim.summary
       usageCache.set(key, {
         date: key,
@@ -257,52 +292,47 @@ export function pvForecastMeta() {
   return lastPvMeta
 }
 
+/* ------------------------------------------------------------
+   今天／明天這幾頁：資料取目前情境（夏月／非夏月）的展示日，
+   電價用 scenarioDate() 換到該季節裡星期幾相同的日期去查。
+   回傳值多帶一個 season，頁面可以判斷拿到的是不是目前情境的資料
+   （切換情境的瞬間，舊情境的請求可能晚一步才回來）。
+   ------------------------------------------------------------ */
+
 /** 主頁面即時快照（太陽能/電池/負載/電網/SOC/省電費…） */
 export async function fetchLive(now = nowTaipei(), atSlot = null) {
-  const [fixed, pv] = await Promise.all([realFixedLoad(atSlot), realPv()])
+  const { season, fixed, pv, weather } = await scenarioInputs(atSlot)
+  const at = scenarioDate(now, season)
   await delay(60)
-  return liveSnapshot(now, fixed, pv)
+  return { ...liveSnapshot(at, fixed, pv, weather ?? simulateWeather(at)), season }
 }
 
 /** 今日整日（主頁面的 24h 趨勢圖、最佳化結果） */
 export async function fetchToday(now = nowTaipei(), atSlot = null) {
-  const [fixed, pv] = await Promise.all([realFixedLoad(atSlot), realPv()])
+  const { season, fixed, pv, weather } = await scenarioInputs(atSlot)
+  const at = scenarioDate(now, season)
   await delay(80)
-  return simulateDay(now, simulateWeather(now), fixed, pv)
+  return { ...simulateDay(at, weather ?? simulateWeather(at), fixed, pv), season }
 }
 
-/** 隔日預測 + 最佳化排程（主頁面「預測結果」、頁面三規劃） */
+/** 隔日預測 + 最佳化排程（頁面三規劃） */
 export async function fetchPlanning(baseDate = nowTaipei()) {
-  const [fixed, pv] = await Promise.all([realFixedLoad(), realPv()])
-  const date = tomorrow(baseDate)
+  const { season, fixed, pv, weather } = await scenarioInputs()
+  const date = scenarioDate(tomorrow(baseDate), season)
   await delay(120)
-  return simulateDay(date, simulateWeather(date), fixed, pv)
+  return { ...simulateDay(date, weather ?? simulateWeather(date), fixed, pv), season }
 }
-
 
 /**
  * 依使用者手動調整後的排程重新計算電池調度與成本（不重跑 GA）。
  * @param {object} schedule  { deviceId: boolean[96] }
  */
 export async function recomputeSchedule(schedule, baseDate = nowTaipei()) {
-  const [fixed, pv] = await Promise.all([realFixedLoad(), realPv()])
-  const date = tomorrow(baseDate)
+  const { season, fixed, pv, weather } = await scenarioInputs()
+  const date = scenarioDate(tomorrow(baseDate), season)
   await delay(60)
-  return simulateWithSchedule(date, schedule, simulateWeather(date), fixed, pv)
-}
-
-/**
- * 取得某日台北天氣（餵給太陽能/負載預測）。
- *
- * 目前回傳「模擬天氣」。真實系統建議由 Python 後端整合：
- *   1) 後端以 CWA（中央氣象署）開放資料 API 取得台北實際/預報天氣
- *      （需免費金鑰；瀏覽器直接呼叫多會被 CORS 擋，故放後端）
- *   2) 把日照／溫度／濕度餵入 LSTM（太陽能）、RF（負載）模型
- *   3) 後端把天氣 + 預測結果一起回傳，前端只負責顯示
- * 屆時改成：const r = await fetch(`${API_BASE}/api/weather?date=...`); return r.json()
- * 回傳格式比照 src/lib/weather.js 的 simulateWeather() 輸出。
- */
-export async function fetchWeather(date = tomorrow(nowTaipei())) {
-  await delay(120)
-  return simulateWeather(date)
+  return {
+    ...simulateWithSchedule(date, schedule, weather ?? simulateWeather(date), fixed, pv),
+    season,
+  }
 }

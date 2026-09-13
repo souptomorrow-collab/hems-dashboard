@@ -217,7 +217,8 @@ function DayView({ date, setDate, yesterday, minDay }) {
             {w && (
               <span className="day-nav-wx">
                 <span className="wx-icon">{w.icon}</span>
-                {w.label}・{w.tempMin.toFixed(0)}～{w.tempMax.toFixed(0)}°C・降雨機率最高 {w.popMax}%
+                {w.label}・{w.tempMin.toFixed(0)}～{w.tempMax.toFixed(0)}°C・
+                {w.precipMm != null ? `雨量 ${w.precipMm} mm` : `降雨機率最高 ${w.popMax}%`}
               </span>
             )}
           </div>
@@ -354,8 +355,10 @@ function DayView({ date, setDate, yesterday, minDay }) {
           </Panel>
 
           <p className="hint prose mt-16">
-            🧪 系統尚未接上實際電表，以上是依當日天氣與台電簡易二段式電價模擬的運轉紀錄；
-            不可轉移負載採用資料集（UCI household_power_consumption）{res.profileFrom ? ` ${res.profileFrom}（同為週${weekdayOf(date)}）` : ''}的實測曲線。
+            🧪 系統尚未接上實際電表，以上是依台電簡易二段式電價模擬的運轉紀錄。
+            不可轉移負載、太陽能與天氣都取資料集中同季節、同為週{weekdayOf(date)}的那一天{res.profileFrom ? `（${res.profileFrom}）` : ''}：
+            負載是 UCI household_power_consumption 的實測曲線，太陽能是 LSTM 日前預測，
+            天氣是{res.weatherFrom === 'era5' ? '同一天台北的 ERA5 再分析資料' : '模擬天氣（讀不到 ERA5 資料）'}。
           </p>
         </>
       )}
@@ -686,9 +689,9 @@ function RangeView({ yesterday, minDay, onPickDay }) {
               </table>
             </div>
             <p className="hint prose mt-16">
-              🧪 系統尚未接上實際電表，以上是依各日天氣與台電簡易二段式電價（夏月／非夏月、平日／假日）
-              逐日模擬的運轉紀錄；不可轉移負載採用資料集（UCI household_power_consumption）中同一個星期幾的實測曲線，
-              因此同一個星期幾的用電量每週相同。
+              🧪 系統尚未接上實際電表，以上是依台電簡易二段式電價（夏月／非夏月、平日／假日）
+              逐日模擬的運轉紀錄；不可轉移負載、太陽能與天氣採用資料集中同季節、同一個星期幾那天的資料，
+              因此同一季裡同一個星期幾的用電量每週相同。
               {unit === 'day' && ' 週末列以底色標示：週末全天離峰、沒有尖離峰價差，電池能省的錢明顯較少。'}
             </p>
           </Panel>

@@ -3,7 +3,9 @@ import Panel from '../components/Panel.jsx'
 import EChart from '../components/EChart.jsx'
 import Tile from '../components/Tile.jsx'
 import { fetchPlanning, recomputeSchedule } from '../api/client.js'
-import { DEVICES, COLORS, CATEGORY_LABEL, slotToTime, slotToHour, BATTERY } from '../lib/constants.js'
+import { DEVICES, COLORS, CATEGORY_LABEL, slotToTime, BATTERY } from '../lib/constants.js'
+import { isAllowedSlot, SHIFTABLE_RULES } from '../lib/simulate.js'
+import { useScenario, getScenario, SEASONS } from '../lib/scenario.js'
 import { tomorrow, fmtDate, pad2 } from '../lib/format.js'
 import { useTheme } from '../lib/theme.js'
 import {
@@ -36,8 +38,9 @@ export default function Planning() {
   const [optimal, setOptimal] = useState(null)
   const [edits, setEdits] = useState(0) // 手動改過幾格；0 = 目前就是最佳排程
   const planDate = useMemo(() => tomorrow(), [])
+  const { season } = useScenario()
 
-  // 進頁面即取得隔日的最佳化排程
+  // 進頁面即取得隔日的最佳化排程；切換夏月／非夏月情境時重新規劃，手動調整一併清掉
   useEffect(() => {
     let on = true
     setComputing(true)
@@ -46,10 +49,11 @@ export default function Planning() {
       setPlan(p)
       setSchedule(p.schedule)
       setOptimal(p)
+      setEdits(0)
       setComputing(false)
     })
     return () => { on = false }
-  }, [])
+  }, [season])
 
   // 還原成演算法給的最佳排程（捨棄手動調整）。
   // 原本這顆是「重新計算最佳化」：重跑同一套固定的模擬、結果完全一樣，
@@ -66,14 +70,15 @@ export default function Planning() {
   // 手動切換可轉移設備的某時段 → 即時重算電池調度與成本
   const toggleCell = (devId, slot) => {
     const dev = DEVICES.find((d) => d.id === devId)
-    if (dev.category !== 'shiftable' || !schedule) return
+    if (dev.category !== 'shiftable' || !schedule || !isAllowedSlot(devId, slot)) return
     const next = {
       ...schedule,
       [devId]: schedule[devId].map((v, i) => (i === slot ? !v : v)),
     }
     setSchedule(next)
     setEdits((n) => n + 1)
-    recomputeSchedule(next).then(setPlan)
+    // 切換情境的瞬間，舊情境的重算可能晚一步才回來，不能蓋掉新情境的結果
+    recomputeSchedule(next).then((p) => p.season === getScenario().season && setPlan(p))
   }
 
   // ---- 電力供需與電池調度 ----
@@ -155,8 +160,10 @@ export default function Planning() {
               {OBJECTIVE.desc}
             </p>
           </div>
-          <div style={{ textAlign: 'right' }}>
-            <div className="muted" style={{ fontSize: 12 }}>規劃日（隔日）</div>
+          <div className="plan-date">
+            <div className="muted" style={{ fontSize: 12 }}>
+              規劃日（隔日）・{SEASONS.find((x) => x.key === season)?.label}電價
+            </div>
             <div style={{ fontWeight: 700, marginBottom: 8 }}>{fmtDate(planDate)}</div>
             <button
               className="btn primary"
@@ -198,7 +205,7 @@ export default function Planning() {
         title="各設備運行時段"
         sub="隔日 24 小時・15 分鐘為單位"
         right={
-          <span className="hint">✏️ 可轉移設備可點擊格子手動調整，電池與成本會即時重算</span>
+          <span className="hint">✏️ 可轉移設備可在允許時段內點擊格子手動調整，電池與成本會即時重算</span>
         }
         className="mt-16"
       >
@@ -224,19 +231,26 @@ export default function Planning() {
                           style={{ marginLeft: 8, fontSize: 10, padding: '1px 7px' }}>
                           {CATEGORY_LABEL[dev.category]}
                         </span>
+                        {SHIFTABLE_RULES[dev.id] && (
+                          <div className="dev-window">可運轉 {SHIFTABLE_RULES[dev.id].text}</div>
+                        )}
                       </td>
                       {schedule[dev.id].map((on, slot) => {
                         const peak = plan.tier[slot] === 'peak'
-                        const editable = dev.category === 'shiftable'
+                        const shiftable = dev.category === 'shiftable'
+                        const allowed = isAllowedSlot(dev.id, slot)
+                        const editable = shiftable && allowed
                         const cls = ['cell']
                         if (peak) cls.push('peak-bg')
-                        if (on) cls.push('on', dev.category === 'shiftable' ? 'shiftable' : 'fixed')
+                        if (on) cls.push('on', shiftable ? 'shiftable' : 'fixed')
                         if (editable) cls.push('editable')
+                        if (shiftable && !allowed) cls.push('blocked')
+                        const note = editable ? '（可點擊調整）' : shiftable ? '（不在允許運轉的時段）' : ''
                         return (
                           <td
                             key={slot}
                             className={cls.join(' ')}
-                            title={`${dev.name}｜${slotToTime(slot)}｜${peak ? '尖峰' : '離峰'}${editable ? '（可點擊調整）' : ''}`}
+                            title={`${dev.name}｜${slotToTime(slot)}｜${peak ? '尖峰' : '離峰'}${note}`}
                             onClick={() => toggleCell(dev.id, slot)}
                           />
                         )
@@ -250,6 +264,7 @@ export default function Planning() {
               <span className="item"><span className="swatch" style={{ background: '#3b82f6' }} /> 可轉移設備運轉</span>
               <span className="item"><span className="swatch" style={{ background: '#a855f7' }} /> 不可轉移設備運轉</span>
               <span className="item"><span className="swatch" style={{ background: 'rgba(239,68,68,0.18)' }} /> 尖峰時段</span>
+              <span className="item"><span className="swatch blocked-swatch" /> 可轉移設備不允許運轉的時段</span>
             </div>
           </>
         ) : (

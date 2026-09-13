@@ -1376,3 +1376,176 @@ body {
 }
 .run-chip.offpeak { color: var(--t-offpeak); background: color-mix(in srgb, var(--c-offpeak) 12%, transparent); }
 .run-chip.peak { color: var(--t-peak); background: color-mix(in srgb, var(--c-peak) 12%, transparent); }
+
+/* ============================================================
+   情境切換、分組圖例、手機導覽與卡片列
+   ============================================================ */
+
+/* ---------- 頂端列：夏月／非夏月情境切換 ---------- */
+.season-seg { padding: 2px; gap: 2px; }
+.season-seg button { min-width: 0; padding: 4px 11px; font-size: 12px; }
+.season-seg button.active.summer { background: #b45309; }
+
+/* ---------- 用電規劃：規劃日區塊（窄螢幕折行時仍靠右） ---------- */
+.plan-date { margin-left: auto; text-align: right; }
+
+/* ---------- 甘特表：可轉移設備不允許運轉的時段 ---------- */
+.gantt .cell.blocked {
+  background-image: repeating-linear-gradient(135deg, var(--overlay) 0 2px, transparent 2px 6px);
+  cursor: not-allowed;
+}
+.gantt td.dev-name .dev-window { font-size: 10px; font-weight: 400; color: var(--text-dim); margin-top: 1px; }
+.legend .swatch.blocked-swatch {
+  border: 1px solid var(--border);
+  background-image: repeating-linear-gradient(135deg, var(--overlay-strong) 0 2px, transparent 2px 5px);
+}
+
+/* ---------- 分組圖例（各負載頁的堆疊圖） ---------- */
+.group-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.gl-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.gl-group .badge { font-size: 11px; padding: 2px 8px; }
+.gl-item { display: inline-flex; align-items: center; gap: 5px; }
+.gl-item i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+
+/* ---------- 數字列（太陽能預測與實際） ---------- */
+.stat-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-top: 10px;
+}
+.stat-row > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-panel-2);
+}
+.stat-row span { font-size: 11.5px; color: var(--text-muted); }
+.stat-row strong { font-size: 17px; font-variant-numeric: tabular-nums; }
+
+/* ---------- 設備卡：功率與狀態放同一列 ---------- */
+.device-card .dc-power-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+}
+.device-card .dc-power-row .dc-power { margin-top: 0; }
+.device-card .dc-cat { text-wrap: balance; }
+
+/* ---------- 卡片列的欄數（放在後面，統一覆蓋前面各斷點的設定） ----------
+   五張卡排成三欄時會變成「3 + 2」，第二列留一格空白；
+   改用 6 欄格線，前三張各佔 2 欄、後兩張各佔 3 欄，兩列都剛好填滿。 */
+@media (max-width: 1200px) and (min-width: 761px) {
+  .grid.kpi:not(.cols-4), .grid.cols-5 { grid-template-columns: repeat(6, 1fr); }
+  .grid.kpi:not(.cols-4) > *, .grid.cols-5 > * { grid-column: span 2; }
+  .grid.kpi:not(.cols-4) > :nth-child(n+4), .grid.cols-5 > :nth-child(n+4) { grid-column: span 3; }
+  .grid.kpi.cols-4 { grid-template-columns: repeat(4, 1fr); }
+  .grid.cols-6 { grid-template-columns: repeat(3, 1fr); }
+}
+
+/* ---------- 手機 ---------- */
+.tabbar, .topbar-logo { display: none; }
+
+@media (max-width: 760px) {
+  /* 兩欄時，單數張卡片的最後一張橫跨兩欄，不留空格 */
+  .grid.kpi > :last-child:nth-child(odd),
+  .grid.cols-5 > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+
+  /* 導覽改成底部分頁列：原本頂端橫向捲動的導覽只看得到兩頁半，「歷史紀錄」要滑過去才找得到 */
+  .sidebar { display: none; }
+  .tabbar {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+    padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+    background: var(--bg-sidebar);
+    border-top: 1px solid var(--border);
+    box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.18);
+  }
+  .tabbar .tab {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    padding: 5px 2px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+  .tabbar .tab .icon { font-size: 19px; line-height: 1.15; }
+  .tabbar .tab.active { color: var(--nav-active-text); background: var(--nav-active-bg); }
+  .content { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
+
+  /* 頂端列：logo＋標題與時鐘同一列，徽章另起一列。
+     原本時鐘自己佔一整列，頂端列高到將近 300px */
+  .topbar {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 14px;
+  }
+  .topbar-left { flex: 1; gap: 10px; }
+  .topbar-logo {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    font-size: 16px;
+    background: linear-gradient(135deg, var(--c-solar), #ff7a45);
+  }
+  .topbar-right { display: contents; }
+  .topbar .clock { order: 1; margin-left: 0; }
+  .topbar::after { content: ""; order: 2; flex-basis: 100%; height: 0; }
+  .topbar-right > :not(.clock) { order: 3; }
+  .topbar-right .badge.loc { display: none; }
+  .theme-toggle { width: 32px; height: 32px; margin-left: auto; }
+
+  /* KPI 卡縮小一點，兩欄才不會一張卡佔掉半個螢幕 */
+  .stat-card { padding: 12px 14px; }
+  .stat-card .sc-top { font-size: 12px; }
+  .stat-card .sc-icon { width: 28px; height: 28px; font-size: 16px; }
+  .stat-card .sc-value { margin-top: 6px; font-size: 22px; }
+  .stat-card .sc-sub { font-size: 11px; }
+
+  /* 設備卡兩欄：一欄一張的話，11 張卡要滑很久 */
+  .device-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  .device-card { padding: 10px 12px; }
+  .device-card:hover { transform: none; }
+  .device-card .dc-top { gap: 8px; align-items: flex-start; }
+  .device-card .dc-icon { width: 34px; height: 34px; font-size: 19px; }
+  .device-card .dc-power { font-size: 18px; }
+  .device-card .dc-power-row { margin-top: 8px; }
+  .device-card .dc-rated-word { display: none; } /* 卡片只剩半寬，省掉「額定」兩字，數字和單位才不會斷行 */
+  .device-grid > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+
+  /* 面板標題列：右側徽章換到下一行，標題和說明才有整行寬度（原本被擠成窄窄一欄） */
+  .panel-head { flex-wrap: wrap; }
+  .panel-head > div:first-child { flex: 1 1 100%; }
+
+  .stat-row { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+}
+
+@media print {
+  .tabbar { display: none !important; }
+}

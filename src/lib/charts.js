@@ -1,5 +1,5 @@
 /* ECharts 共用設定：15 分鐘時間軸、隨主題切換的座標軸顏色 */
-import { SLOTS_PER_DAY, slotToTime } from './constants.js'
+import { SLOTS_PER_DAY, slotToTime, setDeviceColors } from './constants.js'
 
 /* ------------------------------------------------------------
    主題色
@@ -60,6 +60,7 @@ export function applyChartTheme(theme) {
   TRACK = c.track
   TRACK_LINE = c.trackLine
   PANEL_BG = c.panel
+  setDeviceColors(theme === 'light' ? 'light' : 'dark') // 設備配色也分日間／夜間兩組
   baseTooltip = {
     trigger: 'axis',
     backgroundColor: c.tipBg,

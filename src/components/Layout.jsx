@@ -6,6 +6,7 @@ import { getCurrentTier, isSummer, TIER_LABEL } from '../lib/tou.js'
 import { LOCATION } from '../lib/time.js'
 import { useTheme, toggleTheme } from '../lib/theme.js'
 import DemoBar from './DemoBar.jsx'
+import { useScenario, setSeason, SEASONS, scenarioDate } from '../lib/scenario.js'
 
 const NAV = [
   { to: '/', label: '主頁面', icon: '🏠', end: true },
@@ -15,6 +16,8 @@ const NAV = [
 ]
 
 const DEMO_PAGES = new Set(['/', '/loads'])
+// 夏月／非夏月情境只影響「今天／明天」這幾頁；歷史紀錄照每一天的實際日期
+const SEASON_PAGES = new Set(['/', '/loads', '/planning'])
 
 // 側欄收合狀態記在瀏覽器裡，重新整理或下次開啟都維持上次的樣子。
 // 無痕視窗或封鎖網站資料時讀寫會直接丟例外，當成沒存過即可。
@@ -38,7 +41,10 @@ export default function Layout() {
   const now = useClock()
   const { pathname } = useLocation()
   const meta = PAGE_META[pathname] ?? PAGE_META['/']
-  const tier = getCurrentTier(now)
+  const { season } = useScenario()
+  const scenarioPage = SEASON_PAGES.has(pathname)
+  // 情境頁的電價徽章跟著情境走（非夏月情境下，九月的今天也照非夏月的尖離峰顯示）
+  const tier = getCurrentTier(scenarioPage ? scenarioDate(now, season) : now)
   const summer = isSummer(now)
   const theme = useTheme()
   const [collapsed, setCollapsed] = useState(readCollapsed)
@@ -109,6 +115,8 @@ export default function Layout() {
             >
               ☰
             </button>
+            {/* 手機上側欄收掉了，品牌 logo 移到頂端列 */}
+            <div className="topbar-logo" aria-hidden="true">⚡</div>
             <div className="page-title">
               <h2>{meta.title}</h2>
               <p>{meta.sub}</p>
@@ -116,12 +124,28 @@ export default function Layout() {
           </div>
 
           <div className="topbar-right">
-            <span className="badge" title={`情境地點・${LOCATION.utc}`}>
+            <span className="badge loc" title={`情境地點・${LOCATION.utc}`}>
               📍 {LOCATION.label}
             </span>
-            <span className={`badge ${summer ? 'summer' : ''}`}>
-              {summer ? '夏月' : '非夏月'}
-            </span>
+            {scenarioPage ? (
+              <div className="seg season-seg" role="group" aria-label="電價季節情境">
+                {SEASONS.map((s) => (
+                  <button
+                    key={s.key}
+                    className={season === s.key ? `active ${s.key}` : ''}
+                    aria-pressed={season === s.key}
+                    title={s.hint}
+                    onClick={() => setSeason(s.key)}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <span className={`badge ${summer ? 'summer' : ''}`} title="歷史紀錄依每一天的實際日期判斷夏月／非夏月">
+                {summer ? '夏月' : '非夏月'}
+              </span>
+            )}
             <span className={`badge ${tier.tier}`}>
               <span className="dot" />
               {TIER_LABEL[tier.tier]}・{tier.price} 元/度
@@ -149,6 +173,21 @@ export default function Layout() {
           <Outlet />
         </main>
       </div>
+
+      {/* 手機底部分頁列：側欄在手機上藏起來，四個頁面一直都點得到 */}
+      <nav className="tabbar" aria-label="頁面導覽">
+        {NAV.map((n) => (
+          <NavLink
+            key={n.to}
+            to={n.to}
+            end={n.end}
+            className={({ isActive }) => `tab ${isActive ? 'active' : ''}`}
+          >
+            <span className="icon">{n.icon}</span>
+            <span>{n.label}</span>
+          </NavLink>
+        ))}
+      </nav>
     </div>
   )
 }

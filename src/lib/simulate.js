@@ -9,6 +9,7 @@
    天氣（src/lib/weather.js）會影響：
    - 太陽能發電：雲量越多、發電越低（陰雨/颱風驟降）
    - 家庭負載：氣溫越高、冷氣用電越多；陰雨天白天也開燈
+   有真實資料時用資料集那一天台北的 ERA5 天氣，讀不到才用模擬天氣。
    ============================================================ */
 import { SLOTS_PER_DAY, SLOT_HOURS, BATTERY, DEVICES, slotToHour, UNASSIGNED } from './constants.js'
 import { isSummer, getPriceSlots, getTierSlots } from './tou.js'
@@ -101,25 +102,42 @@ function devicePowerWhenOn(dev, slot, weather) {
   return +p.toFixed(3)
 }
 
-// 可轉移設備的運轉時長（時段數）
-const SHIFTABLE_DURATION = {
-  washer: 4, // 1.0 h
-  dryer: 6, // 1.5 h
-  dishwasher: 4, // 1.0 h
+/* 可轉移設備的運轉條件（UI 模擬排程用的作息假設）
+   dur      一次運轉幾格（15 分鐘一格）
+   windows  允許運轉的時段 [起, 迄)（小時），整段運轉都要落在裡面
+   after    要等哪一台跑完才能開始
+   洗衣機、烘衣機避開深夜（運轉聲會吵到鄰居），烘衣機得等洗衣機洗完；
+   洗碗機是晚餐後放進去，可以延到隔天清晨前洗完。
+   原本沒有這些限制，排程只看電價，會把洗衣機排到凌晨 00:00 開始洗。 */
+export const SHIFTABLE_RULES = {
+  washer: { dur: 4, windows: [[6, 22]], text: '06:00–22:00' },
+  dryer: { dur: 6, windows: [[6, 23]], after: 'washer', text: '06:00–23:00，接在洗衣機之後' },
+  dishwasher: { dur: 4, windows: [[0, 7], [19, 24]], text: '19:00～隔天 07:00' },
 }
 
-// 在所有起始點中選出最便宜的連續運轉視窗
+/** 第 slot 格是否在該設備允許運轉的時段內（沒有規則的設備一律允許） */
+export function isAllowedSlot(devId, slot) {
+  const rule = SHIFTABLE_RULES[devId]
+  if (!rule) return true
+  const h = slot / 4
+  return rule.windows.some(([a, b]) => h >= a && h < b)
+}
+
+// 在允許的起始點中選出最便宜的連續運轉視窗；沒有可行的就回 -1
 // occupancy：各時段已被其他可轉移設備佔用的數量，用來避免多台同時運轉
-function bestWindow(durSlots, price, occupancy) {
-  let best = { start: 0, score: Infinity }
-  for (let start = 0; start + durSlots <= SLOTS_PER_DAY; start++) {
+// earliest：最早從第幾格開始（接在另一台後面的設備用）
+function bestWindow(devId, durSlots, price, occupancy, earliest = 0) {
+  let best = { start: -1, score: Infinity }
+  for (let start = earliest; start + durSlots <= SLOTS_PER_DAY; start++) {
+    let ok = true
     let score = 0
-    for (let k = 0; k < durSlots; k++) {
+    for (let k = 0; k < durSlots && ok; k++) {
       const i = start + k
+      ok = isAllowedSlot(devId, i)
       score += price[i] // 電費最小化：挑最便宜的時段
       score += (occupancy?.[i] ?? 0) * 1.0 // 避免多台設備同時運轉（分散負載）
     }
-    if (score < best.score) best = { start, score }
+    if (ok && score < best.score) best = { start, score }
   }
   return best.start
 }
@@ -138,18 +156,26 @@ export function buildSchedule(date, weather = simulateWeather(date)) {
       schedule[dev.id][s] = fixedOn(dev.id, s, summer, weather)
     }
   }
-  // 可轉移設備：放到最佳視窗（長的先放，並避免互相重疊→分散負載，不會全擠在同一時刻）
+  // 可轉移設備：在允許時段內放到最便宜的視窗，並避免互相重疊（分散負載，不會全擠在同一時刻）。
+  // 順序：沒有前置條件的先排（長的先放），要接在別台後面的最後排
   const occupancy = new Array(SLOTS_PER_DAY).fill(0)
-  const shiftables = DEVICES.filter((d) => d.category === 'shiftable').sort(
-    (a, b) => (SHIFTABLE_DURATION[b.id] ?? 4) - (SHIFTABLE_DURATION[a.id] ?? 4)
-  )
+  const endOf = {}
+  const shiftables = DEVICES.filter((d) => d.category === 'shiftable').sort((a, b) => {
+    const ra = SHIFTABLE_RULES[a.id] ?? {}
+    const rb = SHIFTABLE_RULES[b.id] ?? {}
+    if (Boolean(ra.after) !== Boolean(rb.after)) return ra.after ? 1 : -1
+    return (rb.dur ?? 4) - (ra.dur ?? 4)
+  })
   for (const dev of shiftables) {
-    const dur = SHIFTABLE_DURATION[dev.id] ?? 4
-    const start = bestWindow(dur, price, occupancy)
-    for (let k = 0; k < dur; k++) {
+    const rule = SHIFTABLE_RULES[dev.id] ?? { dur: 4 }
+    const earliest = rule.after ? (endOf[rule.after] ?? 0) : 0
+    const start = bestWindow(dev.id, rule.dur, price, occupancy, earliest)
+    if (start < 0) continue // 當天排不進去就不運轉
+    for (let k = 0; k < rule.dur; k++) {
       schedule[dev.id][start + k] = true
       occupancy[start + k]++
     }
+    endOf[dev.id] = start + rule.dur
   }
   return schedule
 }
@@ -435,8 +461,12 @@ export function simulateWithSchedule(
 /* ============================================================
    4) 即時快照（給主頁面 KPI / 頁面二設備卡用）
    ============================================================ */
-export function liveSnapshot(now = nowTaipei(), fixedOverride = null, pvOverride = null) {
-  const weather = simulateWeather(now)
+export function liveSnapshot(
+  now = nowTaipei(),
+  fixedOverride = null,
+  pvOverride = null,
+  weather = simulateWeather(now)
+) {
   const day = simulateDay(now, weather, fixedOverride, pvOverride)
   const slot = Math.min(
     SLOTS_PER_DAY - 1,
@@ -509,6 +539,7 @@ export function liveSnapshot(now = nowTaipei(), fixedOverride = null, pvOverride
     savingsToday: day.summary.savings,
     summary: day.summary,
     loadSource: day.loadSource,
+    pvSource: day.pvSource,
     weather: day.weather.hourly[now.getHours()],
     weatherSummary: day.weather.summary,
   }
