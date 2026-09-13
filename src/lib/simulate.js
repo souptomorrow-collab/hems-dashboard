@@ -507,17 +507,21 @@ export function liveSnapshot(
   let gridKw = r2(loadKw + chargeKw - pvKw - dischargeKw)
 
   /* 防逆送：不可將多餘電力送回台電電網，過剩時由實時運轉層吸收。
-     吸收順序有先後 —— 先削減太陽能，不夠再收斂電池放電。
-     順序寫反（或只削太陽能）會在「電池放電量大於負載」的時刻
-     把太陽能減成負值。 */
+     吸收順序：先收斂電池放電，不夠才削減太陽能。
+     太陽能是免費的、削掉就沒了；少放的電則留在電池裡，晚點還能用。
+     原本先削太陽能，傍晚電池正在放電時會出現「防逆送削減」，等於把免費的電丟掉。
+     每一步都夾在 0 以上，放電與太陽能都不會被減成負值。 */
   let curtailKw = 0
   if (gridKw < 0) {
     let surplus = -gridKw
-    const cut = Math.min(surplus, pvKw) // 太陽能最多只能削到 0
-    pvKw = r2(pvKw - cut)
-    curtailKw = r2(cut)
-    surplus = r2(surplus - cut)
-    if (surplus > 0) dischargeKw = r2(Math.max(0, dischargeKw - surplus))
+    const less = Math.min(surplus, dischargeKw) // 電池放電最多只能收到 0
+    dischargeKw = r2(dischargeKw - less)
+    surplus = r2(surplus - less)
+    if (surplus > 0) {
+      const cut = Math.min(surplus, pvKw) // 太陽能最多只能削到 0
+      pvKw = r2(pvKw - cut)
+      curtailKw = r2(cut)
+    }
     gridKw = 0
   }
 
