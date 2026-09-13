@@ -138,23 +138,45 @@ export function simulateWeather(date) {
 const CLEAR_KT = 0.7
 const pad2 = (n) => String(n).padStart(2, '0')
 
-function era5Condition(cloud, precipMm, night) {
-  if (precipMm >= 0.3) return { key: 'rain', label: '雨', icon: '🌧️' }
-  if (cloud < 20) return { key: 'sunny', label: '晴', icon: night ? '🌙' : '☀️' }
-  if (cloud < 50) return { key: 'partly', label: '多雲時晴', icon: night ? '☁️' : '🌤️' }
-  if (cloud < 85) return { key: 'cloudy', label: '多雲', icon: '☁️' }
-  return { key: 'overcast', label: '陰', icon: night ? '☁️' : '🌥️' }
+const SKY = [
+  { key: 'sunny', label: '晴', day: '☀️', night: '🌙' },
+  { key: 'partly', label: '多雲時晴', day: '🌤️', night: '☁️' },
+  { key: 'cloudy', label: '多雲', day: '☁️', night: '☁️' },
+  { key: 'overcast', label: '陰', day: '🌥️', night: '☁️' },
+]
+const cloudRank = (cloud) => (cloud < 20 ? 0 : cloud < 50 ? 1 : cloud < 85 ? 2 : 3)
+const ktRank = (kt) => {
+  const r = kt / CLEAR_KT
+  return r >= 0.85 ? 0 : r >= 0.6 ? 1 : r >= 0.35 ? 2 : 3
+}
+
+/* 天空狀況（0 晴 ～ 3 陰）
+   白天看「實際日照」（晴空指數），不看雲量：ERA5 的雲量把高空的薄卷雲也算進去，
+   常出現雲量 90%、太陽能卻照樣發 3 kW 的時段，只看雲量會標成「陰」，和發電曲線對不上。
+   日出後、日落前各兩小時太陽很低，晴空指數天生偏低，這兩段取雲量與日照裡比較晴的那個；
+   晚上沒有日照可看，只能看雲量。 */
+function era5Condition(cloud, precipMm, kt, edge) {
+  if (precipMm >= 0.3) return { key: 'rain', label: '雨', icon: '🌧️', rank: 4 }
+  const night = kt == null
+  const rank = night ? cloudRank(cloud) : edge ? Math.min(cloudRank(cloud), ktRank(kt)) : ktRank(kt)
+  const s = SKY[rank]
+  return { key: s.key, label: s.label, icon: night ? s.night : s.day, rank }
 }
 
 /** weather.json 裡某一天的逐時資料 → simulateWeather() 同樣格式 */
 export function weatherFromEra5(rows, date) {
+  // 有日照的第一個與最後一個小時（清晨、傍晚的判斷方式不同，見 era5Condition）
+  const lit = rows.kt.flatMap((v, h) => (v == null ? [] : [h]))
+  const firstLit = lit[0] ?? 24
+  const lastLit = lit[lit.length - 1] ?? -1
   const hourly = []
   for (let h = 0; h < 24; h++) {
     const kt = rows.kt[h]
     const night = kt == null
+    const edge = !night && (h - firstLit < 2 || lastLit - h < 2)
     hourly.push({
       hour: h,
-      ...era5Condition(rows.cloud[h], rows.precip[h], night),
+      ...era5Condition(rows.cloud[h], rows.precip[h], kt, edge),
       atten: night ? 1 : Math.max(0.05, Math.min(1, kt / CLEAR_KT)),
       tempC: rows.temp[h],
       humidity: rows.rh[h],
@@ -172,18 +194,18 @@ export function weatherFromEra5(rows, date) {
     tempSlots.push(hourly[h].tempC)
   }
 
-  // 當日摘要：有下雨看雨下在什麼時候，沒下雨看白天的平均雲量
+  // 當日摘要：有下雨看雨下在什麼時候，沒下雨看白天（08–17 時）的平均天空狀況
   const temps = hourly.map((x) => x.tempC)
   const rainHours = hourly.filter((x) => x.key === 'rain').map((x) => x.hour)
   const daytime = hourly.filter((x) => x.hour >= 8 && x.hour < 17)
-  const dayCloud = daytime.reduce((a, x) => a + x.cloud, 0) / daytime.length
+  const dayRank = daytime.reduce((a, x) => a + Math.min(x.rank, 3), 0) / daytime.length
   let label, icon
   if (rainHours.length && rainHours.every((h) => h >= 12 && h < 20)) [label, icon] = ['午後有雨', '🌦️']
   else if (rainHours.length >= 3) [label, icon] = ['有雨', '🌧️']
   else if (rainHours.length) [label, icon] = ['短暫有雨', '🌦️']
-  else if (dayCloud < 30) [label, icon] = ['晴朗', '☀️']
-  else if (dayCloud < 60) [label, icon] = ['多雲時晴', '🌤️']
-  else if (dayCloud < 85) [label, icon] = ['多雲', '☁️']
+  else if (dayRank < 0.6) [label, icon] = ['晴朗', '☀️']
+  else if (dayRank < 1.5) [label, icon] = ['多雲時晴', '🌤️']
+  else if (dayRank < 2.4) [label, icon] = ['多雲', '☁️']
   else [label, icon] = ['陰天', '🌥️']
 
   // 天氣條每 3 小時一格：三小時裡有下雨就顯示雨，否則取中間那小時
