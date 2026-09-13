@@ -1549,3 +1549,23 @@ body {
 @media print {
   .tabbar { display: none !important; }
 }
+
+@media (max-width: 760px) {
+  /* 甘特表：名稱欄原本連同分類徽章、可運轉時段佔掉半個螢幕，時間軸只露出一小段。
+     手機上藏徽章（顏色已分出可轉移／不可轉移）、名稱可換行 */
+  .gantt td.dev-name {
+    white-space: normal;
+    min-width: 92px;
+    max-width: 124px;
+    padding: 5px 8px;
+    font-size: 12px;
+    line-height: 1.3;
+  }
+  .gantt td.dev-name .badge { display: none; }
+  .gantt td.dev-name .dev-window { font-size: 9.5px; }
+
+  /* 電費拆解表：縮小字級與間距，手機上盡量不必左右滑 */
+  .history-table.compact { font-size: 12px; }
+  .history-table.compact td,
+  .history-table.compact th { padding: 7px 6px; }
+}

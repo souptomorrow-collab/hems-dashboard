@@ -70,9 +70,10 @@ export function applyChartTheme(theme) {
   }
   baseLegend = {
     textStyle: { color: c.axis, fontSize: 12 },
-    icon: 'roundRect',
-    itemWidth: 14,
-    itemHeight: 8,
+    // 不指定 icon：ECharts 會依系列種類畫圖示——折線畫成線（虛線系列也是虛線）、長條畫成方塊，
+    // 圖例才分得出「SOC 曲線」和「電池充電長條」，兩個都是綠色時也不會搞混
+    itemWidth: 18,
+    itemHeight: 10,
     top: 0,
     // 窄螢幕下圖例若折成兩行，會往下壓到座標軸標籤；改用可捲動的單行圖例。
     type: 'scroll',

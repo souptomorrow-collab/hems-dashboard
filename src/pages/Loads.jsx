@@ -8,6 +8,7 @@ import { useTheme } from '../lib/theme.js'
 import { useDemoClock, slotToDate } from '../lib/demoClock.js'
 import { useScenario } from '../lib/scenario.js'
 import { useClock, useCurrentSlot } from '../hooks/useClock.js'
+import { useMediaQuery } from '../hooks/useMediaQuery.js'
 import {
   slotXAxis,
   valueYAxis,
@@ -31,6 +32,7 @@ export default function Loads() {
   const now = useClock()
   const curSlot = useCurrentSlot()
   const { season } = useScenario()
+  const narrow = useMediaQuery('(max-width: 760px)') // 手機上圓餅圖的圖例改放下方
   const [live, setLive] = useState(null)
   const [today, setToday] = useState(null)
 
@@ -110,12 +112,15 @@ export default function Loads() {
           return `${p.marker}${p.name}：${p.value} W（${p.percent}%）${parts ? `<br/>${parts}` : ''}`
         },
       },
-      legend: { ...baseLegend, type: 'scroll', orient: 'vertical', right: 0, top: 'middle', textStyle: { color: AXIS_TEXT, fontSize: 11 } },
+      // 手機寬度下圖例放右邊會把圓餅擠得很小、上下又留一大片空白，改成放在下方
+      legend: narrow
+        ? { ...baseLegend, type: 'scroll', top: 'auto', bottom: 0, textStyle: { color: AXIS_TEXT, fontSize: 11 } }
+        : { ...baseLegend, type: 'scroll', orient: 'vertical', right: 0, top: 'middle', textStyle: { color: AXIS_TEXT, fontSize: 11 } },
       series: [
         {
           type: 'pie',
-          radius: ['45%', '72%'],
-          center: ['38%', '50%'],
+          radius: narrow ? ['42%', '70%'] : ['45%', '72%'],
+          center: narrow ? ['50%', '45%'] : ['38%', '50%'],
           avoidLabelOverlap: true,
           itemStyle: { borderColor: PANEL_BG, borderWidth: 2 },
           label: { show: false },
@@ -123,7 +128,7 @@ export default function Loads() {
         },
       ],
     }
-  }, [devices, theme])
+  }, [devices, theme, narrow])
 
   // 今日各設備用電堆疊：依圖表分組加總（最多 8 組），由下往上先可轉移、再不可轉移
   const stackGroups = useMemo(() => {
@@ -192,7 +197,7 @@ export default function Loads() {
           <EChart option={barOption} height={320} />
         </Panel>
         <Panel title="即時用電佔比" sub="電腦、電視、微波爐、監控設備併為「其他家電」">
-          <EChart option={pieOption} height={320} />
+          <EChart option={pieOption} height={narrow ? 270 : 320} />
         </Panel>
       </div>
 
