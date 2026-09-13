@@ -41,6 +41,13 @@ export default function Planning() {
   // 演算法給的最佳排程。手動調整只改 plan／schedule，這份留著供「還原」使用
   const [optimal, setOptimal] = useState(null)
   const [edits, setEdits] = useState(0) // 手動改過幾格；0 = 目前就是最佳排程
+  // 點到不允許運轉的格子時，短暫顯示原因（原本點了沒反應，看不出為什麼）
+  const [notice, setNotice] = useState('')
+  useEffect(() => {
+    if (!notice) return
+    const id = setTimeout(() => setNotice(''), 3500)
+    return () => clearTimeout(id)
+  }, [notice])
   const planDate = useMemo(() => tomorrow(), [])
   const { season } = useScenario()
 
@@ -74,7 +81,11 @@ export default function Planning() {
   // 手動切換可轉移設備的某時段 → 即時重算電池調度與成本
   const toggleCell = (devId, slot) => {
     const dev = DEVICES.find((d) => d.id === devId)
-    if (dev.category !== 'shiftable' || !schedule || !isAllowedSlot(devId, slot)) return
+    if (dev.category !== 'shiftable' || !schedule) return
+    if (!isAllowedSlot(devId, slot)) {
+      setNotice(`${dev.name}的允許運轉時段是 ${SHIFTABLE_RULES[devId].text}，${slotToTime(slot)} 不能排`)
+      return
+    }
     const next = {
       ...schedule,
       [devId]: schedule[devId].map((v, i) => (i === slot ? !v : v)),
@@ -217,7 +228,9 @@ export default function Planning() {
         title="各設備運行時段"
         sub="隔日 24 小時・15 分鐘為單位"
         right={
-          <span className="hint">✏️ 可轉移設備可在允許時段內點擊格子手動調整，電池與成本會即時重算</span>
+          <span className={`hint ${notice ? 'plan-notice' : ''}`} role="status" aria-live="polite">
+            {notice ? `⛔ ${notice}` : '✏️ 可轉移設備可在允許時段內點擊格子手動調整，電池與成本會即時重算'}
+          </span>
         }
         className="mt-16"
       >

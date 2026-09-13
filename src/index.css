@@ -1403,6 +1403,8 @@ body {
 
 /* ---------- 用電規劃：規劃日區塊（窄螢幕折行時仍靠右） ---------- */
 .plan-date { margin-left: auto; text-align: right; }
+/* 點到不允許運轉的格子時的提示 */
+.hint.plan-notice { color: var(--t-peak); font-weight: 600; }
 
 /* ---------- 甘特表：可轉移設備不允許運轉的時段 ---------- */
 .gantt .cell.blocked {
