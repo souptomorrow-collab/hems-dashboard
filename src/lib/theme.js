@@ -40,6 +40,12 @@ let current = stored() ?? systemPref()
 function apply(theme) {
   document.documentElement.setAttribute('data-theme', theme)
   applyChartTheme(theme)
+  // 手機瀏覽器的網址列顏色跟著網站主題換（index.html 只能依系統設定給預設值，
+  // 使用者在網站裡切換日間／夜間時，要把兩個 media 條件拿掉、改成目前主題的顏色）
+  document.querySelectorAll('meta[name="theme-color"]').forEach((m) => {
+    m.removeAttribute('media')
+    m.setAttribute('content', theme === 'light' ? '#ffffff' : '#0d1224')
+  })
 }
 
 apply(current) // 在第一次 render 之前就套好，避免閃色

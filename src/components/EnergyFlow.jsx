@@ -194,7 +194,7 @@ export default function EnergyFlow({ live }) {
         n={N.batt}
         variant="batt"
         icon="🔋"
-        label={`電池${charging ? ' · 充電中' : discharging ? ' · 放電中' : ' · 待機'}`}
+        label={`電池・${charging ? '充電中' : discharging ? '放電中' : '待機'}`}
         color="var(--c-battery)"
         value={live ? `${live.socPct.toFixed(0)}%` : '—'}
         sub={
@@ -211,7 +211,7 @@ export default function EnergyFlow({ live }) {
         n={N.grid}
         variant="grid"
         icon="🗼"
-        label={`電網${reverse ? ' · 逆送' : ' · 購電'}`}
+        label={`電網・${reverse ? '逆送' : '購電'}`}
         color="var(--c-grid)"
         value={live ? `${Math.abs(gridKw).toFixed(2)} kW` : '—'}
         sub={live ? `${live.tier === 'peak' ? '尖峰' : '離峰'}・${live.price} 元/度` : ''}
