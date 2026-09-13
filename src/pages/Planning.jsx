@@ -185,12 +185,12 @@ export default function Planning() {
 
       {/* 供需調度 */}
       <Panel title="電力供需與電池調度" sub="隔日 24 小時・各供電來源堆疊（紅底為尖峰時段）" className="mt-16">
-        <EChart option={supplyOption} height={330 + SOC_EXTRA_HEIGHT} />
+        <EChart option={supplyOption} height={330 + SOC_EXTRA_HEIGHT} label="隔日電力供需：太陽能、電池、電網供電堆疊與 SOC" />
       </Panel>
 
       {/* 電池充放電 */}
       <Panel title="電池充放電規劃" sub={`太陽能充電 / 電網充電 / 放電 與 SOC（虛線為 ${Math.round(BATTERY.socMin * 100)}%–${Math.round(BATTERY.socMax * 100)}% 上下限）`} className="mt-16">
-        <EChart option={battOption} height={300 + SOC_EXTRA_HEIGHT} />
+        <EChart option={battOption} height={300 + SOC_EXTRA_HEIGHT} label="隔日電池充放電規劃與 SOC" />
       </Panel>
 
       {/* 設備運行時段甘特 */}

@@ -264,7 +264,7 @@ function DayView({ date, setDate, yesterday, minDay }) {
             right={<span className="badge">🧪 模擬紀錄</span>}
           >
             <WeatherStrip weather={sim.weather} />
-            <EChart option={curveOption} height={300 + SOC_EXTRA_HEIGHT} />
+            <EChart option={curveOption} height={300 + SOC_EXTRA_HEIGHT} label={`${date} 的運轉曲線：太陽能、負載、電網、電池功率與 SOC`} />
           </Panel>
 
           <div className="grid cols-2 mt-16">
@@ -332,7 +332,7 @@ function DayView({ date, setDate, yesterday, minDay }) {
           <div className="grid cols-2 mt-16">
             {/* 設備用電排行 */}
             <Panel title="各設備用電排行" sub="當日用電量（kWh）">
-              <EChart option={deviceOption} height={Math.max(220, rec.devices.length * 28)} />
+              <EChart option={deviceOption} height={Math.max(220, rec.devices.length * 28)} label={`${date} 各設備用電排行`} />
             </Panel>
 
             {/* 可轉移設備的排程 */}
@@ -675,10 +675,10 @@ function RangeView({ yesterday, minDay, onPickDay }) {
 
           <div className="grid cols-2 mt-16">
             <Panel title={`用電、發電與購電（依${unitLabel}）`} sub={`${a} ～ ${b}・單位 kWh`} right={<span className="badge">🧪 模擬紀錄</span>}>
-              <EChart option={energyOption} height={300} />
+              <EChart option={energyOption} height={300} label={`${a} 到 ${b} 的用電、發電與購電長條圖`} />
             </Panel>
             <Panel title={`電費（依${unitLabel}）`} sub="長條總高＝不裝 HEMS 的電費，下段是實際付的、上段是省下的・單位 元">
-              <EChart option={costOption} height={300} />
+              <EChart option={costOption} height={300} label={`${a} 到 ${b} 的電費長條圖，分成實際電費與省下電費`} />
             </Panel>
           </div>
 

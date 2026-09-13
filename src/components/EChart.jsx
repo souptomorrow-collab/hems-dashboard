@@ -59,7 +59,7 @@ function adaptLegend(option, narrow) {
  * - 資料還沒到（option 是空物件）時顯示載入中的底色，不是一塊空白
  * - 卸載時 dispose 釋放資源
  */
-export default function EChart({ option, height = 320, className = '', style }) {
+export default function EChart({ option, height = 320, className = '', style, label }) {
   const elRef = useRef(null)
   const chartRef = useRef(null)
   const [narrow, setNarrow] = useState(false)
@@ -92,6 +92,9 @@ export default function EChart({ option, height = 320, className = '', style }) 
       ref={elRef}
       className={`chart ${empty ? 'chart-empty' : ''} ${className}`}
       style={{ height, ...style }}
+      // 圖表畫在 canvas 上，螢幕報讀器讀不到內容，至少要說出這是哪一張圖
+      role={label ? 'img' : undefined}
+      aria-label={label}
       aria-busy={empty || undefined}
     />
   )

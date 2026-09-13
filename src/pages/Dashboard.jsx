@@ -512,7 +512,7 @@ export default function Dashboard() {
           }
         >
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <EChart option={gaugeOption} height={210} style={{ flex: 1 }} />
+            <EChart option={gaugeOption} height={210} style={{ flex: 1 }} label={`電池電量儀表，目前 ${live ? live.socPct.toFixed(0) : '—'}%`} />
             <div style={{ flex: 1, display: 'grid', gap: 12 }}>
               <InfoRow label="即時電量" value={`${live ? live.socKwh.toFixed(1) : '—'} 度`} />
               <InfoRow
@@ -542,7 +542,7 @@ export default function Dashboard() {
           </span>
         }
       >
-        <EChart option={realtimeOption} height={300 + SOC_EXTRA_HEIGHT} />
+        <EChart option={realtimeOption} height={300 + SOC_EXTRA_HEIGHT} label="即時運轉：今天到目前為止的太陽能、負載、電網、電池功率與 SOC" />
       </Panel>
 
       {/* 預測與排程：整天都畫，和上面那張刻意分開，避免把「已發生」和「還沒發生」混為一談 */}
@@ -560,7 +560,7 @@ export default function Dashboard() {
         }
         className="mt-16"
       >
-        <EChart option={dayPlanOption} height={300 + SOC_EXTRA_HEIGHT} />
+        <EChart option={dayPlanOption} height={300 + SOC_EXTRA_HEIGHT} label="今日預測與排程：整天的太陽能、負載、電網、電池功率與 SOC" />
       </Panel>
 
       {/* 太陽能：預測與實際，上方是同一天台北的實際天氣 */}
@@ -573,7 +573,7 @@ export default function Dashboard() {
           right={<span className="badge">LSTM・資料集 {show.targetDate}</span>}
         >
           {show.weather && <WeatherStrip weather={show.weather} />}
-          <EChart option={pvOption} height={260} />
+          <EChart option={pvOption} height={260} label="太陽能發電：LSTM 日前預測與實際發電比較" />
           {pvStats && (
             <div className="stat-row">
               <div>
@@ -609,7 +609,7 @@ export default function Dashboard() {
           className="mt-16"
           right={<span className="badge">RF 雲端預測・資料集 {show.targetDate}</span>}
         >
-          <EChart option={rollingOption} height={260} />
+          <EChart option={rollingOption} height={260} label="不可轉移負載滾動預測：真實值、最新預測與較早發布的預測" />
         </Panel>
       )}
     </>

@@ -194,10 +194,10 @@ export default function Loads() {
           title="各設備即時功率"
           sub={demo.enabled ? `展示模式・${slotToTime(demo.slot)}` : '每 4 秒更新'}
         >
-          <EChart option={barOption} height={320} />
+          <EChart option={barOption} height={320} label="各設備即時功率長條圖" />
         </Panel>
         <Panel title="即時用電佔比" sub="電腦、電視、微波爐、監控設備併為「其他家電」">
-          <EChart option={pieOption} height={narrow ? 270 : 320} />
+          <EChart option={pieOption} height={narrow ? 270 : 320} label="即時用電佔比圓餅圖" />
         </Panel>
       </div>
 
@@ -264,7 +264,7 @@ export default function Loads() {
             ))}
           </div>
         )}
-        <EChart option={stackOption} height={320} />
+        <EChart option={stackOption} height={320} label="今日各設備用電堆疊面積圖" />
       </Panel>
     </>
   )
