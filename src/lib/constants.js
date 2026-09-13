@@ -47,7 +47,7 @@ export const DEVICES = [
   { id: 'tv', name: '電視', category: 'fixed', ratedW: 200, icon: '📺' },
   { id: 'lighting', name: '照明設備', category: 'fixed', ratedW: 100, icon: '💡' },
   { id: 'ac', name: '冷氣機', category: 'fixed', ratedW: 1300, icon: '❄️' },
-  { id: 'waterHeater', name: '熱水器', category: 'fixed', ratedW: 1000, icon: '🚿' },
+  // 熱水器：本情境設定為瓦斯熱水器（資料集的電熱水器佔整戶 35.5%，遠高於台灣家庭平均 9.55%），不耗電，所以不在用電設備清單裡
 ]
 
 export const CATEGORY_LABEL = {
@@ -63,7 +63,6 @@ export const DEVICE_COLORS = {
   unassigned: '#94a3b8',
   washer: '#60a5fa',
   dryer: '#818cf8',
-  waterHeater: '#38bdf8',
   dishwasher: '#22d3ee',
   computer: '#a855f7',
   security: '#c084fc',
