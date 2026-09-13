@@ -376,6 +376,8 @@ export default function Dashboard() {
   // ---- 隔日預測：太陽能發電 + 家庭負載 + 淨負載（鴨子曲線）----
 
   const s = today?.summary
+  // 「今日累積」只加到目前這一格；summary 裡的是全天 96 格的預估值
+  const soFar = (kw) => ((kw ?? []).slice(0, curSlot + 1).reduce((a, v) => a + v, 0) * 0.25).toFixed(1)
 
   return (
     <>
@@ -384,14 +386,14 @@ export default function Dashboard() {
         <StatCard
           icon="☀️"
           color={COLORS.solar}
-          label={`太陽能即時發電${today?.pvSource === 'lstm' ? '（LSTM 預測）' : ''}`}
+          label="太陽能即時發電"
           value={live ? live.pvKw.toFixed(2) : '—'}
           unit="kW"
           sub={
             live && live.curtailKw > 0.02
               ? `防逆送削減 ${live.curtailKw.toFixed(2)} kW（可發 ${live.pvPotentialKw.toFixed(2)}）`
               : s
-              ? `今日累積發電 ${s.pvKwh} 度`
+              ? `今日累積發電 ${soFar(today.pv)} 度`
               : ' '
           }
         />
@@ -417,7 +419,7 @@ export default function Dashboard() {
           label="家中總負載"
           value={live ? live.loadKw.toFixed(2) : '—'}
           unit="kW"
-          sub={s ? `今日累積用電 ${s.loadKwh} 度` : ' '}
+          sub={s ? `今日累積用電 ${soFar(today.load)} 度` : ' '}
         />
         <StatCard
           icon="🗼"
@@ -430,10 +432,10 @@ export default function Dashboard() {
         <StatCard
           icon="💰"
           color={COLORS.save}
-          label="今日省下電費"
+          label="今日預估省下電費"
           value={s ? s.savings : '—'}
           unit="元"
-          sub={s ? `較無儲能節省 ${s.savingPct}%` : ' '}
+          sub={s ? `較不裝系統節省 ${s.savingPct}%` : ' '}
         />
       </div>
 

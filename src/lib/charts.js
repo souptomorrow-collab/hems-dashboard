@@ -99,6 +99,7 @@ export function slotXAxis(extra = {}) {
     axisLabel: {
       color: AXIS_TEXT,
       interval: 7, // 每 8 格(=2h)顯示一次
+      hideOverlap: true, // 手機寬度放不下時自動略過重疊的標籤，不會擠成一串
       fontSize: 11,
     },
     ...extra,

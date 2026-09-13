@@ -274,6 +274,13 @@ export function dispatch(date, pv, load) {
   }
   const needFromGrid = Math.max(0, peakDeficit - expectedSurplus)
   const prechargeCeiling = Math.max(minKwh, Math.min(maxKwh - reserve, minKwh + needFromGrid))
+  // 預充平均分散到所有預充時段（00:00–06:00），不要一開始就用最大功率充：
+  // 都是離峰電價所以電費一樣，但半夜向電網買電不會衝出尖刺，充放電也比較平緩
+  let prechargeSlots = 0
+  for (let s = 0; s < SLOTS_PER_DAY; s++) if (shouldPrecharge(s)) prechargeSlots++
+  const prechargeRate = prechargeSlots > 0
+    ? Math.min(maxE, Math.max(0, prechargeCeiling - soc) / prechargeSlots)
+    : 0
 
   const pvToLoad = [], pvToBatt = [], pvToGrid = []
   const battToLoad = [], gridToLoad = [], gridToBatt = []
@@ -313,12 +320,12 @@ export function dispatch(date, pv, load) {
       } else {
         g2l = deficit
         if (shouldPrecharge(s)) {
-          const chg = Math.min(maxE - p2b, prechargeCeiling - soc)
+          const chg = Math.min(maxE - p2b, prechargeRate, prechargeCeiling - soc)
           if (chg > 0) { g2b = chg; soc += chg }
         }
       }
     } else if (shouldPrecharge(s)) {
-      const chg = Math.min(maxE - p2b, prechargeCeiling - soc)
+      const chg = Math.min(maxE - p2b, prechargeRate, prechargeCeiling - soc)
       if (chg > 0) { g2b = chg; soc += chg }
     }
 

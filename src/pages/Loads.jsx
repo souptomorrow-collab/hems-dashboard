@@ -168,7 +168,7 @@ export default function Loads() {
                   <div>
                     <div className="dc-name">{d.name}</div>
                     <div className="dc-cat">
-                      {d.ratedW ? `${CATEGORY_LABEL[d.category]}・額定 ${d.ratedW} W` : '預測總量中無法歸到特定設備的用電'}
+                      {d.ratedW ? `${CATEGORY_LABEL[d.category]}・額定 ${d.ratedW} W` : '其他無法歸類的用電'}
                     </div>
                   </div>
                   <span className={`status-pill ${d.status}`}>{STATUS_LABEL[d.status]}</span>

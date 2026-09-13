@@ -666,6 +666,8 @@ h1, h2, h3, h4 {
 }
 .status-pill {
   margin-left: auto;
+  flex-shrink: 0; /* 說明文字很長時也不要被擠成兩行 */
+  white-space: nowrap;
   font-size: 11px;
   padding: 3px 9px;
   border-radius: 999px;
