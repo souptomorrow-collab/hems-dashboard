@@ -127,15 +127,18 @@ function fillGaps(slots) {
    ------------------------------------------------------------ */
 const cache = new Map()
 
+/** 讀取失敗後隔多久才重試。
+ *  原本失敗就立刻刪掉快取：檔案不存在時，每 5 秒更新一次的即時畫面每次都重抓，console 一直洗出 404 */
+const RETRY_MS = 60000
+
 export function cached(key, loader) {
   if (!cache.has(key)) {
-    cache.set(
-      key,
-      loader().catch((e) => {
-        cache.delete(key) // 失敗不留壞值，下次可重試
-        throw e
-      })
-    )
+    const p = loader().catch((e) => {
+      // 失敗不永久留著壞值，但先記住一分鐘再重試（只刪自己這一筆，免得刪到之後重建的）
+      setTimeout(() => cache.get(key) === p && cache.delete(key), RETRY_MS)
+      throw e
+    })
+    cache.set(key, p)
   }
   return cache.get(key)
 }
