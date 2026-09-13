@@ -99,6 +99,18 @@ a {
   text-decoration: none;
 }
 
+/* 表單元件不會自動沿用頁面字型：Chrome 剛好用系統無襯線字看不出來，
+   Safari（WebKit）會退回明體，「展示模式」「夏月／非夏月」「列印／PDF」這些按鈕變成襯線字 */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+/* 說明文字換行時避免最後一行只剩一個字（例如「…一整天的運」＋「作」） */
+.hint { text-wrap: pretty; }
+
 /* 用鍵盤操作時看得到焦點在哪（滑鼠點擊不會出現） */
 :focus-visible {
   outline: 2px solid var(--accent);

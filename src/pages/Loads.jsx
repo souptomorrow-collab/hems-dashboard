@@ -71,7 +71,8 @@ export default function Loads() {
     const sorted = [...devices].sort((a, b) => a.watt - b.watt)
     return {
       tooltip: { ...baseTooltip, trigger: 'item', valueFormatter: (v) => `${v} W` },
-      grid: { left: 84, right: 30, top: 10, bottom: 20 },
+      // 右邊留給「799 W」這種數值標籤：窄螢幕上座標軸上限常剛好等於最大值，長條頂到最右邊，標籤會被切掉
+      grid: { left: 84, right: 64, top: 10, bottom: 20 },
       xAxis: { type: 'value', axisLabel: { color: AXIS_TEXT, fontSize: 11 }, splitLine: { lineStyle: { color: SPLIT_LINE } } },
       yAxis: {
         type: 'category',
