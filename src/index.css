@@ -105,6 +105,27 @@ a {
   outline-offset: 2px;
 }
 
+/* 「跳到主要內容」：平常藏在畫面外，按 Tab 第一下才出現，鍵盤使用者不必每頁都先走過整排導覽。
+   position: fixed 讓它不佔 .app-shell 格線的位置 */
+.skip-link {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 100;
+  padding: 8px 14px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--accent-solid);
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transform: translateY(-160%);
+}
+.skip-link:focus-visible { transform: none; }
+.content:focus { outline: none; } /* 跳過來的落點本身不需要外框 */
+
 h1, h2, h3, h4 {
   margin: 0;
   font-weight: 700;
@@ -1129,7 +1150,10 @@ body {
   color-scheme: dark;          /* 讓瀏覽器內建的日期選單跟著用深色 */
 }
 :root[data-theme="light"] .date-input { color-scheme: light; }
-.field input[type="date"]:focus { outline: none; border-color: var(--accent); }
+/* 日期欄的焦點框：原本區間統計的日期欄把 outline 拿掉，用鍵盤操作時看不出焦點在哪；
+   日期欄裡有年／月／日與日曆按鈕幾個子欄位，用 :focus 才每一格都有框（:focus-visible 在日曆按鈕上不會觸發） */
+.date-input:focus,
+.date-input:focus-within { outline: 2px solid var(--accent); outline-offset: 1px; border-color: var(--accent); }
 
 /* 分段按鈕（日／週／月） */
 .seg {

@@ -88,6 +88,10 @@ export default function Layout() {
 
   return (
     <div className={`app-shell ${collapsed ? 'collapsed' : ''}`}>
+      {/* 用按鈕而不是 <a href="#main">：網站用 HashRouter，# 後面是路由，連結會被當成換頁 */}
+      <button className="skip-link" onClick={() => document.getElementById('main-content')?.focus()}>
+        跳到主要內容
+      </button>
       <aside className="sidebar">
         <div className="brand">
           <div className="logo">⚡</div>
@@ -181,7 +185,7 @@ export default function Layout() {
           </div>
         </header>
 
-        <main className="content">
+        <main className="content" id="main-content" tabIndex={-1}>
           {/* 展示模式是全站共用的虛擬時鐘，所以控制列放在版面層而不是單一頁面：
               原本只放在主頁面，切到頁面二時展示仍在背景播，卻沒地方暫停或拖曳。
               頁面三是隔日規劃，不受今天的播放進度影響，那一頁就不顯示。 */}
