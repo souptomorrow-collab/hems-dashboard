@@ -1445,6 +1445,9 @@ body {
 
 /* ---------- 用電規劃：規劃日區塊（窄螢幕折行時仍靠右） ---------- */
 .plan-date { margin-left: auto; text-align: right; }
+/* 讀不到雲端預測、改用模擬值時的標示 */
+.badge.sim-badge { color: var(--t-standby); background: rgba(251, 191, 36, 0.12); border-color: rgba(251, 191, 36, 0.35); }
+
 /* 點到不允許運轉的格子時的提示 */
 .hint.plan-notice { color: var(--t-peak); font-weight: 600; }
 
@@ -1641,10 +1644,12 @@ body {
   .gantt td.dev-name .badge { display: none; }
   .gantt td.dev-name .dev-window { font-size: 9.5px; }
 
-  /* 電費拆解表：縮小字級與間距，手機上盡量不必左右滑 */
+  /* 電費拆解表：縮小字級與間距，時數、「元/度」、「省／多」換到下一行，
+     手機寬度下五欄剛好放得下，不必左右滑（原本最右邊的差額只露出一個「省」字） */
   .history-table.compact { font-size: 12px; }
   .history-table.compact td,
   .history-table.compact th { padding: 7px 6px; }
+  .history-table.compact .tou-break { display: block; }
 
   /* 區間明細表：手機上要左右滑才看得到電費，日期欄固定在左邊，滑過去還知道是哪一天 */
   .history-table:not(.compact) th:first-child,

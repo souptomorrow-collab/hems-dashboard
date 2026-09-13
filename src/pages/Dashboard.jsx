@@ -553,7 +553,10 @@ export default function Dashboard() {
       {/* 即時：只畫到目前為止，曲線隨時間長出來 */}
       <Panel
         title="即時運轉"
-        sub={`今日 00:00 ～ ${upTo}・不可轉移負載取當日真實值（隨時間累積）`}
+        sub={`今日 00:00 ～ ${upTo}・`
+             + (today && today.loadSource !== 'rf'
+                ? '不可轉移負載為模擬值（讀不到雲端預測快照）'
+                : '不可轉移負載取當日真實值（隨時間累積）')}
         className="mt-16"
         right={
           <span className="badge">
@@ -567,15 +570,22 @@ export default function Dashboard() {
       {/* 預測與排程：整天都畫，和上面那張刻意分開，避免把「已發生」和「還沒發生」混為一談 */}
       <Panel
         title="今日預測與排程"
-        sub={`負載：過去用真實值、未來用 ${upTo} 發布的最新一次 RF 預測重新規劃`
+        sub={(today && today.loadSource !== 'rf'
+                ? '負載：模擬值（讀不到雲端預測快照）'
+                : `負載：過去用真實值、未來用 ${upTo} 發布的最新一次 RF 預測重新規劃`)
              + (today?.pvSource === 'lstm'
                 ? '・太陽能：前一晚 23:45 發布的 LSTM 預測（一天一次）'
                 : '')
              + '・紅底為尖峰時段'}
         right={
-          today?.pvSource === 'lstm' ? (
+          !today ? null : today.loadSource === 'rf' && today.pvSource === 'lstm' ? (
             <span className="badge">RF + LSTM 雲端預測</span>
-          ) : null
+          ) : (
+            // 讀不到快照時各函式會自動退回模擬值，畫面照常運作，但要標出來，免得把模擬曲線當成模型結果
+            <span className="badge sim-badge" title="讀不到 public/data 的預測快照，負載或太陽能改用模擬值">
+              🧪 {today.loadSource === 'rf' ? '負載為雲端預測・太陽能為模擬' : today.pvSource === 'lstm' ? '太陽能為雲端預測・負載為模擬' : '讀不到雲端預測，顯示模擬資料'}
+            </span>
+          )
         }
         className="mt-16"
       >

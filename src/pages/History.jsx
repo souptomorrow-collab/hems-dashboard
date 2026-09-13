@@ -290,13 +290,14 @@ function DayView({ date, setDate, yesterday, minDay }) {
                           <td>
                             <span className={`tier-dot ${t.tier}`} />
                             {TIER_LABEL[t.tier] ?? t.tier}
-                            <span className="dim">（{(t.slots / 4).toFixed(1).replace(/\.0$/, '')} 小時）</span>
+                            <span className="dim tou-break">（{(t.slots / 4).toFixed(1).replace(/\.0$/, '')} 小時）</span>
                           </td>
-                          <td className="num">{t.price.toFixed(2)} 元/度</td>
+                          <td className="num">{t.price.toFixed(2)}<span className="tou-break"> 元/度</span></td>
                           <td className="num">{t.hemsKwh.toFixed(1)} 度<br /><strong>{t.hemsCost.toFixed(1)} 元</strong></td>
                           <td className="num dim">{t.baseKwh.toFixed(1)} 度<br />{t.baseCost.toFixed(1)} 元</td>
                           <td className={`num ${diff >= 0 ? 'save' : 'more'}`}>
-                            {diff >= 0 ? `省 ${diff.toFixed(1)}` : `多 ${(-diff).toFixed(1)}`} 元
+                            <span className="tou-break">{diff >= 0 ? '省 ' : '多 '}</span>
+                            {Math.abs(diff).toFixed(1)} 元
                           </td>
                         </tr>
                       )
@@ -307,7 +308,7 @@ function DayView({ date, setDate, yesterday, minDay }) {
                       <td colSpan={2}>合計</td>
                       <td className="num">{s.optimizedCost.toFixed(1)} 元</td>
                       <td className="num">{s.baselineCost.toFixed(1)} 元</td>
-                      <td className="num save">省 {s.savings.toFixed(1)} 元</td>
+                      <td className="num save"><span className="tou-break">省 </span>{s.savings.toFixed(1)} 元</td>
                     </tr>
                   </tfoot>
                 </table>
