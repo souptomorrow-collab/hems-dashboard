@@ -8,12 +8,16 @@ import { useTheme, toggleTheme } from '../lib/theme.js'
 import DemoBar from './DemoBar.jsx'
 import ErrorBoundary from './ErrorBoundary.jsx'
 import { useScenario, setSeason, SEASONS, scenarioDate, seasonOf } from '../lib/scenario.js'
+import { getDemo, stopDemo } from '../lib/demoClock.js'
+import { useAuth, logout } from '../lib/auth.js'
 
+// admin：只有管理員看得到的頁面
 const NAV = [
   { to: '/', label: '主頁面', icon: '🏠', end: true },
   { to: '/loads', label: '各負載功率', icon: '🔌', end: false },
   { to: '/planning', label: '用電規劃', icon: '📅', end: false },
   { to: '/history', label: '歷史紀錄', icon: '🗂️', end: false },
+  { to: '/system', label: '系統資訊', icon: '⚙️', end: false, admin: true },
 ]
 
 const DEMO_PAGES = new Set(['/', '/loads'])
@@ -36,14 +40,19 @@ const PAGE_META = {
   '/loads': { title: '各負載即時功率', sub: '家中各設備即時消耗與分布' },
   '/planning': { title: '用電規劃', sub: '隔日 24 小時最佳化排程（以 15 分鐘為單位）' },
   '/history': { title: '歷史紀錄', sub: '依日／週／月查詢用電、發電、購電與電費，並匯出日報／月報' },
+  '/system': { title: '系統資訊', sub: '帳號權限、資料快照、電池與設備規則、電價（管理員）' },
 }
 
 export default function Layout() {
   const now = useClock()
   const { pathname } = useLocation()
   const meta = PAGE_META[pathname] ?? PAGE_META['/']
+  const session = useAuth()
+  const admin = session?.role === 'admin'
+  const nav = NAV.filter((n) => !n.admin || admin)
   const { season } = useScenario()
-  const scenarioPage = SEASON_PAGES.has(pathname)
+  // 情境切換與展示模式是給管理員展示用的；住戶一律看今天實際的季節
+  const scenarioPage = admin && SEASON_PAGES.has(pathname)
   // 情境頁的電價徽章跟著情境走（非夏月情境下，九月的今天也照非夏月的尖離峰顯示）
   const tier = getCurrentTier(scenarioPage ? scenarioDate(now, season) : now)
   const summer = isSummer(now)
@@ -53,6 +62,14 @@ export default function Layout() {
   const offSeason = scenarioPage && shown && natural && shown.key !== natural.key
   const theme = useTheme()
   const [collapsed, setCollapsed] = useState(readCollapsed)
+
+  // 住戶登入時（或管理員登出後換住戶登入），把管理員切過的情境、開著的展示模式恢復原狀
+  useEffect(() => {
+    if (admin) return
+    if (season !== seasonOf(now)) setSeason(seasonOf(now))
+    if (getDemo().enabled) stopDemo()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [admin, season])
 
   // 頂端列的實際高度寫成 CSS 變數 --topbar-h，展示控制列才知道要黏在哪個高度。
   // 高度不固定：手機上頂端列會折成好幾行，側欄收合也可能讓標題換行
@@ -102,7 +119,7 @@ export default function Layout() {
         </div>
 
         <nav className="nav">
-          {NAV.map((n) => (
+          {nav.map((n) => (
             <NavLink
               key={n.to}
               to={n.to}
@@ -162,7 +179,7 @@ export default function Layout() {
                 ))}
               </div>
             ) : (
-              <span className={`badge ${summer ? 'summer' : ''}`} title="歷史紀錄依每一天的實際日期判斷夏月／非夏月">
+              <span className={`badge ${summer ? 'summer' : ''}`} title="依日期判斷夏月／非夏月">
                 {summer ? '夏月' : '非夏月'}
               </span>
             )}
@@ -178,6 +195,10 @@ export default function Layout() {
             >
               {theme === 'dark' ? '☀️' : '🌙'}
             </button>
+            <div className="user-chip" title={`已登入：${session?.username}`}>
+              <span className={`badge role-${session?.role}`}>{session?.label}</span>
+              <button className="logout-btn" onClick={logout}>登出</button>
+            </div>
             <div className="clock">
               <div className="time">{fmtClock(now)}</div>
               <div className="date">{fmtDate(now)}</div>
@@ -200,16 +221,16 @@ export default function Layout() {
               </button>
             </div>
           )}
-          {DEMO_PAGES.has(pathname) && <DemoBar />}
+          {admin && DEMO_PAGES.has(pathname) && <DemoBar />}
           <ErrorBoundary key={pathname}>
             <Outlet />
           </ErrorBoundary>
         </main>
       </div>
 
-      {/* 手機底部分頁列：側欄在手機上藏起來，四個頁面一直都點得到 */}
-      <nav className="tabbar" aria-label="頁面導覽">
-        {NAV.map((n) => (
+      {/* 手機底部分頁列：側欄在手機上藏起來，每個頁面一直都點得到（管理員多一頁系統資訊） */}
+      <nav className="tabbar" aria-label="頁面導覽" style={{ gridTemplateColumns: `repeat(${nav.length}, 1fr)` }}>
+        {nav.map((n) => (
           <NavLink
             key={n.to}
             to={n.to}

@@ -24,6 +24,7 @@ import { nowTaipei } from '../lib/time.js'
 import { useTheme, getTheme, setTheme } from '../lib/theme.js'
 import { toCsv, downloadCsv, printReport } from '../lib/exportFile.js'
 import { dayRecord } from '../lib/dayRecord.js'
+import { useIsAdmin } from '../lib/auth.js'
 import { SHIFTABLE_RULES } from '../lib/simulate.js'
 
 /** 可轉移設備不允許運轉的時段（小時區間）：允許時段的補集 */
@@ -107,6 +108,7 @@ function DayView({ date, setDate, yesterday, minDay }) {
   const theme = useTheme()
   const [res, setRes] = useState(null)
   const [loadError, setLoadError] = useState(null)
+  const admin = useIsAdmin() // 資料集與模擬方式的說明只給管理員看
 
   useEffect(() => {
     let on = true
@@ -394,12 +396,14 @@ function DayView({ date, setDate, yesterday, minDay }) {
             </div>
           </Panel>
 
-          <p className="hint prose mt-16">
-            {'🧪 系統尚未接上實際電表，以上是依台電簡易二段式電價模擬的運轉紀錄。'}
-            {`不可轉移負載、太陽能與天氣都取資料集中同季節、同為週${weekdayOf(date)}的那一天${res.profileFrom ? `（${res.profileFrom}）` : ''}：`}
-            {'負載是 UCI household_power_consumption 的實測曲線，太陽能是 LSTM 日前預測，'}
-            {`天氣是${res.weatherFrom === 'era5' ? '同一天台北的 ERA5 再分析資料' : '模擬天氣（讀不到 ERA5 資料）'}。`}
-          </p>
+          {admin && (
+            <p className="hint prose mt-16">
+              {'🧪 系統尚未接上實際電表，以上是依台電簡易二段式電價模擬的運轉紀錄。'}
+              {`不可轉移負載、太陽能與天氣都取資料集中同季節、同為週${weekdayOf(date)}的那一天${res.profileFrom ? `（${res.profileFrom}）` : ''}：`}
+              {'負載是 UCI household_power_consumption 的實測曲線，太陽能是 LSTM 日前預測，'}
+              {`天氣是${res.weatherFrom === 'era5' ? '同一天台北的 ERA5 再分析資料' : '模擬天氣（讀不到 ERA5 資料）'}。`}
+            </p>
+          )}
         </>
       )}
     </>
@@ -553,6 +557,7 @@ function RangeView({ yesterday, minDay, onPickDay }) {
   const [unit, setUnit] = useState('day')
   const [data, setData] = useState(null)
   const [loadError, setLoadError] = useState(null)
+  const admin = useIsAdmin()
 
   useEffect(() => {
     let on = true
@@ -796,12 +801,14 @@ function RangeView({ yesterday, minDay, onPickDay }) {
                 </tfoot>
               </table>
             </div>
-            <p className="hint prose mt-16">
-              {'🧪 系統尚未接上實際電表，以上是依台電簡易二段式電價（夏月／非夏月、平日／假日）'}
-              {'逐日模擬的運轉紀錄；不可轉移負載、太陽能與天氣採用資料集中同季節、同一個星期幾那天的資料，'}
-              {'因此同一季裡同一個星期幾的用電量每週相同。'}
-              {unit === 'day' && '週末列以底色標示：週末全天離峰、沒有尖離峰價差，電池能省的錢明顯較少。'}
-            </p>
+            {(admin || unit === 'day') && (
+              <p className="hint prose mt-16">
+                {admin && '🧪 系統尚未接上實際電表，以上是依台電簡易二段式電價（夏月／非夏月、平日／假日）'}
+                {admin && '逐日模擬的運轉紀錄；不可轉移負載、太陽能與天氣採用資料集中同季節、同一個星期幾那天的資料，'}
+                {admin && '因此同一季裡同一個星期幾的用電量每週相同。'}
+                {unit === 'day' && '週末列以底色標示：週末全天離峰、沒有尖離峰價差，電池能省的錢明顯較少。'}
+              </p>
+            )}
           </Panel>
         </>
       )}

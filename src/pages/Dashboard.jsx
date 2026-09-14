@@ -11,6 +11,7 @@ import { useDemoClock, slotToDate } from '../lib/demoClock.js'
 import { useScenario } from '../lib/scenario.js'
 import { useClock, useCurrentSlot } from '../hooks/useClock.js'
 import { useMediaQuery } from '../hooks/useMediaQuery.js'
+import { useIsAdmin } from '../lib/auth.js'
 import {
   slotXAxis,
   valueYAxis,
@@ -63,6 +64,8 @@ export default function Dashboard() {
   const curSlot = useCurrentSlot() // 過去／未來的分界，也決定滾動預測取哪一筆
   const { season } = useScenario() // 夏月／非夏月情境，一換就整頁重抓
   const narrow = useMediaQuery('(max-width: 760px)')
+  // 住戶看不到預測模型相關的圖與資料來源標示，說明文字也改成一般用語
+  const admin = useIsAdmin()
 
   // kW 軸的範圍「只增不減」，而且兩個情境各記各的。
   // 滾動預測每前進一格就換一次資料，若讓軸自動縮放，播放時整張圖會不停上下跳，
@@ -554,14 +557,18 @@ export default function Dashboard() {
       <Panel
         title="即時運轉"
         sub={`今日 00:00 ～ ${upTo}・`
-             + (today && today.loadSource !== 'rf'
+             + (!admin
+                ? '太陽能、用電、電網與電池到目前為止的運轉'
+                : today && today.loadSource !== 'rf'
                 ? '不可轉移負載為模擬值（讀不到雲端預測快照）'
                 : '不可轉移負載取當日真實值（隨時間累積）')}
         className="mt-16"
         right={
-          <span className="badge">
-            {demo.enabled ? '展示模式' : '真實時間'}・第 {curSlot + 1} / 96 格
-          </span>
+          admin ? (
+            <span className="badge">
+              {demo.enabled ? '展示模式' : '真實時間'}・第 {curSlot + 1} / 96 格
+            </span>
+          ) : null
         }
       >
         <EChart option={realtimeOption} height={300 + SOC_EXTRA_HEIGHT} label="即時運轉：今天到目前為止的太陽能、負載、電網、電池功率與 SOC" />
@@ -570,7 +577,9 @@ export default function Dashboard() {
       {/* 預測與排程：整天都畫，和上面那張刻意分開，避免把「已發生」和「還沒發生」混為一談 */}
       <Panel
         title="今日預測與排程"
-        sub={(today && today.loadSource !== 'rf'
+        sub={!admin
+          ? '已經過去的時段是實際運轉，之後是預測與排程・紅底為尖峰時段'
+          : (today && today.loadSource !== 'rf'
                 ? '負載：模擬值（讀不到雲端預測快照）'
                 : `負載：過去用真實值、未來用 ${upTo} 發布的最新一次 RF 預測重新規劃`)
              + (today?.pvSource === 'lstm'
@@ -579,21 +588,23 @@ export default function Dashboard() {
              + '・紅底為尖峰時段'}
         right={
           !today ? null : today.loadSource === 'rf' && today.pvSource === 'lstm' ? (
-            <span className="badge">RF + LSTM 雲端預測</span>
+            admin ? <span className="badge">RF + LSTM 雲端預測</span> : null
           ) : (
             // 讀不到快照時各函式會自動退回模擬值，畫面照常運作，但要標出來，免得把模擬曲線當成模型結果
             <span className="badge sim-badge" title="讀不到 public/data 的預測快照，負載或太陽能改用模擬值">
-              🧪 {today.loadSource === 'rf' ? '負載為雲端預測・太陽能為模擬' : today.pvSource === 'lstm' ? '太陽能為雲端預測・負載為模擬' : '讀不到雲端預測，顯示模擬資料'}
+              🧪 {!admin ? '暫時顯示模擬資料' : today.loadSource === 'rf' ? '負載為雲端預測・太陽能為模擬' : today.pvSource === 'lstm' ? '太陽能為雲端預測・負載為模擬' : '讀不到雲端預測，顯示模擬資料'}
             </span>
           )
         }
         className="mt-16"
       >
+        {/* 住戶看不到下面的「太陽能預測與實際」，天氣條改放在這張圖上方 */}
+        {!admin && show?.weather && <WeatherStrip weather={show.weather} />}
         <EChart option={dayPlanOption} height={300 + SOC_EXTRA_HEIGHT} label="今日預測與排程：整天的太陽能、負載、電網、電池功率與 SOC" />
       </Panel>
 
       {/* 太陽能：預測與實際，上方是同一天台北的實際天氣 */}
-      {show?.pv && (
+      {admin && show?.pv && (
         <Panel
           title="太陽能發電：預測與實際"
           sub={`LSTM 一天預測一次（前一晚 23:45 發布）；實際值由 ERA5 日射量換算，只畫到 ${upTo}`
@@ -631,7 +642,7 @@ export default function Dashboard() {
       )}
 
       {/* 滾動預測：同一段未來在不同時間點被預測成什麼樣子 */}
-      {show?.rolling && show?.actual && (
+      {admin && show?.rolling && show?.actual && (
         <Panel
           title="不可轉移負載滾動預測"
           sub={`RF 每 15 分鐘重發一次未來 24 小時的預測・紫色實線為 ${upTo} 發布的最新一次，淡色虛線為 1～4 小時前發布的`}
