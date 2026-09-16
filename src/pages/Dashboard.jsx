@@ -67,12 +67,14 @@ export default function Dashboard() {
   // 住戶看不到預測模型相關的圖與資料來源標示，說明文字也改成一般用語
   const admin = useIsAdmin()
 
-  // kW 軸的範圍「只增不減」，而且兩個情境各記各的。
-  // 每前進一格就多一格真實值、資料跟著換，若讓軸自動縮放，播放時整張圖會不停上下跳，
-  // 前後時刻也沒辦法比較。記住看過的最大／最小值，軸就只會變寬不會變窄。
+  // 即時運轉那張的 kW 軸「只增不減」，兩個情境各記各的。
+  // 每前進一格就多一格真實值、資料跟著換，若讓軸自動縮放，播放時整張圖會不停上下跳。
+  // 今日計畫那張整天資料固定，軸直接依自己的資料決定，不和即時那張共用
+  // （共用的話，真實負載的尖峰會把計畫那張的軸撐到 8 kW，曲線擠成一團）。
   const kwRange = useRef({})
   const [live, setLive] = useState(null)
-  const [today, setToday] = useState(null)
+  const [today, setToday] = useState(null) // 過去真實值＋未來日前預測（即時運轉用）
+  const [dayPlan, setDayPlan] = useState(null) // 前一晚排定的全天計畫（今日預測與排程用）
   const [show, setShow] = useState(null) // 展示日的原始陣列（負載與太陽能的日前預測、實際值）
 
   // 即時快照。
@@ -103,6 +105,14 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [curSlot, demo.enabled, season])
 
+  // 今日全天計畫：排程一天只排一次，整天都是同一份（負載、太陽能都用前一晚的日前預測）
+  useEffect(() => {
+    let on = true
+    fetchToday(now).then((d) => on && setDayPlan(d))
+    return () => { on = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [demo.enabled, season])
+
   // 展示日原始資料：每個情境載入一次，之後只是依目前格數取不同的列
   useEffect(() => {
     let on = true
@@ -118,37 +128,47 @@ export default function Dashboard() {
      混在同一張圖裡會讓人分不清哪些是結果、哪些是計畫。
 
      這裡用同一個 option 產生器做兩張：
-       upTo 有值  → 只畫到第 upTo 格（之後補 null），曲線隨時間長出來
-       upTo 為 null → 整天都畫，並在展示模式下標出目前播到哪
+       即時運轉      today（過去真實值），只畫到第 upTo 格，曲線隨時間長出來
+       今日預測與排程 dayPlan（前一晚排定的全天計畫），整天都畫，展示模式下標出目前播到哪
 
      x 軸兩張都保持完整的 24 小時，即時那張才不會邊播邊縮放。
      ------------------------------------------------------------ */
-  const dayOption = (upTo, showPlayhead) => {
+  const allKw = (d) => [
+    ...d.pv, ...d.load, ...d.gridKw, ...d.chargeKw, ...d.dischargeKw.map((v) => -v),
+  ].filter((v) => Number.isFinite(v))
+
+  // 刻度間距挑「不超過 7 格」的最小值，上下限對齊到間距上；
+  // 直接拿資料的最大最小值當上下限，軸上會出現 8、6、3、0、-3、-5 這種不等距的刻度
+  const niceAxis = (lo, hi) => {
+    const step = [0.5, 1, 2, 5, 10].find((st) => (Math.ceil(hi / st) - Math.floor(lo / st)) <= 7) ?? 10
+    return { min: Math.floor(lo / step) * step, max: Math.ceil(hi / step) * step, interval: step }
+  }
+
+  // 即時運轉：整天的真實負載都算進去（尖峰時購電可能到負載＋充電），播放時軸才不會中途變寬
+  const realtimeAxis = () => {
+    const vals = allKw(today)
+    if (show?.actual) {
+      show.actual.forEach((v, i) => Number.isFinite(v) && vals.push(v + (today.chargeKw[i] ?? 0)))
+    }
+    const key = today.season ?? 'summer'
+    const prev = kwRange.current[key] ?? { min: 0, max: 0 }
+    const r = (kwRange.current[key] = {
+      max: Math.max(prev.max, Math.max(0, ...vals)),
+      min: Math.min(prev.min, Math.min(0, ...vals)),
+    })
+    return niceAxis(r.min, r.max)
+  }
+
+  // 今日計畫：整天資料固定，直接照自己的最大最小值
+  const planAxis = () => {
+    const vals = allKw(dayPlan)
+    return niceAxis(Math.min(0, ...vals), Math.max(0, ...vals))
+  }
+
+  const dayOption = (d, upTo, showPlayhead, kwAxis) => {
     // 只保留 upTo 之前的點，之後補 null（ECharts 會直接斷線，不會連到 0）
     const clip = (arr) =>
       upTo == null ? arr : arr.map((v, i) => (i <= upTo ? v : null))
-    if (!today) return {}
-
-    // kW 軸的範圍一律用「整天」的資料算，兩張圖才會是同一把尺；
-    // 否則即時那張會隨著資料長出來一直自動縮放，也沒辦法和下面那張對照。
-    const all = [
-      ...today.pv, ...today.load, ...today.gridKw,
-      ...today.chargeKw, ...today.dischargeKw.map((v) => -v),
-    ].filter((v) => Number.isFinite(v))
-    const key = today.season ?? 'summer'
-    const prev = kwRange.current[key] ?? { min: 0, max: 0 }
-    const { min: kwMin, max: kwMax } = (kwRange.current[key] = {
-      max: Math.max(prev.max, Math.ceil(Math.max(0, ...all))),
-      min: Math.min(prev.min, Math.floor(Math.min(0, ...all))),
-    })
-    // 刻度間距挑 1、2、5、10 裡「不超過 7 格」的最小值，上下限對齊到間距上；
-    // 直接拿資料的最大最小值當上下限，軸上會出現 8、6、3、0、-3、-5 這種不等距的刻度
-    const kwStep = [1, 2, 5, 10].find((st) => (kwMax - kwMin) / st <= 7) ?? 10
-    const kwAxis = {
-      min: Math.floor(kwMin / kwStep) * kwStep,
-      max: Math.ceil(kwMax / kwStep) * kwStep,
-      interval: kwStep,
-    }
     return {
       // 展示模式每秒換一次資料：保留動畫的話，每次更新都會重播一段進場，
       // 播放頭的時間標籤看起來會一直抖。真實時間模式更新慢，動畫留著比較順
@@ -165,10 +185,10 @@ export default function Dashboard() {
           type: 'line',
           smooth: true,
           symbol: 'none',
-          data: clip(today.pv),
+          data: clip(d.pv),
           lineStyle: { width: 2, color: COLORS.solar },
           areaStyle: { color: 'rgba(255,176,32,0.18)' },
-          markArea: peakMarkArea(today.tier),
+          markArea: peakMarkArea(d.tier),
           // 展示模式下標出「現在播到哪」，一天 96 格的進度一眼可見
           markLine: showPlayhead && demo.enabled
             ? {
@@ -199,7 +219,7 @@ export default function Dashboard() {
           type: 'line',
           smooth: true,
           symbol: 'none',
-          data: clip(today.load),
+          data: clip(d.load),
           lineStyle: { width: 2, color: COLORS.load },
         },
         {
@@ -207,21 +227,21 @@ export default function Dashboard() {
           type: 'line',
           smooth: true,
           symbol: 'none',
-          data: clip(today.gridKw),
+          data: clip(d.gridKw),
           lineStyle: { width: 1.5, color: COLORS.grid, type: 'dashed' },
         },
         {
           name: '電池充電',
           type: 'bar',
           stack: 'batt',
-          data: clip(today.chargeKw),
+          data: clip(d.chargeKw),
           itemStyle: { color: 'rgba(34,197,94,0.55)' },
         },
         {
           name: '電池放電',
           type: 'bar',
           stack: 'batt',
-          data: clip(today.dischargeKw).map((v) => (v == null ? null : -v)),
+          data: clip(d.dischargeKw).map((v) => (v == null ? null : -v)),
           itemStyle: { color: 'rgba(249,115,22,0.6)' },
         },
         {
@@ -231,9 +251,9 @@ export default function Dashboard() {
           yAxisIndex: 1,
           smooth: true,
           symbol: 'none',
-          data: clip(today.socPct),
+          data: clip(d.socPct),
           lineStyle: { width: 2.5, color: COLORS.battery },
-          markArea: peakMarkArea(today.tier),
+          markArea: peakMarkArea(d.tier),
           markLine: {
             silent: true,
             symbol: 'none',
@@ -247,12 +267,12 @@ export default function Dashboard() {
   }
 
   const realtimeOption = useMemo(
-    () => dayOption(curSlot, false),
-    [today, theme, curSlot]
+    () => (today ? dayOption(today, curSlot, false, realtimeAxis()) : {}),
+    [today, show, theme, curSlot]
   )
   const dayPlanOption = useMemo(
-    () => dayOption(null, true),
-    [today, theme, demo.enabled, demo.slot]
+    () => (dayPlan ? dayOption(dayPlan, null, true, planAxis()) : {}),
+    [dayPlan, theme, demo.enabled, demo.slot]
   )
 
   /* ------------------------------------------------------------
@@ -540,7 +560,8 @@ export default function Dashboard() {
                 ? '太陽能、用電、電網與電池到目前為止的運轉'
                 : today && today.loadSource !== 'rf'
                 ? '不可轉移負載為模擬值（讀不到雲端預測快照）'
-                : '不可轉移負載取當日真實值（隨時間累積）')}
+                : '不可轉移負載取當日真實值（隨時間累積）'
+                  + (today?.planSource && today.planSource !== 'sim' ? '；電池照排程，與預測的差額由電網補足' : ''))}
         className="mt-16"
         right={
           admin ? (
@@ -553,34 +574,34 @@ export default function Dashboard() {
         <EChart option={realtimeOption} height={300 + SOC_EXTRA_HEIGHT} label="即時運轉：今天到目前為止的太陽能、負載、電網、電池功率與 SOC" />
       </Panel>
 
-      {/* 預測與排程：整天都畫，和上面那張刻意分開，避免把「已發生」和「還沒發生」混為一談 */}
+      {/* 今日全天計畫：前一晚排好、整天不變；和上面那張刻意分開，避免把「已發生」和「還沒發生」混為一談 */}
       <Panel
         title="今日預測與排程"
         sub={!admin
-          ? '已經過去的時段是實際運轉，之後是預測與排程・紅底為尖峰時段'
-          : (today && today.loadSource !== 'rf'
+          ? '前一晚排定的全天計畫（用電與發電為預測值），實際運轉見上圖・紅底為尖峰時段'
+          : (dayPlan && dayPlan.loadSource !== 'rf'
                 ? '負載：模擬值（讀不到雲端預測快照）'
-                : '負載：過去用真實值、未來用前一晚 23:45 發布的 RF 日前預測（一天一次，與排程相同）')
-             + (today?.pvSource === 'lstm'
-                ? '・太陽能：前一晚 23:45 發布的 LSTM 預測（一天一次）'
+                : '前一晚排定的全天計畫・負載：前一晚 23:45 發布的 RF 日前預測')
+             + (dayPlan?.pvSource === 'lstm'
+                ? '・太陽能：前一晚 23:45 發布的 LSTM 預測（兩者都一天一次）'
                 : '')
-             + (!today
+             + (!dayPlan
                 ? ''
-                : today.planSource !== 'sim'
-                ? `・電池：照排程組的 ${today.planSource} 排程（資料集 ${today.planDate}），與預測的差額由電網補足`
-                : `・電池：模擬調度（${today.planNote ?? '這個情境還沒有排程組的排程'}）`)
+                : dayPlan.planSource !== 'sim'
+                ? `・電池：排程組的 ${dayPlan.planSource} 排程（資料集 ${dayPlan.planDate}）`
+                : `・電池：模擬調度（${dayPlan.planNote ?? '這個情境還沒有排程組的排程'}）`)
              + '・紅底為尖峰時段'}
         right={
-          !today ? null : today.loadSource === 'rf' && today.pvSource === 'lstm' ? (
+          !dayPlan ? null : dayPlan.loadSource === 'rf' && dayPlan.pvSource === 'lstm' ? (
             admin ? (
               <span className="badge">
-                RF + LSTM 雲端預測{today.planSource !== 'sim' ? ` + ${today.planSource} 排程` : ''}
+                RF + LSTM 雲端預測{dayPlan.planSource !== 'sim' ? ` + ${dayPlan.planSource} 排程` : ''}
               </span>
             ) : null
           ) : (
             // 讀不到快照時各函式會自動退回模擬值，畫面照常運作，但要標出來，免得把模擬曲線當成模型結果
             <span className="badge sim-badge" title="讀不到 public/data 的預測快照，負載或太陽能改用模擬值">
-              🧪 {!admin ? '暫時顯示模擬資料' : today.loadSource === 'rf' ? '負載為雲端預測・太陽能為模擬' : today.pvSource === 'lstm' ? '太陽能為雲端預測・負載為模擬' : '讀不到雲端預測，顯示模擬資料'}
+              🧪 {!admin ? '暫時顯示模擬資料' : dayPlan.loadSource === 'rf' ? '負載為雲端預測・太陽能為模擬' : dayPlan.pvSource === 'lstm' ? '太陽能為雲端預測・負載為模擬' : '讀不到雲端預測，顯示模擬資料'}
             </span>
           )
         }
