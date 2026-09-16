@@ -13,7 +13,15 @@
 
   順序要照上面：最後一次匯出的展示日會留在 forecast_day.json，那份必須是夏月。
 
-二、天氣（來源 open-meteo ERA5，不需要金鑰）
+二、排程組的排程（來源 MongoDB hems.schedule，tag=main，需要連線字串）
+
+  cd 專題UI
+  python scripts/export_schedule.py
+
+  schedule.json                   排程組的 MILP 排程（目前只有夏月展示日 2010-09-06）
+                                  當天電價相符時電池照排程充放電，其他日子用模擬調度
+
+三、天氣（來源 open-meteo ERA5，不需要金鑰）
 
   cd 專題UI
   python scripts/fetch_weather.py

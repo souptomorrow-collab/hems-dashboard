@@ -1,10 +1,10 @@
 /* ============================================================
    能源模擬引擎（以 15 分鐘為單位，一天 96 時段）
 
-   說明：這是「模擬資料」，用來讓 UI 有真實感。
-   實際系統會由 LSTM（太陽能發電預測）、RF 隨機森林（家庭負載預測）
-   與基因演算法（GA 最佳化排程）產生這些數值；之後只要把 api/client.js
-   換成呼叫後端 API 即可，本檔案的輸出格式就是 UI 期望的資料結構。
+   說明：太陽能與不可轉移負載有雲端預測時用預測（LSTM、RF），
+   電池有排程組的排程（MILP，public/data/schedule.json）且當天電價相符時照排程充放電
+   （dispatchPlan），其餘部分用這裡的模擬補上，讓 UI 每一天都有完整的資料。
+   本檔案的輸出格式就是 UI 期望的資料結構。
 
    天氣（src/lib/weather.js）會影響：
    - 太陽能發電：雲量越多、發電越低（陰雨/颱風驟降）
@@ -372,6 +372,109 @@ export function dispatch(date, pv, load) {
     socPct.push(+((soc / cap) * 100).toFixed(1))
   }
 
+  return pack(date, pv, load, price, tier,
+    { pvToLoad, pvToBatt, pvToGrid, battToLoad, gridToLoad, gridToBatt, socPct },
+    { tPv, tLoad, tGridImport, tCharge, tDischarge, tReverse, optCost, baseCost })
+}
+
+/* ------------------------------------------------------------
+   依排程組的排程執行（MILP 結果，public/data/schedule.json）
+
+   排程給的是每格的電池功率（正＝充電）與 SOC。這裡照那份功率充放電，
+   實際負載、太陽能和排程時用的預測不同時，差額由實時運轉的規則處理：
+     - 放電不超過當格的用電缺口（防逆送：降低電池輸出）
+     - 比預期多出來的太陽能先充進電池，電池滿了或到功率上限才削減
+     - 其餘差額由電網補足
+   電池模型與排程組相同：充電時計入往返效率損失，放電不再扣。
+   只有當天電價和排程時用的電價一致時才套用（例如週末電價不同就不套用）。
+   ------------------------------------------------------------ */
+
+/** 這份排程能不能用在 date 這一天（格數正確、電價逐格一致） */
+export function planFits(plan, date) {
+  if (!plan || plan.batt_kw?.length !== SLOTS_PER_DAY || plan.price?.length !== SLOTS_PER_DAY) return false
+  const price = getPriceSlots(date)
+  return price.every((p, i) => Math.abs(p - plan.price[i]) < 0.005)
+}
+
+export function dispatchPlan(date, pv, load, plan) {
+  const price = getPriceSlots(date)
+  const tier = getTierSlots(date)
+
+  const cap = BATTERY.capacityKwh
+  const minKwh = cap * BATTERY.socMin
+  const maxKwh = cap * BATTERY.socMax
+  const maxE = BATTERY.maxPowerKw * SLOT_HOURS
+  const eff = BATTERY.roundTrip
+  let soc = cap * BATTERY.socInit
+
+  const pvToLoad = [], pvToBatt = [], pvToGrid = []
+  const battToLoad = [], gridToLoad = [], gridToBatt = []
+  const socPct = []
+  let optCost = 0, baseCost = 0
+  let tPv = 0, tLoad = 0, tGridImport = 0, tCharge = 0, tDischarge = 0, tReverse = 0
+
+  for (let s = 0; s < SLOTS_PER_DAY; s++) {
+    const pvE = pv[s] * SLOT_HOURS
+    const loadE = load[s] * SLOT_HOURS
+    tPv += pvE
+    tLoad += loadE
+
+    const p2l = Math.min(pvE, loadE)
+    let surplus = pvE - p2l
+    const deficit = loadE - p2l
+    let p2b = 0, b2l = 0, g2b = 0
+
+    const cmd = (plan.batt_kw[s] ?? 0) * SLOT_HOURS // kWh，正＝充電
+    if (cmd > 0) {
+      const chg = Math.max(0, Math.min(cmd, maxE, (maxKwh - soc) / eff))
+      p2b = Math.min(surplus, chg) // 先用太陽能充，不夠的才向電網買
+      g2b = chg - p2b
+      surplus -= p2b
+      soc += chg * eff
+    } else if (cmd < 0) {
+      b2l = Math.max(0, Math.min(-cmd, deficit, soc - minKwh))
+      soc -= b2l
+    }
+
+    // 排程本來就預期要削減的太陽能（排程時電池已到上限或功率上限）
+    const planCut = Math.max(0, ((plan.pv_kw?.[s] ?? 0) - (plan.pv_used_kw?.[s] ?? 0)) * SLOT_HOURS)
+    // 比預期多出來的部分先充進電池
+    const unexpected = Math.max(0, surplus - planCut)
+    if (unexpected > 0) {
+      const extra = Math.max(0, Math.min(unexpected, maxE - p2b - g2b, (maxKwh - soc) / eff))
+      p2b += extra
+      surplus -= extra
+      soc += extra * eff
+    }
+    const p2g = surplus // 剩下的：防逆送削減
+    const g2l = deficit - b2l
+
+    const gridImportE = g2l + g2b
+    tGridImport += gridImportE
+    tCharge += p2b + g2b
+    tDischarge += b2l
+    tReverse += p2g
+    optCost += gridImportE * price[s]
+    baseCost += loadE * price[s]
+
+    pvToLoad.push(+(p2l / SLOT_HOURS).toFixed(3))
+    pvToBatt.push(+(p2b / SLOT_HOURS).toFixed(3))
+    pvToGrid.push(+(p2g / SLOT_HOURS).toFixed(3))
+    battToLoad.push(+(b2l / SLOT_HOURS).toFixed(3))
+    gridToLoad.push(+(g2l / SLOT_HOURS).toFixed(3))
+    gridToBatt.push(+(g2b / SLOT_HOURS).toFixed(3))
+    socPct.push(+((soc / cap) * 100).toFixed(1))
+  }
+
+  return pack(date, pv, load, price, tier,
+    { pvToLoad, pvToBatt, pvToGrid, battToLoad, gridToLoad, gridToBatt, socPct },
+    { tPv, tLoad, tGridImport, tCharge, tDischarge, tReverse, optCost, baseCost })
+}
+
+/** 兩種調度共用：由逐格能量流組出 UI 要的欄位與當日摘要 */
+function pack(date, pv, load, price, tier, flows, t) {
+  const { pvToLoad, pvToBatt, pvToGrid, battToLoad, gridToLoad, gridToBatt, socPct } = flows
+  const { tPv, tLoad, tGridImport, tCharge, tDischarge, tReverse, optCost, baseCost } = t
   const chargeKw = pvToBatt.map((v, i) => +(v + gridToBatt[i]).toFixed(3))
   const dischargeKw = battToLoad
   const gridKw = gridToLoad.map((v, i) => +(v + gridToBatt[i]).toFixed(3))
@@ -402,14 +505,29 @@ export function dispatch(date, pv, load) {
   }
 }
 
+/** 電池調度：有適用的排程組排程就照排程，否則用上面的模擬調度 */
+function runDispatch(date, pv, load, plan) {
+  if (plan && planFits(plan, date)) {
+    return { ...dispatchPlan(date, pv, load, plan), planSource: plan.solver ?? 'plan', planDate: plan.date }
+  }
+  return {
+    ...dispatch(date, pv, load),
+    planSource: 'sim',
+    // 有排程但這天電價不同（例如週末）→ 說明為什麼沒套用
+    planNote: plan ? '當天電價與排程不同，電池改用模擬調度' : null,
+  }
+}
+
 /** 完整模擬一天（演算法排程 + 調度），含天氣
    fixedOverride：真實 RF 不可轉移負載預測（96 格 kW），沒給就用模擬值
-   pvOverride：真實 LSTM 發電量預測（96 格 kW），沒給就用模擬的晴空曲線 */
+   pvOverride：真實 LSTM 發電量預測（96 格 kW），沒給就用模擬的晴空曲線
+   plan：排程組的排程（schedule.json 的一份），有給且電價相符時電池照排程充放電 */
 export function simulateDay(
   date,
   weather = simulateWeather(date),
   fixedOverride = null,
-  pvOverride = null
+  pvOverride = null,
+  plan = null
 ) {
   const pv = pvOverride ?? pvForecastKw(date, weather)
   const schedule = buildSchedule(date, weather)
@@ -418,7 +536,7 @@ export function simulateDay(
     weather,
     fixedOverride
   )
-  const res = dispatch(date, pv, total)
+  const res = runDispatch(date, pv, total, plan)
   return {
     ...res,
     schedule,
@@ -431,13 +549,15 @@ export function simulateDay(
   }
 }
 
-/** 依「指定排程」模擬（手動調整後即時重算） */
+/** 依「指定排程」模擬（手動調整後即時重算）。
+   有排程組的排程時電池仍照排程，手動移動設備只改變電網購電與電費 */
 export function simulateWithSchedule(
   date,
   schedule,
   weather = simulateWeather(date),
   fixedOverride = null,
-  pvOverride = null
+  pvOverride = null,
+  plan = null
 ) {
   const pv = pvOverride ?? pvForecastKw(date, weather)
   const { power, total, fixed, shiftable } = powerAndLoadFromSchedule(
@@ -445,7 +565,7 @@ export function simulateWithSchedule(
     weather,
     fixedOverride
   )
-  const res = dispatch(date, pv, total)
+  const res = runDispatch(date, pv, total, plan)
   return {
     ...res,
     schedule,
@@ -465,9 +585,10 @@ export function liveSnapshot(
   now = nowTaipei(),
   fixedOverride = null,
   pvOverride = null,
-  weather = simulateWeather(now)
+  weather = simulateWeather(now),
+  plan = null
 ) {
-  const day = simulateDay(now, weather, fixedOverride, pvOverride)
+  const day = simulateDay(now, weather, fixedOverride, pvOverride, plan)
   const slot = Math.min(
     SLOTS_PER_DAY - 1,
     Math.floor((now.getHours() * 60 + now.getMinutes()) / 15)
@@ -544,6 +665,7 @@ export function liveSnapshot(
     summary: day.summary,
     loadSource: day.loadSource,
     pvSource: day.pvSource,
+    planSource: day.planSource,
     weather: day.weather.hourly[now.getHours()],
     weatherSummary: day.weather.summary,
   }

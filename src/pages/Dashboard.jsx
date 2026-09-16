@@ -585,10 +585,19 @@ export default function Dashboard() {
              + (today?.pvSource === 'lstm'
                 ? '・太陽能：前一晚 23:45 發布的 LSTM 預測（一天一次）'
                 : '')
+             + (!today
+                ? ''
+                : today.planSource !== 'sim'
+                ? `・電池：照排程組的 ${today.planSource} 排程（資料集 ${today.planDate}），與預測的差額由電網補足`
+                : `・電池：模擬調度（${today.planNote ?? '這個情境還沒有排程組的排程'}）`)
              + '・紅底為尖峰時段'}
         right={
           !today ? null : today.loadSource === 'rf' && today.pvSource === 'lstm' ? (
-            admin ? <span className="badge">RF + LSTM 雲端預測</span> : null
+            admin ? (
+              <span className="badge">
+                RF + LSTM 雲端預測{today.planSource !== 'sim' ? ` + ${today.planSource} 排程` : ''}
+              </span>
+            ) : null
           ) : (
             // 讀不到快照時各函式會自動退回模擬值，畫面照常運作，但要標出來，免得把模擬曲線當成模型結果
             <span className="badge sim-badge" title="讀不到 public/data 的預測快照，負載或太陽能改用模擬值">

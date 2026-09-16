@@ -11,6 +11,7 @@
      public/data/forecast_day.json               夏月展示日（2010-09-06）  ← 本檔讀這些
      public/data/forecast_day_non_summer.json    非夏月展示日（2010-11-18）
      public/data/weather.json                    展示日期的台北 ERA5 天氣（scripts/fetch_weather.py）
+     public/data/schedule.json                   排程組的排程結果（hems.schedule，scripts/export_schedule.py）
           ▼
      [HEMS UI]  主頁面預測圖 / 各負載 / 用電規劃
 
@@ -99,6 +100,25 @@ export async function fetchWeatherData() {
   const d = await getJson('weather.json')
   if (!d.days) throw new Error('天氣快照格式不對')
   return { source: d.source ?? null, days: d.days }
+}
+
+/**
+ * 排程組的排程結果（MILP），由 scripts/export_schedule.py 從 hems.schedule 匯出。
+ * 以排程日期（資料集日期）為鍵；每份 96 格：price、load_kw、pv_kw、pv_used_kw、grid_buy_kw、
+ * batt_kw（正＝充電）、soc_pct（該格結束時）。
+ * @returns {Promise<{source:string|null, generatedAt:string|null, byDate:Object<string,object>}>}
+ */
+export async function fetchSchedules() {
+  const d = await getJson('schedule.json')
+  const byDate = {}
+  const nums = (a) => Array.isArray(a) && a.length === 96 && a.every(Number.isFinite)
+  for (const s of Array.isArray(d.schedules) ? d.schedules : []) {
+    // 欄位不齊的那份直接略過，電池改用模擬調度，不讓整頁出錯
+    const ok = typeof s?.date === 'string'
+      && ['price', 'load_kw', 'pv_kw', 'pv_used_kw', 'grid_buy_kw', 'batt_kw', 'soc_pct'].every((k) => nums(s[k]))
+    if (ok) byDate[s.date] = s
+  }
+  return { source: d.source ?? null, generatedAt: d.generated_at ?? null, byDate }
 }
 
 /**

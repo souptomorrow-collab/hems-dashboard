@@ -20,8 +20,11 @@
 
    夏月／非夏月：兩個情境各一份展示日快照，由 lib/scenario.js 切換。
 
-   GA 排程：仍為模擬引擎（simulate.js）。
-     之後接後端時，把對應函式內容換成 fetch() 即可，回傳格式不變。
+   電池排程：**已接排程組的結果**（有的日子）。
+     排程組的 MILP 排程存在 hems.schedule，由 scripts/export_schedule.py 匯出成
+     public/data/schedule.json。展示日有排程、且當天電價相符（週一至週五）時，
+     電池照排程充放電（simulate.js 的 dispatchPlan）；沒有排程的日子（目前是非夏月、週末）
+     才用模擬調度。可轉移設備的時段排程組還沒提供，仍由 UI 依電價安排。
 
    所有函式都回傳 Promise。
    ============================================================ */
@@ -29,7 +32,7 @@ import { liveSnapshot, simulateDay, simulateWithSchedule } from '../lib/simulate
 import { tomorrow } from '../lib/format.js'
 import { nowTaipei } from '../lib/time.js'
 import { simulateWeather, weatherFromEra5 } from '../lib/weather.js'
-import { fetchDayAheadForecast, fetchWeatherData, cached } from './forecastData.js'
+import { fetchDayAheadForecast, fetchWeatherData, fetchSchedules, cached } from './forecastData.js'
 import { isSummer } from '../lib/tou.js'
 import { getScenario, scenarioDate } from '../lib/scenario.js'
 
@@ -95,6 +98,22 @@ async function weatherData() {
   }
 }
 
+/* ------------------------------------------------------------
+   排程組的排程：schedule.json 以資料集日期為鍵，讀不到就當作沒有排程
+   ------------------------------------------------------------ */
+async function schedules() {
+  try {
+    return await cached('schedule', fetchSchedules)
+  } catch (e) {
+    if (import.meta.env.DEV) console.warn('[HEMS] 讀不到排程快照，電池改用模擬調度：', e.message)
+    return null
+  }
+}
+
+async function planFor(dateStr) {
+  return dateStr ? ((await schedules())?.byDate?.[dateStr] ?? null) : null
+}
+
 function era5For(wx, dateStr) {
   const rows = dateStr ? wx?.days?.[dateStr] : null
   if (!rows) return null
@@ -125,7 +144,7 @@ async function scenarioInputs(atSlot = null) {
     lastForecastMeta = { source: 'sim', refresh: null, datasetDate: null, error: e.message }
     lastPvMeta = { source: 'sim', datasetDate: null, error: e.message }
     if (import.meta.env.DEV) console.warn('[HEMS] 取雲端預測快照失敗，改用模擬值：', e.message)
-    return { season, fixed: null, pv: null, weather: null }
+    return { season, fixed: null, pv: null, weather: null, plan: null }
   }
   lastForecastMeta = {
     source: 'rf',
@@ -142,6 +161,7 @@ async function scenarioInputs(atSlot = null) {
     fixed: assembleFixed(d, atSlot),
     pv: d.pv,
     weather: era5For(await weatherData(), d.targetDate),
+    plan: await planFor(d.targetDate),
   }
 }
 
@@ -233,16 +253,16 @@ function profileFor(profiles, t) {
  * 某一天的完整模擬結果（每 15 分鐘的能量流、排程、各設備功率、天氣）。
  * 與 fetchDailyUsage 用同一套負載曲線與模擬引擎，所以兩邊的數字一致。
  */
-function simulateOn(t, profiles, wx) {
+function simulateOn(t, profiles, wx, plans) {
   const key = ymd(t)
   if (!simCache.has(key)) {
     const prof = profileFor(profiles, t)
-    // 負載、發電量、天氣都取資料集同一天，三者條件才會一致
+    // 負載、發電量、天氣、排程都取資料集同一天，條件才會一致
     // （別讓晴天的太陽能配上陰天的天氣條）
     const era5 = era5For(wx, prof?.date)
     simCache.set(key, {
       sim: simulateDay(t, era5 ?? simulateWeather(t), prof?.actual ?? null,
-                       prof?.pv_day_ahead ?? null),
+                       prof?.pv_day_ahead ?? null, plans?.byDate?.[prof?.date] ?? null),
       profileFrom: prof?.date ?? null,
       weatherFrom: era5 ? 'era5' : 'sim',
     })
@@ -251,8 +271,8 @@ function simulateOn(t, profiles, wx) {
 }
 
 export async function fetchDaySim(dateStr) {
-  const [profiles, wx] = await Promise.all([weekdayProfiles(), weatherData()])
-  return simulateOn(parseYmd(dateStr), profiles, wx)
+  const [profiles, wx, plans] = await Promise.all([weekdayProfiles(), weatherData(), schedules()])
+  return simulateOn(parseYmd(dateStr), profiles, wx, plans)
 }
 
 /**
@@ -260,13 +280,13 @@ export async function fetchDaySim(dateStr) {
  * @returns {Promise<{rows:Array, profileDates:object}>}
  */
 export async function fetchDailyUsage(fromStr, toStr) {
-  const [profiles, wx] = await Promise.all([weekdayProfiles(), weatherData()])
+  const [profiles, wx, plans] = await Promise.all([weekdayProfiles(), weatherData(), schedules()])
 
   const rows = []
   for (let t = parseYmd(fromStr), end = parseYmd(toStr); t <= end; t = addDays(t, 1)) {
     const key = ymd(t)
     if (!usageCache.has(key)) {
-      const { sim, profileFrom } = simulateOn(t, profiles, wx)
+      const { sim, profileFrom } = simulateOn(t, profiles, wx, plans)
       const sum = sim.summary
       usageCache.set(key, {
         date: key,
@@ -314,26 +334,26 @@ export function pvForecastMeta() {
 
 /** 主頁面即時快照（太陽能/電池/負載/電網/SOC/省電費…） */
 export async function fetchLive(now = nowTaipei(), atSlot = null) {
-  const { season, fixed, pv, weather } = await scenarioInputs(atSlot)
+  const { season, fixed, pv, weather, plan } = await scenarioInputs(atSlot)
   const at = scenarioDate(now, season)
   await delay(60)
-  return { ...liveSnapshot(at, fixed, pv, weather ?? simulateWeather(at)), season }
+  return { ...liveSnapshot(at, fixed, pv, weather ?? simulateWeather(at), plan), season }
 }
 
 /** 今日整日（主頁面的 24h 趨勢圖、最佳化結果） */
 export async function fetchToday(now = nowTaipei(), atSlot = null) {
-  const { season, fixed, pv, weather } = await scenarioInputs(atSlot)
+  const { season, fixed, pv, weather, plan } = await scenarioInputs(atSlot)
   const at = scenarioDate(now, season)
   await delay(80)
-  return { ...simulateDay(at, weather ?? simulateWeather(at), fixed, pv), season }
+  return { ...simulateDay(at, weather ?? simulateWeather(at), fixed, pv, plan), season }
 }
 
 /** 隔日預測 + 最佳化排程（頁面三規劃） */
 export async function fetchPlanning(baseDate = nowTaipei()) {
-  const { season, fixed, pv, weather } = await scenarioInputs()
+  const { season, fixed, pv, weather, plan } = await scenarioInputs()
   const date = scenarioDate(tomorrow(baseDate), season)
   await delay(120)
-  return { ...simulateDay(date, weather ?? simulateWeather(date), fixed, pv), season }
+  return { ...simulateDay(date, weather ?? simulateWeather(date), fixed, pv, plan), season }
 }
 
 /**
@@ -341,11 +361,11 @@ export async function fetchPlanning(baseDate = nowTaipei()) {
  * @param {object} schedule  { deviceId: boolean[96] }
  */
 export async function recomputeSchedule(schedule, baseDate = nowTaipei()) {
-  const { season, fixed, pv, weather } = await scenarioInputs()
+  const { season, fixed, pv, weather, plan } = await scenarioInputs()
   const date = scenarioDate(tomorrow(baseDate), season)
   await delay(60)
   return {
-    ...simulateWithSchedule(date, schedule, weather ?? simulateWeather(date), fixed, pv),
+    ...simulateWithSchedule(date, schedule, weather ?? simulateWeather(date), fixed, pv, plan),
     season,
   }
 }

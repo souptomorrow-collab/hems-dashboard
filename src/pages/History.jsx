@@ -402,6 +402,9 @@ function DayView({ date, setDate, yesterday, minDay }) {
               {`不可轉移負載、太陽能與天氣都取資料集中同季節、同為週${weekdayOf(date)}的那一天${res.profileFrom ? `（${res.profileFrom}）` : ''}：`}
               {'負載是 UCI household_power_consumption 的實測曲線，太陽能是 LSTM 日前預測，'}
               {`天氣是${res.weatherFrom === 'era5' ? '同一天台北的 ERA5 再分析資料' : '模擬天氣（讀不到 ERA5 資料）'}。`}
+              {res.sim.planSource !== 'sim'
+                ? `電池照排程組的 ${res.sim.planSource} 排程（${res.sim.planDate}）充放電。`
+                : '電池為模擬調度（這一天沒有電價相符的排程組排程）。'}
             </p>
           )}
         </>
@@ -805,7 +808,7 @@ function RangeView({ yesterday, minDay, onPickDay }) {
               <p className="hint prose mt-16">
                 {admin && '🧪 系統尚未接上實際電表，以上是依台電簡易二段式電價（夏月／非夏月、平日／假日）'}
                 {admin && '逐日模擬的運轉紀錄；不可轉移負載、太陽能與天氣採用資料集中同季節、同一個星期幾那天的資料，'}
-                {admin && '因此同一季裡同一個星期幾的用電量每週相同。'}
+                {admin && '因此同一季裡同一個星期幾的用電量每週相同。電池在有排程組排程的日子（目前為夏月週一）照排程充放電，其餘為模擬調度。'}
                 {unit === 'day' && '週末列以底色標示：週末全天離峰、沒有尖離峰價差，電池能省的錢明顯較少。'}
               </p>
             )}

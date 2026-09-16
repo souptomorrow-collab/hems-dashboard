@@ -8,6 +8,7 @@ import { isAllowedSlot, SHIFTABLE_RULES } from '../lib/simulate.js'
 import { useScenario, getScenario, SEASONS } from '../lib/scenario.js'
 import { tomorrow, fmtDate, pad2 } from '../lib/format.js'
 import { useTheme } from '../lib/theme.js'
+import { useIsAdmin } from '../lib/auth.js'
 import {
   valueYAxis,
   baseTooltip,
@@ -22,7 +23,7 @@ import {
   TRACK_LINE,
 } from '../lib/charts.js'
 
-// 最佳化目標只做「省錢」一種：排程組（GA）本學期的範圍就是電費最小化。
+// 最佳化目標只做「省錢」一種：排程組本學期的範圍就是電費最小化。
 // 之前另外設計過「自用率最大」「舒緩夜尖峰」兩種模式，因為不會有對應的
 // 演算法實作，留在畫面上會讓人誤以為三種都有做，故一併移除。
 const OBJECTIVE = {
@@ -33,6 +34,7 @@ const HOURS = Array.from({ length: 24 }, (_, h) => h)
 
 export default function Planning() {
   const theme = useTheme() // 主題一換，下面的圖表 option 就會重算
+  const admin = useIsAdmin()
   const [plan, setPlan] = useState(null)
   const [schedule, setSchedule] = useState(null)
   const [computing, setComputing] = useState(false)
@@ -68,7 +70,7 @@ export default function Planning() {
   // 原本這顆是「重新計算最佳化」：重跑同一套固定的模擬、結果完全一樣，
   // 還加了 650 毫秒的假延遲讓它看起來像在算。實際唯一的作用是丟掉手動調整，
   // 所以直接換回一開始存下的那份——瞬間完成，也不假裝在計算。
-  // 之後接上 GA 後端時，可以改回真正觸發重新排程。
+  // 之後排程組有即時的排程服務時，可以改回真正觸發重新排程。
   const restore = () => {
     if (!optimal) return
     setPlan(optimal)
@@ -243,6 +245,15 @@ export default function Planning() {
             <p className="hint" style={{ marginTop: 8 }}>
               {OBJECTIVE.desc}
             </p>
+            {plan && (
+              <p className="hint" style={{ marginTop: 4 }}>
+                {plan.planSource !== 'sim'
+                  ? (admin
+                      ? `電池充放電：排程組的 ${plan.planSource} 排程（資料集 ${plan.planDate}）；可轉移設備時段由介面依電價安排`
+                      : '電池充放電依系統的最佳化排程')
+                  : (admin ? `電池充放電：模擬調度（${plan.planNote ?? '這個情境還沒有排程組的排程'}）` : null)}
+              </p>
+            )}
           </div>
           <div className="plan-date">
             <div className="muted" style={{ fontSize: 12 }}>
@@ -290,7 +301,8 @@ export default function Planning() {
         sub="隔日 24 小時・15 分鐘為單位"
         right={
           <span className={`hint ${notice ? 'plan-notice' : ''}`} role="status" aria-live="polite">
-            {notice || '✏️ 可轉移設備在允許時段內按住拖曳，一次排入或取消一整段（點一下只改一格），放開後電池與成本即時重算'}
+            {notice || `✏️ 可轉移設備在允許時段內按住拖曳，一次排入或取消一整段（點一下只改一格），放開後${
+              plan && plan.planSource !== 'sim' ? '購電與電費即時重算（電池維持原排程）' : '電池與成本即時重算'}`}
           </span>
         }
         className="mt-16"

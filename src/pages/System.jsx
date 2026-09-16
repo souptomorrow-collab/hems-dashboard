@@ -11,7 +11,7 @@ import { BATTERY, DEVICES, CATEGORY_LABEL } from '../lib/constants.js'
 import { SHIFTABLE_RULES } from '../lib/simulate.js'
 import { PRICE } from '../lib/tou.js'
 import { SEASONS } from '../lib/scenario.js'
-import { fetchDayAheadForecast, fetchWeatherData, cached } from '../api/forecastData.js'
+import { fetchDayAheadForecast, fetchWeatherData, fetchSchedules, cached } from '../api/forecastData.js'
 import { fetchHistory } from '../api/client.js'
 import { ACCOUNTS, useAuth } from '../lib/auth.js'
 
@@ -31,7 +31,9 @@ export default function System() {
       ...SEASONS.map((s) => safe(cached(`day-ahead-forecast:${s.key}`, () => fetchDayAheadForecast(s.key)))),
       safe(cached('weather', fetchWeatherData)),
       fetchHistory(),
-    ]).then(([summer, nonSummer, weather, history]) => on && setMeta({ summer, nonSummer, weather, history }))
+      safe(cached('schedule', fetchSchedules)),
+    ]).then(([summer, nonSummer, weather, history, schedule]) =>
+      on && setMeta({ summer, nonSummer, weather, history, schedule }))
     return () => { on = false }
   }, [])
 
@@ -60,6 +62,19 @@ export default function System() {
           date: meta.history ? `${meta.history.days.length} 天` : '—',
           detail: meta.history ? `匯出於 ${meta.history.generatedAt ?? '—'}` : '讀取失敗',
         },
+        (() => {
+          const s = meta.schedule
+          const plans = s && !s.error ? Object.values(s.byDate) : []
+          return {
+            label: '排程組排程（MILP）',
+            file: 'schedule.json',
+            ok: Boolean(s && !s.error),
+            date: plans.length ? plans.map((p) => p.date).join('、') : s?.error ? '—' : '無',
+            detail: s?.error
+              ? s.error
+              : `匯出於 ${s?.generatedAt ?? '—'}・電價相符的日子電池照排程，其他日子用模擬調度`,
+          }
+        })(),
       ]
     : []
 
@@ -136,7 +151,7 @@ export default function System() {
             <dt>SOC 上限</dt><dd>{Math.round(BATTERY.socMax * 100)}%</dd>
             <dt>SOC 下限</dt><dd>{Math.round(BATTERY.socMin * 100)}%</dd>
             <dt>每天起始 SOC</dt><dd>{Math.round(BATTERY.socInit * 100)}%</dd>
-            <dt>往返效率</dt><dd>{Math.round(BATTERY.roundTrip * 100)}%（目前模擬調度尚未計入）</dd>
+            <dt>往返效率</dt><dd>{Math.round(BATTERY.roundTrip * 100)}%（照排程組排程時計入，充電時扣除；模擬調度尚未計入）</dd>
           </dl>
         </Panel>
 
