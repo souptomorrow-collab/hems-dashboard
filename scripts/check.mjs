@@ -69,7 +69,8 @@ for (const [season, snap] of Object.entries(snaps)) {
     check('電池放電時不削減太陽能', cutWhileDischarging === 0, `${cutWhileDischarging} 次`)
 
     // ---- 2. 整日調度 ----
-    const sim = simulateDay(at0, weather, snap.slots, snap.pv, plan)
+    // 和 api/client.js 相同：有排程時整日規劃用排程裡的日前負載預測
+    const sim = simulateDay(at0, weather, plan ? plan.load_kw : snap.slots, snap.pv, plan)
     if (plan) {
       const weekday = at0.getDay() >= 1 && at0.getDay() <= 5
       check(weekday ? '平日電價相符：電池照排程' : '週末電價不同：不套用排程',
@@ -86,6 +87,14 @@ for (const [season, snap] of Object.entries(snaps)) {
       `${sim.summary.optimizedCost} 元（不裝 ${sim.summary.baselineCost}）`)
 
     // ---- 3. 可轉移設備排程 ----
+    if (sim.planSource !== 'sim') {
+      // 套用排程組排程的日子不排可轉移設備，負載要和排程一致
+      const anyOn = Object.keys(SHIFTABLE_RULES).some((id) => sim.schedule[id].some(Boolean))
+      check('套用排程時不排可轉移設備', !anyOn)
+      const worstLoad = Math.max(...sim.load.map((v, i) => Math.abs(v - plan.load_kw[i])))
+      check('總負載等於排程的負載', worstLoad < 0.002, `最大差 ${worstLoad.toFixed(4)} kW`)
+      continue
+    }
     const runs = {}
     for (const id of Object.keys(SHIFTABLE_RULES)) {
       const on = sim.schedule[id]

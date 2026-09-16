@@ -29,6 +29,7 @@ import {
 const OBJECTIVE = {
   label: '省錢模式',
   desc: '把可轉移設備與電池充電排到最便宜的時段，電費最低',
+  descPlan: '電池在離峰與太陽能充足時充電、尖峰時放電，電費最低',
 }
 const HOURS = Array.from({ length: 24 }, (_, h) => h)
 
@@ -243,14 +244,14 @@ export default function Planning() {
               {OBJECTIVE.label}
             </div>
             <p className="hint" style={{ marginTop: 8 }}>
-              {OBJECTIVE.desc}
+              {plan && plan.planSource !== 'sim' ? OBJECTIVE.descPlan : OBJECTIVE.desc}
             </p>
             {plan && (
               <p className="hint" style={{ marginTop: 4 }}>
                 {plan.planSource !== 'sim'
                   ? (admin
-                      ? `電池充放電：排程組的 ${plan.planSource} 排程（資料集 ${plan.planDate}）；可轉移設備時段由介面依電價安排`
-                      : '電池充放電依系統的最佳化排程')
+                      ? `電池充放電：排程組的 ${plan.planSource} 排程（資料集 ${plan.planDate}）。排程未包含可轉移設備，預設不排入，可在下方手動排入`
+                      : '洗衣機、烘衣機、洗碗機預設不排入，可在下方自行安排時段')
                   : (admin ? `電池充放電：模擬調度（${plan.planNote ?? '這個情境還沒有排程組的排程'}）` : null)}
               </p>
             )}

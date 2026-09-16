@@ -363,7 +363,12 @@ function DayView({ date, setDate, yesterday, minDay }) {
             </Panel>
 
             {/* 可轉移設備的排程 */}
-            <Panel title="可轉移設備運轉時段" sub="排程把這些設備安排在哪幾點運轉">
+            <Panel
+              title="可轉移設備運轉時段"
+              sub={sim.planSource !== 'sim'
+                ? '這天的排程未包含可轉移設備，沒有排入'
+                : '排程把這些設備安排在哪幾點運轉'}
+            >
               <Timeline runs={rec.runs} tier={sim.tier} />
               <div className="run-list">
                 {rec.runs.map((d) => (

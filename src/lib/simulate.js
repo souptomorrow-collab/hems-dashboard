@@ -142,8 +142,10 @@ function bestWindow(devId, durSlots, price, occupancy, earliest = 0) {
   return best.start
 }
 
-/** 由演算法產生排程：把可轉移設備排到電價最低的時段 */
-export function buildSchedule(date, weather = simulateWeather(date)) {
+/** 由演算法產生排程：把可轉移設備排到電價最低的時段。
+   withShiftable=false 時只排不可轉移設備（套用排程組排程的日子：MILP 沒有排可轉移設備，
+   UI 也不自行加入，負載與購電才和排程組一致；使用者仍可在用電規劃頁手動排入） */
+export function buildSchedule(date, weather = simulateWeather(date), withShiftable = true) {
   const summer = isSummer(date)
   const price = getPriceSlots(date)
 
@@ -158,6 +160,7 @@ export function buildSchedule(date, weather = simulateWeather(date)) {
   }
   // 可轉移設備：在允許時段內放到最便宜的視窗，並避免互相重疊（分散負載，不會全擠在同一時刻）。
   // 順序：沒有前置條件的先排（長的先放），要接在別台後面的最後排
+  if (!withShiftable) return schedule
   const occupancy = new Array(SLOTS_PER_DAY).fill(0)
   const endOf = {}
   const shiftables = DEVICES.filter((d) => d.category === 'shiftable').sort((a, b) => {
@@ -530,7 +533,7 @@ export function simulateDay(
   plan = null
 ) {
   const pv = pvOverride ?? pvForecastKw(date, weather)
-  const schedule = buildSchedule(date, weather)
+  const schedule = buildSchedule(date, weather, !(plan && planFits(plan, date)))
   const { power, total, fixed, shiftable } = powerAndLoadFromSchedule(
     schedule,
     weather,
