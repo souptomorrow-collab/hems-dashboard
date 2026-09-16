@@ -23,6 +23,7 @@ import {
   powerSocFormatter,
   socYAxis,
   SOC_EXTRA_HEIGHT,
+  socExtraHeight,
   AXIS_TEXT,
   TEXT_MAIN,
   TRACK,
@@ -56,6 +57,8 @@ function nowLine(s) {
     data: [{ xAxis: s }],
   }
 }
+
+const PLAN_SOC_H = 140 // 今日計畫那張的 SOC 小圖高度（SOC 在 15%～90% 之間變化，太矮會看起來是一條平線）
 
 export default function Dashboard() {
   const theme = useTheme() // 主題一換，下面的圖表 option 就會重算
@@ -139,8 +142,8 @@ export default function Dashboard() {
 
   // 刻度間距挑「不超過 7 格」的最小值，上下限對齊到間距上；
   // 直接拿資料的最大最小值當上下限，軸上會出現 8、6、3、0、-3、-5 這種不等距的刻度
-  const niceAxis = (lo, hi) => {
-    const step = [0.5, 1, 2, 5, 10].find((st) => (Math.ceil(hi / st) - Math.floor(lo / st)) <= 7) ?? 10
+  const niceAxis = (lo, hi, maxTicks = 7) => {
+    const step = [0.5, 1, 2, 5, 10].find((st) => (Math.ceil(hi / st) - Math.floor(lo / st)) <= maxTicks) ?? 10
     return { min: Math.floor(lo / step) * step, max: Math.ceil(hi / step) * step, interval: step }
   }
 
@@ -162,10 +165,13 @@ export default function Dashboard() {
   // 今日計畫：整天資料固定，直接照自己的最大最小值
   const planAxis = () => {
     const vals = allKw(dayPlan)
-    return niceAxis(Math.min(0, ...vals), Math.max(0, ...vals))
+    // 圖比較高，刻度可以密一點（0.5 kW），曲線的起伏才看得出來
+    return niceAxis(Math.min(0, ...vals), Math.max(0, ...vals), 10)
   }
 
-  const dayOption = (d, upTo, showPlayhead, kwAxis) => {
+  // detail：今日計畫那張用較高的 SOC 小圖、不做平滑、較寬的電池長條，細節才看得出來
+  const dayOption = (d, upTo, showPlayhead, kwAxis, detail = false) => {
+    const smooth = !detail
     // 只保留 upTo 之前的點，之後補 null（ECharts 會直接斷線，不會連到 0）
     const clip = (arr) =>
       upTo == null ? arr : arr.map((v, i) => (i <= upTo ? v : null))
@@ -177,13 +183,13 @@ export default function Dashboard() {
       color: [COLORS.solar, COLORS.load, COLORS.grid, 'rgba(34,197,94,0.55)', 'rgba(249,115,22,0.6)', COLORS.battery],
       legend: { ...baseLegend, data: ['太陽能發電', '家庭負載', '電網購電', '電池充電', '電池放電', 'SOC'] },
       // 功率在上、SOC 在下面一小格，不再共用一張圖的左右兩條 y 軸（見 charts.js 的 powerSocLayout）
-      ...powerSocLayout(),
-      yAxis: [valueYAxis('kW', kwAxis), socYAxis()],
+      ...powerSocLayout(detail ? { socH: PLAN_SOC_H } : {}),
+      yAxis: [valueYAxis('kW', kwAxis), socYAxis(detail ? { interval: 25 } : {})],
       series: [
         {
           name: '太陽能發電',
           type: 'line',
-          smooth: true,
+          smooth,
           symbol: 'none',
           data: clip(d.pv),
           lineStyle: { width: 2, color: COLORS.solar },
@@ -217,7 +223,7 @@ export default function Dashboard() {
         {
           name: '家庭負載',
           type: 'line',
-          smooth: true,
+          smooth,
           symbol: 'none',
           data: clip(d.load),
           lineStyle: { width: 2, color: COLORS.load },
@@ -225,7 +231,7 @@ export default function Dashboard() {
         {
           name: '電網購電',
           type: 'line',
-          smooth: true,
+          smooth,
           symbol: 'none',
           data: clip(d.gridKw),
           lineStyle: { width: 1.5, color: COLORS.grid, type: 'dashed' },
@@ -234,6 +240,7 @@ export default function Dashboard() {
           name: '電池充電',
           type: 'bar',
           stack: 'batt',
+          ...(detail ? { barCategoryGap: '8%' } : {}),
           data: clip(d.chargeKw),
           itemStyle: { color: 'rgba(34,197,94,0.55)' },
         },
@@ -241,6 +248,7 @@ export default function Dashboard() {
           name: '電池放電',
           type: 'bar',
           stack: 'batt',
+          ...(detail ? { barCategoryGap: '8%' } : {}),
           data: clip(d.dischargeKw).map((v) => (v == null ? null : -v)),
           itemStyle: { color: 'rgba(249,115,22,0.6)' },
         },
@@ -249,7 +257,7 @@ export default function Dashboard() {
           type: 'line',
           xAxisIndex: 1,
           yAxisIndex: 1,
-          smooth: true,
+          smooth,
           symbol: 'none',
           data: clip(d.socPct),
           lineStyle: { width: 2.5, color: COLORS.battery },
@@ -271,7 +279,7 @@ export default function Dashboard() {
     [today, show, theme, curSlot]
   )
   const dayPlanOption = useMemo(
-    () => (dayPlan ? dayOption(dayPlan, null, true, planAxis()) : {}),
+    () => (dayPlan ? dayOption(dayPlan, null, true, planAxis(), true) : {}),
     [dayPlan, theme, demo.enabled, demo.slot]
   )
 
@@ -609,7 +617,7 @@ export default function Dashboard() {
       >
         {/* 住戶看不到下面的「太陽能預測與實際」，天氣條改放在這張圖上方 */}
         {!admin && show?.weather && <WeatherStrip weather={show.weather} />}
-        <EChart option={dayPlanOption} height={300 + SOC_EXTRA_HEIGHT} label="今日預測與排程：整天的太陽能、負載、電網、電池功率與 SOC" />
+        <EChart option={dayPlanOption} height={380 + socExtraHeight(PLAN_SOC_H)} label="今日預測與排程：整天的太陽能、負載、電網、電池功率與 SOC" />
       </Panel>
 
       {/* 太陽能：預測與實際，上方是同一天台北的實際天氣 */}

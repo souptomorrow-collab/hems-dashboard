@@ -140,15 +140,17 @@ export const baseGrid = { left: 48, right: 20, top: 54, bottom: 28 }
 const SOC_H = 70 // SOC 小圖高度
 const SOC_GAP = 30 // 兩格之間的距離（放 SOC 軸名）
 export const SOC_EXTRA_HEIGHT = SOC_H + SOC_GAP
+/** 自訂 SOC 小圖高度時，EChart 要多加的高度 */
+export const socExtraHeight = (socH) => socH + SOC_GAP
 
-export function powerSocLayout({ right = 24, boundaryGap } = {}) {
+export function powerSocLayout({ right = 24, boundaryGap, socH = SOC_H } = {}) {
   // boundaryGap 沒指定就不要傳：slotXAxis 會把 undefined 蓋上去，類別軸就變回預設的留邊
   const bg = boundaryGap == null ? {} : { boundaryGap }
   return {
     axisPointer: { link: [{ xAxisIndex: 'all' }] },
     grid: [
-      { left: baseGrid.left, right, top: baseGrid.top, bottom: baseGrid.bottom + SOC_H + SOC_GAP },
-      { left: baseGrid.left, right, height: SOC_H, bottom: baseGrid.bottom },
+      { left: baseGrid.left, right, top: baseGrid.top, bottom: baseGrid.bottom + socH + SOC_GAP },
+      { left: baseGrid.left, right, height: socH, bottom: baseGrid.bottom },
     ],
     xAxis: [
       slotXAxis({ gridIndex: 0, ...bg, axisLabel: { show: false } }),
@@ -175,14 +177,14 @@ export function powerSocFormatter(ps) {
   }).join('<br/>')
 }
 
-export function socYAxis() {
+export function socYAxis({ interval = 50 } = {}) {
   return {
     type: 'value',
     gridIndex: 1,
     name: 'SOC',
     min: 0,
     max: 100,
-    interval: 50,
+    interval,
     nameGap: 8,
     nameTextStyle: { color: AXIS_TEXT, fontSize: 11 },
     axisLabel: { color: AXIS_TEXT, fontSize: 10, formatter: '{value}%' },
