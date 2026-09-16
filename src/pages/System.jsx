@@ -17,7 +17,7 @@ import { ACCOUNTS, useAuth } from '../lib/auth.js'
 
 const ROLE_SEES = {
   resident: '主頁面、各負載功率、用電規劃（可拖曳調整）、歷史紀錄與匯出；預測模型相關的圖與資料來源不顯示',
-  admin: '住戶看得到的全部，加上太陽能預測與實際、負載滾動預測、資料來源標示、夏月／非夏月情境切換、展示模式、本頁',
+  admin: '住戶看得到的全部，加上太陽能預測與實際、負載預測與實際、資料來源標示、夏月／非夏月情境切換、展示模式、本頁',
 }
 
 export default function System() {

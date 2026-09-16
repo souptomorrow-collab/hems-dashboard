@@ -51,7 +51,7 @@ export default function Loads() {
     }
   }, [demo.enabled, demo.slot, curSlot, season])
 
-  // 整日各設備用電：和頁面一一樣吃滾動預測，每前進一格重算一次
+  // 整日各設備用電：和頁面一一樣（過去真實值、未來日前預測），每前進一格重算一次
   useEffect(() => {
     let on = true
     fetchToday(now, curSlot).then((d) => on && setToday(d))

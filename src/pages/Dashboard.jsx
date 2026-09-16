@@ -34,7 +34,7 @@ function edgeAlign(s) {
   return s < 24 ? 'left' : s > 72 ? 'right' : 'center'
 }
 
-/** 「現在」那條垂直線（滾動預測、太陽能預測與實際兩張圖共用） */
+/** 「現在」那條垂直線（負載、太陽能「預測與實際」兩張圖共用） */
 function nowLine(s) {
   const align = edgeAlign(s)
   return {
@@ -61,19 +61,19 @@ export default function Dashboard() {
   const theme = useTheme() // 主題一換，下面的圖表 option 就會重算
   const demo = useDemoClock()
   const now = useClock() // 展示模式開著時，這個已經是虛擬時間
-  const curSlot = useCurrentSlot() // 過去／未來的分界，也決定滾動預測取哪一筆
+  const curSlot = useCurrentSlot() // 過去（真實值）／未來（日前預測）的分界
   const { season } = useScenario() // 夏月／非夏月情境，一換就整頁重抓
   const narrow = useMediaQuery('(max-width: 760px)')
   // 住戶看不到預測模型相關的圖與資料來源標示，說明文字也改成一般用語
   const admin = useIsAdmin()
 
   // kW 軸的範圍「只增不減」，而且兩個情境各記各的。
-  // 滾動預測每前進一格就換一次資料，若讓軸自動縮放，播放時整張圖會不停上下跳，
+  // 每前進一格就多一格真實值、資料跟著換，若讓軸自動縮放，播放時整張圖會不停上下跳，
   // 前後時刻也沒辦法比較。記住看過的最大／最小值，軸就只會變寬不會變窄。
   const kwRange = useRef({})
   const [live, setLive] = useState(null)
   const [today, setToday] = useState(null)
-  const [show, setShow] = useState(null) // 展示日的原始陣列（滾動預測、太陽能預測與實際）
+  const [show, setShow] = useState(null) // 展示日的原始陣列（負載與太陽能的日前預測、實際值）
 
   // 即時快照。
   // 真實時間：每 5 秒抓一次。
@@ -93,8 +93,8 @@ export default function Dashboard() {
   }, [demo.enabled, demo.slot, curSlot, season])
 
   // 今日整日：每前進一格就重算一次。
-  // RF 是滾動預測（每 15 分鐘重發未來 96 步），所以「未來」那段會隨時間更新；
-  // 「過去」那段吃的是真實值、不會變，dispatch 又是照時間順序推的，
+  // 「未來」那段用前一晚 23:45 的日前預測（一天一次，和排程相同），不隨時間更新；
+  // 「過去」那段吃的是真實值，每前進一格就多一格真實值。dispatch 照時間順序推，
   // 因此已經發生的電池／電網軌跡自然凍住，不需要另外處理。
   useEffect(() => {
     let on = true
@@ -259,7 +259,7 @@ export default function Dashboard() {
      太陽能：LSTM 日前預測 vs 實際
 
      發電量預測一天只發一次（前一晚 23:45），整天用的都是同一條曲線，
-     所以這張不像負載那樣有「滾動」，重點是預測和實際差多少。
+     和負載那張一樣，重點是預測和實際差多少。
      實際值是用 ERA5 實測日射量換算的發電量（不是實測出力），和負載的真實值一樣只畫到現在。
      ------------------------------------------------------------ */
   const pvOption = useMemo(() => {
@@ -323,21 +323,16 @@ export default function Dashboard() {
   }, [show, curSlot])
 
   /* ------------------------------------------------------------
-     滾動預測：把「不同時間點發布的預測」並排畫出來
+     不可轉移負載：RF 日前預測 vs 實際
 
-     為什麼需要獨立一張：滾動在「今日預測與排程」那張圖上幾乎看不出來。
-     實測相鄰兩次刷新對同一時刻平均只差 0.015 kW，差異只佔軸高約 0.2%。
-     這張只畫不可轉移負載、用它自己的尺度，滾動才看得見。
-
-       紫色實線  現在這一格發布的最新預測
-       淡色虛線  1～4 小時前發布的預測（越舊越淡）
-       實線      當天真實值（只畫到現在，未來還不知道）
+     排程一天只排一次，用的是前一晚 23:45 發布的預測，UI 也只顯示那一次
+     （RF 其實每 15 分鐘會重發，但目前不拿來重新排程）。
+     和太陽能那張一樣，整天是同一條預測曲線，實際值只畫到現在。
      ------------------------------------------------------------ */
-  // y 軸用整份資料算一次、之後固定，播放時才不會跳
-  const rollRange = useMemo(() => {
-    if (!show?.rolling || !show?.actual) return { min: 0, max: 1, interval: 0.2 }
-    const vals = [...show.actual, ...show.rolling.flat()].filter((v) => Number.isFinite(v))
-    const peak = Math.max(...vals)
+  // y 軸用整天的資料算一次、之後固定，播放時才不會跳
+  const loadRange = useMemo(() => {
+    if (!show?.dayAhead || !show?.actual) return { min: 0, max: 1, interval: 0.2 }
+    const peak = Math.max(...[...show.actual, ...show.dayAhead].filter((v) => Number.isFinite(v)))
     // 刻度間距和最大值要一起決定，否則最大值不在刻度上，頂端會出現兩個標籤疊在一起。
     // 間距挑 1、2、5 的倍數裡「刻度不超過 6 格」的最小值
     const steps = [0.1, 0.2, 0.5, 1, 2, 5, 10]
@@ -345,24 +340,11 @@ export default function Dashboard() {
     return { min: 0, max: Math.ceil(peak / interval) * interval, interval }
   }, [show])
 
-  const rollingOption = useMemo(() => {
-    if (!show?.rolling || !show?.actual) return {}
+  const loadOption = useMemo(() => {
+    if (!show?.dayAhead || !show?.actual) return {}
     const s = curSlot
-    // 第 iss 格發布的那次預測，攤回一日 96 格；發布之前的時段沒有值
-    const issued = (iss) => {
-      const row = show.rolling[iss]
-      return Array.from({ length: 96 }, (_, i) =>
-        row && i > iss ? (row[i - iss - 1] ?? null) : null
-      )
-    }
-    const earlier = [16, 12, 8, 4].map((k) => s - k).filter((x) => x >= 0)
     const actual = show.actual.map((v, i) => (i <= s ? v : null))
-    const base = { type: 'line', smooth: true, symbol: 'none', connectNulls: false }
-
-    // tooltip 要標出每條虛線是幾點發布的，但圖例不能每格都換名字（會一直閃），
-    // 所以圖例統一叫「較早的預測」，發布時間另外記在這裡給 tooltip 用
-    const issueOf = [...earlier, s, null]
-
+    const line = { type: 'line', smooth: true, symbol: 'none', connectNulls: false }
     return {
       animation: !demo.enabled, // 展示模式每秒更新，動畫會讓「現在」那條線抖
       tooltip: {
@@ -371,40 +353,24 @@ export default function Dashboard() {
           `${ps[0].axisValueLabel}<br/>` +
           ps
             .filter((p) => p.value != null)
-            .map((p) => {
-              const iss = issueOf[p.seriesIndex]
-              const who =
-                iss == null ? '真實值' : iss === s ? `${slotToTime(iss)} 發布（最新）` : `${slotToTime(iss)} 發布`
-              return `${p.marker}${who}: ${(+p.value).toFixed(3)} kW`
-            })
+            .map((p) => `${p.marker}${p.seriesName}: ${(+p.value).toFixed(3)} kW`)
             .join('<br/>'),
       },
-      // 01:00 以前還沒有「1 小時前發布」的預測可畫，圖例不能列出不存在的系列（ECharts 會警告）
-      legend: { ...baseLegend, data: ['真實值', '最新預測', ...(earlier.length ? ['較早的預測'] : [])] },
+      legend: { ...baseLegend, data: ['RF 日前預測', '真實值'] },
       grid: { ...baseGrid, right: 24 },
       xAxis: slotXAxis(),
-      yAxis: valueYAxis('kW', { min: rollRange.min, max: rollRange.max, interval: rollRange.interval }),
+      yAxis: valueYAxis('kW', { min: loadRange.min, max: loadRange.max, interval: loadRange.interval }),
       series: [
-        ...earlier.map((iss, j) => ({
-          ...base,
-          name: '較早的預測',
-          data: issued(iss),
-          // j 越大越接近現在：越新越清楚
-          lineStyle: { width: 1.2, type: 'dashed', color: COLORS.load, opacity: 0.2 + j * 0.15 },
-          itemStyle: { color: COLORS.load, opacity: 0.45 },
-        })),
         {
-          ...base,
-          name: '最新預測',
-          // 從「現在」這一點接出去：預測本來就是站在目前已知的資料往後推，
-          // 不接的話真實值和預測中間會斷一格，看起來像少了資料
-          data: issued(s).map((v, i) => (i === s ? (show.actual[s] ?? v) : v)),
-          lineStyle: { width: 2.6, color: COLORS.load },
+          ...line,
+          name: 'RF 日前預測',
+          data: show.dayAhead,
+          lineStyle: { width: 2, type: 'dashed', color: COLORS.load },
           itemStyle: { color: COLORS.load },
           markLine: nowLine(s),
         },
         {
-          ...base,
+          ...line,
           name: '真實值',
           data: actual,
           lineStyle: { width: 2, color: TEXT_MAIN },
@@ -412,7 +378,20 @@ export default function Dashboard() {
         },
       ],
     }
-  }, [show, curSlot, theme, rollRange, demo.enabled])
+  }, [show, curSlot, theme, loadRange, demo.enabled])
+
+  const loadStats = useMemo(() => {
+    if (!show?.dayAhead || !show?.actual) return null
+    const n = curSlot + 1
+    const kwh = (arr, m) => arr.slice(0, m).reduce((a, v) => a + (Number.isFinite(v) ? v : 0), 0) * SLOT_HOURS
+    const err = show.dayAhead.slice(0, n).map((v, i) => Math.abs(v - (show.actual[i] ?? v)))
+    return {
+      fcAll: kwh(show.dayAhead, 96),
+      fcNow: kwh(show.dayAhead, n),
+      acNow: kwh(show.actual, n),
+      mae: err.reduce((a, v) => a + v, 0) / n,
+    }
+  }, [show, curSlot])
 
   // ---- 電池 SOC 儀表 ----
   const gaugeOption = useMemo(() => {
@@ -581,7 +560,7 @@ export default function Dashboard() {
           ? '已經過去的時段是實際運轉，之後是預測與排程・紅底為尖峰時段'
           : (today && today.loadSource !== 'rf'
                 ? '負載：模擬值（讀不到雲端預測快照）'
-                : `負載：過去用真實值、未來用 ${upTo} 發布的最新一次 RF 預測重新規劃`)
+                : '負載：過去用真實值、未來用前一晚 23:45 發布的 RF 日前預測（一天一次，與排程相同）')
              + (today?.pvSource === 'lstm'
                 ? '・太陽能：前一晚 23:45 發布的 LSTM 預測（一天一次）'
                 : '')
@@ -650,15 +629,35 @@ export default function Dashboard() {
         </Panel>
       )}
 
-      {/* 滾動預測：同一段未來在不同時間點被預測成什麼樣子 */}
-      {admin && show?.rolling && show?.actual && (
+      {/* 不可轉移負載：日前預測與實際（和排程用的是同一次預測） */}
+      {admin && show?.dayAhead && show?.actual && (
         <Panel
-          title="不可轉移負載滾動預測"
-          sub={`RF 每 15 分鐘重發一次未來 24 小時的預測・紫色實線為 ${upTo} 發布的最新一次，淡色虛線為 1～4 小時前發布的`}
+          title="不可轉移負載：預測與實際"
+          sub={`RF 日前預測（前一晚 23:45 發布，一天一次，與排程使用的相同）；真實值只畫到 ${upTo}`}
           className="mt-16"
-          right={<span className="badge">RF 雲端預測・資料集 {show.targetDate}</span>}
+          right={<span className="badge">RF・資料集 {show.targetDate}</span>}
         >
-          <EChart option={rollingOption} height={260} label="不可轉移負載滾動預測：真實值、最新預測與較早發布的預測" />
+          <EChart option={loadOption} height={260} label="不可轉移負載：RF 日前預測與真實值比較" />
+          {loadStats && (
+            <div className="stat-row">
+              <div>
+                <span>全日預測</span>
+                <strong>{loadStats.fcAll.toFixed(1)} 度</strong>
+              </div>
+              <div>
+                <span>截至 {upTo} 預測</span>
+                <strong>{loadStats.fcNow.toFixed(1)} 度</strong>
+              </div>
+              <div>
+                <span>截至 {upTo} 實際</span>
+                <strong>{loadStats.acNow.toFixed(1)} 度</strong>
+              </div>
+              <div title="到目前為止每 15 分鐘預測與實際的平均絕對誤差">
+                <span>平均誤差（MAE）</span>
+                <strong>{loadStats.mae.toFixed(2)} kW</strong>
+              </div>
+            </div>
+          )}
         </Panel>
       )}
     </>

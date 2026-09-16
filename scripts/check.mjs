@@ -36,9 +36,9 @@ const check = (name, ok, detail = '') => {
   if (!ok) failed++
 }
 
-// 和 api/client.js 的 assembleFixed 相同：過去用真實值、未來用第 s 格發布的預測
-const assemble = (d, s) => Array.from({ length: SLOTS_PER_DAY }, (_, i) =>
-  i <= s ? (d.actual[i] ?? d.slots[i]) : (d.rolling[s]?.[i - s - 1] ?? d.slots[i]))
+// 和 api/client.js 相同：未來用前一晚 23:45 的日前預測（history.json 的 day_ahead，一天一次），過去用真實值
+const dayAhead = (d) => hist.days.find((x) => x.date === d.target_date)?.day_ahead ?? d.slots
+const assemble = (d, s) => dayAhead(d).map((v, i) => (i <= s ? (d.actual[i] ?? v) : v))
 
 const DAYS = [['平日', 14], ['週六', 19]] // 2026-09-14 週一、09-19 週六
 
@@ -69,8 +69,8 @@ for (const [season, snap] of Object.entries(snaps)) {
     check('電池放電時不削減太陽能', cutWhileDischarging === 0, `${cutWhileDischarging} 次`)
 
     // ---- 2. 整日調度 ----
-    // 和 api/client.js 相同：有排程時整日規劃用排程裡的日前負載預測
-    const sim = simulateDay(at0, weather, plan ? plan.load_kw : snap.slots, snap.pv, plan)
+    check('日前預測有 96 格', dayAhead(snap).length === SLOTS_PER_DAY && dayAhead(snap) !== snap.slots)
+    const sim = simulateDay(at0, weather, dayAhead(snap), snap.pv, plan)
     if (plan) {
       const weekday = at0.getDay() >= 1 && at0.getDay() <= 5
       check(weekday ? '平日電價相符：電池照排程' : '週末電價不同：不套用排程',

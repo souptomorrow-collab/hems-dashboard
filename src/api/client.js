@@ -10,7 +10,7 @@
 
    太陽能發電（LSTM）：**已接真實資料**。
      發電量預測組的 LSTM 結果存在 hems.pv_forecast（每天 23:45 發布一次，
-     不像負載每 15 分鐘滾動），同樣由 04_export_web.py 匯出到同一份快照。
+     和 UI 使用的負載預測一樣，一天一次），同樣由 04_export_web.py 匯出到同一份快照。
      讀不到時退回模擬的晴空曲線。
 
    天氣：**已接真實資料**。
@@ -57,26 +57,34 @@ let lastForecastMeta = {
 let lastPvMeta = { source: 'sim', datasetDate: null, error: null }
 
 /**
- * 組出「站在第 atSlot 格往後看」的一日 96 格不可轉移負載。
+ * 組出「站在第 atSlot 格」的一日 96 格不可轉移負載。
  *
  *   過去（0..atSlot）  用當天真實值
- *   未來（atSlot+1..） 用「在第 atSlot 格發布」的那次預測
+ *   未來（atSlot+1..） 用前一晚 23:45 發布的日前預測
  *
- * 這才是 RF 實際的產出方式：它每 15 分鐘重跑一次、重發未來 96 步，
- * 同一個時刻會被預測很多次，越接近越更新。
+ * RF 雖然每 15 分鐘會重發一次未來 96 步（快照裡的 rolling），但排程組一天只排一次、
+ * 用的是前一晚 23:45 那次預測，所以 UI 也只用那一次，整天不隨時間更新，
+ * 畫面上的預測才和排程的輸入一致。
  *
- * atSlot 給 null 就退回整日曲線（例如頁面三的隔日規劃，那時還沒有真實值）。
+ * atSlot 給 null 就是整日的日前預測（例如頁面三的隔日規劃，那時還沒有真實值）。
  */
-function assembleFixed(d, atSlot) {
-  if (atSlot == null || !d.rolling) return d.slots
+function assembleFixed(d, atSlot, dayAhead) {
+  const future = dayAhead ?? d.slots
+  if (atSlot == null) return future
   const s = Math.max(0, Math.min(95, atSlot))
-  const fc = d.rolling[s]
-  const out = new Array(96)
-  for (let i = 0; i < 96; i++) {
-    if (i <= s) out[i] = d.actual?.[i] ?? d.slots[i]
-    else out[i] = fc ? (fc[i - s - 1] ?? d.slots[i]) : d.slots[i]
-  }
-  return out
+  return future.map((v, i) => (i <= s ? (d.actual?.[i] ?? v) : v))
+}
+
+/**
+ * 展示日的日前負載預測（前一晚 23:45 發布、一天一次）。
+ * 來源是 history.json 的 day_ahead（04_export_web.py 匯出）；讀不到時用排程裡的 load_kw
+ * （同一次預測），都沒有才退回快照的 slots（當天 00:00 發布那筆）。
+ */
+async function dayAheadLoad(dateStr, plan) {
+  const row = (await fetchHistory())?.days?.find((x) => x.date === dateStr)
+  const da = row?.day_ahead
+  if (Array.isArray(da) && da.length === 96 && da.every(Number.isFinite)) return da
+  return plan?.load_kw ?? null
 }
 
 /** 某個情境的展示日快照；整個 app 每個情境只讀一次 */
@@ -146,23 +154,22 @@ async function scenarioInputs(atSlot = null) {
     if (import.meta.env.DEV) console.warn('[HEMS] 取雲端預測快照失敗，改用模擬值：', e.message)
     return { season, fixed: null, pv: null, weather: null, plan: null }
   }
+  const plan = await planFor(d.targetDate)
+  // 快照的 slots 是當天 00:00 發布那筆（第 0 格還換成真實值），和排程組的輸入最多差 0.25 kW，
+  // 所以預測一律改用前一晚 23:45 的日前預測
+  const dayAhead = await dayAheadLoad(d.targetDate, plan)
   lastForecastMeta = {
     source: 'rf',
-    refresh: atSlot == null ? null : `第 ${atSlot + 1} / 96 格發布`,
+    refresh: dayAhead ? '前一晚 23:45 發布（一天一次）' : '當天 00:00 發布',
     datasetDate: d.targetDate,
-    rolling: Boolean(d.rolling),
     error: null,
   }
   lastPvMeta = d.pv
     ? { source: 'lstm', datasetDate: d.targetDate, error: null }
     : { source: 'sim', datasetDate: null, error: '快照無發電量預測' }
-  const plan = await planFor(d.targetDate)
   return {
     season,
-    // 整日規劃（atSlot 為 null）要和排程組用同一份負載：前一天 23:45 發布的日前預測。
-    // 快照的 slots 是 00:00 發布那筆（第 0 格還換成真實值），和排程組的輸入最多差 0.25 kW；
-    // 有排程時直接用排程裡的 load_kw（已確認與 23:45 那次預測逐格相同）
-    fixed: atSlot == null && plan ? plan.load_kw : assembleFixed(d, atSlot),
+    fixed: assembleFixed(d, atSlot, dayAhead),
     pv: d.pv,
     weather: era5For(await weatherData(), d.targetDate),
     plan,
@@ -170,10 +177,10 @@ async function scenarioInputs(atSlot = null) {
 }
 
 /**
- * 主頁面「滾動預測」與「太陽能預測 vs 實際」兩張圖要的原始資料。
+ * 主頁面「負載預測與實際」與「太陽能預測與實際」兩張圖要的原始資料。
  *
- * 其他圖拿到的是已經組好的單一條負載曲線，看不出滾動；
- * 這兩張要把「不同時間點發布的預測」、「預測與實際」並排畫出來，所以需要原始陣列。
+ * 其他圖拿到的是已經組好的單一條負載曲線（過去接真實值），看不出預測本身；
+ * 這兩張要把「日前預測」和「實際」並排畫出來，所以需要原始陣列。
  * 讀不到時回 null，那兩張圖就不顯示。
  */
 export async function fetchShowcase() {
@@ -183,7 +190,7 @@ export async function fetchShowcase() {
     return {
       season,
       targetDate: d.targetDate,
-      rolling: d.rolling,
+      dayAhead: await dayAheadLoad(d.targetDate, await planFor(d.targetDate)),
       actual: d.actual,
       pv: d.pv,
       pvActual: d.pvActual,
