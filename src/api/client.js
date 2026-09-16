@@ -156,12 +156,16 @@ async function scenarioInputs(atSlot = null) {
   lastPvMeta = d.pv
     ? { source: 'lstm', datasetDate: d.targetDate, error: null }
     : { source: 'sim', datasetDate: null, error: '快照無發電量預測' }
+  const plan = await planFor(d.targetDate)
   return {
     season,
-    fixed: assembleFixed(d, atSlot),
+    // 整日規劃（atSlot 為 null）要和排程組用同一份負載：前一天 23:45 發布的日前預測。
+    // 快照的 slots 是 00:00 發布那筆（第 0 格還換成真實值），和排程組的輸入最多差 0.25 kW；
+    // 有排程時直接用排程裡的 load_kw（已確認與 23:45 那次預測逐格相同）
+    fixed: atSlot == null && plan ? plan.load_kw : assembleFixed(d, atSlot),
     pv: d.pv,
     weather: era5For(await weatherData(), d.targetDate),
-    plan: await planFor(d.targetDate),
+    plan,
   }
 }
 

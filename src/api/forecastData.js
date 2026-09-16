@@ -57,8 +57,9 @@ async function getJson(file) {
 /**
  * 取某個情境展示日的一日 96 格。
  *
- * 匯出端已經挑好 23:45 發布的那筆並攤成 0~95 格（見 04_export_web.py），
+ * slots 是匯出端把「當天 00:00 發布的那筆」攤成 0~95 格（第 0 格用真實值，見 04_export_web.py），
  * 前端不再需要知道 lead_step 與 target_time 的對應規則。
+ * 注意：這不是排程組用的前一天 23:45 日前預測；有排程時整日規劃改用排程裡的 load_kw（見 client.js）。
  *
  * @param {'summer'|'non_summer'} season
  */
