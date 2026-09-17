@@ -36,8 +36,9 @@ const check = (name, ok, detail = '') => {
   if (!ok) failed++
 }
 
-// 和 api/client.js 相同：未來用前一晚 23:45 的日前預測（history.json 的 day_ahead，一天一次），過去用真實值
-const dayAhead = (d) => hist.days.find((x) => x.date === d.target_date)?.day_ahead ?? d.slots
+// 和 api/client.js 相同：未來用前一晚 23:45 的日前預測（有排程時用排程的 load_kw，否則用 history.json 的 day_ahead），過去用真實值
+const dayAhead = (d) => plans[d.target_date]?.load_kw
+  ?? hist.days.find((x) => x.date === d.target_date)?.day_ahead ?? d.slots
 const assemble = (d, s) => dayAhead(d).map((v, i) => (i <= s ? (d.actual[i] ?? v) : v))
 
 const DAYS = [['平日', 14], ['週六', 19]] // 2026-09-14 週一、09-19 週六
@@ -137,7 +138,9 @@ for (const plan of Object.values(plans)) {
 // ---- 5. 天氣 ----
 console.log('\n[天氣]')
 let mismatch = 0
-for (const d of hist.days) {
+// 歷史紀錄有一整年，但只有兩個展示週有發電量預測與天氣
+const showDays = hist.days.filter((d) => d.pv_day_ahead)
+for (const d of showDays) {
   const w = weatherFromEra5(wx.days[d.date], d.date)
   const pv = d.pv_actual ?? []
   // 白天（09–15 時）標成「晴」的格子，發電量不該低得像陰天；標成「陰」的，不該發得像晴天
@@ -147,7 +150,8 @@ for (const d of hist.days) {
     if ((period.label === '晴' && kwh < 3) || (period.label === '陰' && kwh > 8)) mismatch++
   }
 }
-check('14 天天氣都有資料', hist.days.every((d) => wx.days[d.date]), `${Object.keys(wx.days).length} 天`)
+check('展示週 14 天都有天氣資料', showDays.length === 14 && showDays.every((d) => wx.days[d.date]),
+  `展示週 ${showDays.length} 天、天氣 ${Object.keys(wx.days).length} 天（歷史紀錄共 ${hist.days.length} 天）`)
 check('白天的晴／陰標籤和實際發電一致', mismatch === 0, `不一致 ${mismatch} 格`)
 
 console.log(failed ? `\n有 ${failed} 項沒有通過` : '\n全部通過')

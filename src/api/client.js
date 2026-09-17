@@ -77,14 +77,16 @@ function assembleFixed(d, atSlot, dayAhead) {
 
 /**
  * 展示日的日前負載預測（前一晚 23:45 發布、一天一次）。
- * 來源是 history.json 的 day_ahead（04_export_web.py 匯出）；讀不到時用排程裡的 load_kw
- * （同一次預測），都沒有才退回快照的 slots（當天 00:00 發布那筆）。
+ * 那天有排程組的排程時，用排程裡的 load_kw：電池功率是針對這條負載排的，
+ * 資料庫的預測之後若重算過（2026-09-17 改為一整年 walk-forward），兩者會不同，
+ * 混用會讓購電與電池對不上。沒有排程時用 history 的 day_ahead，
+ * 都沒有才由呼叫端退回快照的 slots（當天 00:00 發布那筆）。
  */
 async function dayAheadLoad(dateStr, plan) {
-  const row = (await fetchHistory())?.days?.find((x) => x.date === dateStr)
-  const da = row?.day_ahead
-  if (Array.isArray(da) && da.length === 96 && da.every(Number.isFinite)) return da
-  return plan?.load_kw ?? null
+  const ok = (a) => Array.isArray(a) && a.length === 96 && a.every(Number.isFinite)
+  if (ok(plan?.load_kw)) return plan.load_kw
+  const da = (await fetchHistory())?.days?.find((x) => x.date === dateStr)?.day_ahead
+  return ok(da) ? da : null
 }
 
 /** 某個情境的展示日快照；整個 app 每個情境只讀一次 */
@@ -224,8 +226,10 @@ export async function fetchHistory() {
    算出太陽能、電池、電網與電費。
 
    不可轉移負載、太陽能與天氣改用資料集裡「同季節、同一個星期幾」那天的實際資料：
-   交接資料有夏月（2010-09-06～12）與非夏月（2010-11-18～24）各一週，
+   夏月（2010-09-06～12）與非夏月（2010-11-18～24）兩個展示週有發電量預測、天氣與排程，
    剛好週一到週日各一天，平日／週末與季節的差異都是真的，而不是模擬值。
+   歷史資料有一整年（2009-11-26～2010-11-25），但其他日子沒有發電量預測與天氣，
+   所以優先挑這兩週的日子。
    ------------------------------------------------------------ */
 const pad = (n) => String(n).padStart(2, '0')
 export const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
@@ -247,7 +251,10 @@ async function weekdayProfiles() {
   const profiles = { summer: {}, other: {} }
   for (const d of hist?.days ?? []) {
     const day = parseYmd(d.date)
-    profiles[isSummer(day) ? 'summer' : 'other'][day.getDay()] = d
+    const group = profiles[isSummer(day) ? 'summer' : 'other']
+    const cur = group[day.getDay()]
+    // 有發電量預測的日子（展示週）優先；都沒有時用該季節最早的同星期幾
+    if (!cur || (!cur.pv_day_ahead && d.pv_day_ahead)) group[day.getDay()] = d
   }
   return profiles
 }
