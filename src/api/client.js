@@ -3,14 +3,14 @@
 
    ── 目前的接線狀況 ──────────────────────────────
    家庭負載（不可轉移）：**已接真實資料**。
-     RF 隨機森林預測結果存在 MongoDB Atlas 的 hems.load_forecast，
-     建置時由 mongo_handoff/04_export_web.py 匯出成靜態快照一起部署，
-     本檔讀那份快照，覆蓋掉模擬的不可轉移負載（詳見 api/forecastData.js）。
-     讀不到時自動退回模擬值，UI 不會壞掉（badge 會標示資料來源）。
+     RF 隨機森林的一整年滾動預測存在 MongoDB Atlas 的 hems.load_forecast，
+     網站透過後端 API（hems-api）讀取，API 連不上時改讀 scripts/export_snapshots.py
+     匯出的靜態快照，覆蓋掉模擬的不可轉移負載（詳見 api/forecastData.js）。
+     兩者都讀不到時自動退回模擬值，UI 不會壞掉（badge 會標示資料來源）。
 
    太陽能發電（LSTM）：**已接真實資料**。
      發電量預測組的 LSTM 結果存在 hems.pv_forecast（每天 23:45 發布一次，
-     和 UI 使用的負載預測一樣，一天一次），同樣由 04_export_web.py 匯出到同一份快照。
+     和 UI 使用的負載預測一樣，一天一次），讀取方式同上。
      讀不到時退回模擬的晴空曲線。
 
    天氣：**已接真實資料**。
@@ -21,8 +21,8 @@
    夏月／非夏月：兩個情境各一份展示日快照，由 lib/scenario.js 切換。
 
    電池排程：**已接排程組的結果**（有的日子）。
-     排程組的 MILP 排程存在 hems.schedule，由 scripts/export_schedule.py 匯出成
-     public/data/schedule.json。展示日有排程、且當天電價相符（週一至週五）時，
+     排程組的 MILP 排程存在 hems.schedule，讀取方式同上（快照為 public/data/schedule.json）。
+     展示日有排程、且當天電價相符（週一至週五）時，
      電池照排程充放電（simulate.js 的 dispatchPlan）；沒有排程的日子（目前是非夏月、週末）
      才用模擬調度。可轉移設備的時段排程組還沒提供，仍由 UI 依電價安排。
 

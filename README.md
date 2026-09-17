@@ -188,7 +188,7 @@ UI 會重現這個行為。在第 *s* 格時：
 
 | 項目 | 來源 | 狀態 |
 |------|------|------|
-| 不可轉移負載 | MongoDB `hems.load_forecast`（RF 滾動預測，每 15 分一個 refresh × 96 步） | ✅ 真實 |
+| 不可轉移負載 | MongoDB `hems.load_forecast`（RF 滾動預測，每 15 分一個 refresh × 96 步，2009-11-25 ～ 2010-11-25 一整年） | ✅ 真實 |
 | 真實負載（驗證用） | MongoDB `hems.actual_load` | ✅ 真實 |
 | 太陽能發電 | MongoDB `hems.pv_forecast`（LSTM，每天 23:45 發布一次 96 步） | ✅ 真實 |
 | 太陽能實際值 | MongoDB `hems.actual_pv`（由 ERA5 實測日射量換算，不是實測出力） | ✅ 真實 |
@@ -204,23 +204,17 @@ UI 會重現這個行為。在第 *s* 格時：
 更關鍵的是 MongoDB 的連線字串是一把全開的鑰匙，沒有唯讀權限層可以套，
 放進前端 bundle 等於把資料庫交出去。
 
-所以改成**發布快照**：資料庫仍是唯一來源，由預測端匯出成靜態 JSON 一起部署。
+所以網站透過**後端唯讀 API**（見下一節）讀資料庫，另外保留一份**靜態快照**當備援。快照從 API 匯出，不需要連線字串：
 
 ```powershell
-# 在 負載預測2/ 底下（需要 MongoDB 連線字串）
-python mongo_handoff/04_export_web.py --day 2010-11-18
-#   → 把 專題UI/public/data/forecast_day.json 另存成 forecast_day_non_summer.json
-python mongo_handoff/04_export_web.py --day 2010-09-06   # 夏月那份要最後匯出，留在 forecast_day.json
-
-# 在 專題UI/ 底下（不需要金鑰）
-python scripts/fetch_weather.py                            # → public/data/weather.json
+# 在 專題UI/ 底下
+python scripts/export_snapshots.py      # → forecast_day*.json、history.json、schedule.json
+python scripts/fetch_weather.py         # → weather.json（天氣不在資料庫裡）
 ```
 
-詳細說明見 `public/data/README.txt`。
+資料庫改成 hems_db 第 2 版格式（2026-09-17，預測改存 96 個值的陣列）後，負載預測共用 repo 的 `mongo_handoff/04_export_web.py` 讀不懂新格式，不要再用它匯出。詳細說明見 `public/data/README.txt`。
 
-前端讀的就是這個檔（[`src/api/forecastData.js`](src/api/forecastData.js)）：同源、
-免金鑰、沒有 CORS，也不會再遇到免費版資料庫冷啟動害前端逾時。
-代價是資料庫更新後要重跑匯出並重新部署——本專題用的是固定的歷史資料集，這個代價等於零。
+資料庫更新後，重跑 `export_snapshots.py` 再 push，備援快照才會跟上；網站平常讀的是 API，不受影響。
 
 **讀不到快照時會自動退回模擬值**，UI 不會壞掉：主頁面「今日預測與排程」右上角會標
 「讀不到雲端預測，顯示模擬資料」（只缺負載或只缺太陽能時標出是哪一邊），兩張日曲線的副標題也改寫成模擬值。

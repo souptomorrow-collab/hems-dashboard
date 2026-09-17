@@ -2,18 +2,21 @@
    預測快照 — 資料讀取層
 
    ── 資料怎麼走到這裡 ──────────────────────────────
-     [RF 隨機森林 / LSTM]  預測結果
-          │  pymongo upsert（連線字串只在本機／CI，絕不進前端）
+     [RF 隨機森林 / LSTM / 排程]  結果
+          │  hems_db（第 2 版格式；連線字串只在各組本機，絕不進前端）
           ▼
-     [MongoDB Atlas]  hems.load_forecast、actual_load、pv_forecast、actual_pv  ← 唯一資料來源
-          │  mongo_handoff/04_export_web.py（建置時執行）
+     [MongoDB Atlas]  hems.load_forecast、actual_load、pv_forecast、actual_pv、schedule、meta  ← 唯一資料來源
+          │  後端唯讀 API（hems-api，Vercel）
+          ├──────────────▶ [HEMS UI] 平常直接讀 API
+          │  scripts/export_snapshots.py（從 API 匯出，資料更新後手動執行）
           ▼
-     public/data/forecast_day.json               夏月展示日（2010-09-06）  ← 本檔讀這些
+     public/data/forecast_day.json               夏月展示日（2010-09-06）  ← API 連不上時讀這些
      public/data/forecast_day_non_summer.json    非夏月展示日（2010-11-18）
-     public/data/weather.json                    展示日期的台北 ERA5 天氣（scripts/fetch_weather.py）
-     public/data/schedule.json                   排程組的排程結果（hems.schedule，scripts/export_schedule.py）
+     public/data/history.json                    歷史紀錄（一整年）
+     public/data/schedule.json                   排程組的排程結果（hems.schedule）
+     public/data/weather.json                    展示日期的台北 ERA5 天氣（scripts/fetch_weather.py，一律讀這份）
           ▼
-     [HEMS UI]  主頁面預測圖 / 各負載 / 用電規劃
+     [HEMS UI]  主頁面預測圖 / 各負載 / 用電規劃 / 歷史紀錄
 
    ── 為什麼不像以前那樣直接打 API ──────────────────
    舊版是 Supabase，PostgREST 提供現成的 HTTP API，前端拿 anon key 直接查。
@@ -46,7 +49,7 @@ const API_PATHS = {
   'schedule.json': '/schedules',
 }
 
-/** 兩個情境各一份展示日快照。非夏月那份是用 04_export_web.py --day 2010-11-18 匯出後另存的 */
+/** 兩個情境各一份展示日快照（API 的 /forecast/day?season=summer、non_summer） */
 const SHOWCASE_FILES = {
   summer: 'forecast_day.json',
   non_summer: 'forecast_day_non_summer.json',
@@ -95,7 +98,7 @@ export const apiBase = API_BASE || null
 /**
  * 取某個情境展示日的一日 96 格。
  *
- * slots 是匯出端把「當天 00:00 發布的那筆」攤成 0~95 格（第 0 格用真實值，見 04_export_web.py），
+ * slots 是匯出端把「當天 00:00 發布的那筆」攤成 0~95 格（第 0 格用真實值，見 hems-api 的 build_forecast_day），
  * 前端不再需要知道 lead_step 與 target_time 的對應規則。
  * 注意：這不是排程組用的前一天 23:45 日前預測；有排程時整日規劃改用排程裡的 load_kw（見 client.js）。
  *
@@ -143,7 +146,7 @@ export async function fetchWeatherData() {
 }
 
 /**
- * 排程組的排程結果（MILP），由 scripts/export_schedule.py 從 hems.schedule 匯出。
+ * 排程組的排程結果（MILP），來自 hems.schedule（API 的 /schedules；快照由 scripts/export_snapshots.py 匯出）。
  * 以排程日期（資料集日期）為鍵；每份 96 格：price、load_kw、pv_kw、pv_used_kw、grid_buy_kw、
  * batt_kw（正＝充電）、soc_pct（該格結束時）。
  * @returns {Promise<{source:string|null, generatedAt:string|null, byDate:Object<string,object>}>}
