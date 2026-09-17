@@ -27,11 +27,24 @@
    也不會再遇到 Supabase 免費版冷啟動害前端逾時退回模擬值。
 
    代價：資料不是即時的，資料庫更新後要重跑匯出並重新部署。
-   本專題的預測資料是固定的歷史資料集（UCI 2010 年），這個代價等於零。
-   日後接上即時資料時，把檔名換成後端 API 的網址即可，回傳格式不變。
+
+   ── 後端 API（hems-api）────────────────────────────
+   建置時若有設定 VITE_API_BASE（GitHub Actions 的 HEMS_API_BASE 變數），
+   就先向後端 API 讀，回傳格式和快照完全相同；API 連不上或逾時才退回快照，
+   所以 API 休眠、資料庫維護時展示也不會壞。天氣不在資料庫裡，一律讀快照。
    ============================================================ */
 
-const BASE = `${import.meta.env.BASE_URL}data/`
+const ENV = import.meta.env ?? {}
+const BASE = `${ENV.BASE_URL ?? '/'}data/`
+const API_BASE = String(ENV.VITE_API_BASE ?? '').replace(/\/+$/, '')
+
+/** 快照檔名 → API 路徑（hems-api 的端點） */
+const API_PATHS = {
+  'forecast_day.json': '/forecast/day?season=summer',
+  'forecast_day_non_summer.json': '/forecast/day?season=non_summer',
+  'history.json': '/history',
+  'schedule.json': '/schedules',
+}
 
 /** 兩個情境各一份展示日快照。非夏月那份是用 04_export_web.py --day 2010-11-18 匯出後另存的 */
 const SHOWCASE_FILES = {
@@ -41,18 +54,43 @@ const SHOWCASE_FILES = {
 
 /** 靜態檔理論上不會慢，但檔案不存在時不要讓 UI 一直轉圈 */
 const TIMEOUT_MS = 5000
+/** API 冷啟動要連資料庫，給寬一點；超過就改讀快照 */
+const API_TIMEOUT_MS = 8000
 
-async function getJson(file) {
+async function fetchJson(url, ms) {
   const ctrl = new AbortController()
-  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS)
+  const timer = setTimeout(() => ctrl.abort(), ms)
   try {
-    const r = await fetch(BASE + file, { signal: ctrl.signal, cache: 'no-cache' })
-    if (!r.ok) throw new Error(`讀取 ${file} 失敗 ${r.status}`)
+    const r = await fetch(url, { signal: ctrl.signal, cache: 'no-cache' })
+    if (!r.ok) throw new Error(`讀取失敗 ${r.status}`)
     return await r.json()
   } finally {
     clearTimeout(timer)
   }
 }
+
+/**
+ * 讀一份資料。回傳的物件多一個 via 欄位：'api'（後端即時讀取）或 'snapshot'（靜態快照）。
+ * @param {string} file 快照檔名
+ */
+export async function getJson(file) {
+  const path = API_BASE && API_PATHS[file]
+  if (path) {
+    try {
+      return { ...(await fetchJson(API_BASE + path, API_TIMEOUT_MS)), via: 'api' }
+    } catch (e) {
+      console.warn(`API 讀取 ${file} 失敗，改用快照：${e?.name === 'AbortError' ? '逾時' : e?.message}`)
+    }
+  }
+  try {
+    return { ...(await fetchJson(BASE + file, TIMEOUT_MS)), via: 'snapshot' }
+  } catch (e) {
+    throw new Error(`讀取 ${file} 失敗：${e?.name === 'AbortError' ? '逾時' : e?.message}`)
+  }
+}
+
+/** 是否有設定後端 API（系統資訊頁顯示用） */
+export const apiBase = API_BASE || null
 
 /**
  * 取某個情境展示日的一日 96 格。
@@ -90,6 +128,7 @@ export async function fetchDayAheadForecast(season = 'summer') {
     hasActual: Boolean(d.has_actual),
     source: d.source ?? null,
     generatedAt: d.generated_at ?? null,
+    via: d.via,
   }
 }
 
@@ -119,7 +158,7 @@ export async function fetchSchedules() {
       && ['price', 'load_kw', 'pv_kw', 'pv_used_kw', 'grid_buy_kw', 'batt_kw', 'soc_pct'].every((k) => nums(s[k]))
     if (ok) byDate[s.date] = s
   }
-  return { source: d.source ?? null, generatedAt: d.generated_at ?? null, byDate }
+  return { source: d.source ?? null, generatedAt: d.generated_at ?? null, via: d.via, byDate }
 }
 
 /**

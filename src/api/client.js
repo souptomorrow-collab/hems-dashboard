@@ -32,7 +32,7 @@ import { liveSnapshot, simulateDay, simulateWithSchedule } from '../lib/simulate
 import { tomorrow } from '../lib/format.js'
 import { nowTaipei } from '../lib/time.js'
 import { simulateWeather, weatherFromEra5 } from '../lib/weather.js'
-import { fetchDayAheadForecast, fetchWeatherData, fetchSchedules, cached } from './forecastData.js'
+import { fetchDayAheadForecast, fetchWeatherData, fetchSchedules, cached, getJson } from './forecastData.js'
 import { isSummer } from '../lib/tou.js'
 import { getScenario, scenarioDate } from '../lib/scenario.js'
 
@@ -202,19 +202,17 @@ export async function fetchShowcase() {
 }
 
 /**
- * 歷史紀錄：逐日的真實值、日前預測、一步預測（public/data/history.json）。
- * 和其他資料一樣是由 MongoDB 匯出的靜態快照，見 mongo_handoff/04_export_web.py。
- * @returns {Promise<{days:Array, source:string, generatedAt:string}|null>}
+ * 歷史紀錄：逐日的真實值、日前預測、一步預測（history.json）。
+ * 和其他資料一樣先讀後端 API，讀不到再用 MongoDB 匯出的靜態快照（見 forecastData.js 的 getJson）。
+ * @returns {Promise<{days:Array, source:string, generatedAt:string, via:string}|null>}
  */
 export async function fetchHistory() {
   return cached('history', async () => {
-    const r = await fetch(`${import.meta.env.BASE_URL}data/history.json`, { cache: 'no-cache' })
-    if (!r.ok) throw new Error(`讀取歷史紀錄失敗 ${r.status}`)
-    const d = await r.json()
+    const d = await getJson('history.json')
     // 只收日期格式正確的日子：日期欄位壞掉（例如變成數字）時，後面拆日期會丟例外，頁面會一直停在載入中
     const days = (Array.isArray(d.days) ? d.days : [])
       .filter((x) => typeof x?.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(x.date))
-    return { days, source: d.source ?? null, generatedAt: d.generated_at ?? null }
+    return { days, source: d.source ?? null, generatedAt: d.generated_at ?? null, via: d.via }
   }).catch(() => null)
 }
 

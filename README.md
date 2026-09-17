@@ -226,7 +226,19 @@ python scripts/fetch_weather.py                            # → public/data/wea
 「讀不到雲端預測，顯示模擬資料」（只缺負載或只缺太陽能時標出是哪一邊），兩張日曲線的副標題也改寫成模擬值。
 讀取失敗後隔一分鐘才重試，不會每 5 秒重抓一次。
 
-日後真的要即時資料，把 `forecastData.js` 讀的檔名換成後端 API 的網址即可，回傳格式不變。
+### 後端 API（hems-api）
+
+後端唯讀 API 在 [souptomorrow-collab/hems-api](https://github.com/souptomorrow-collab/hems-api)（FastAPI，部署在 Vercel）。它直接讀 MongoDB，回傳格式和上面的快照完全相同。
+
+- **怎麼啟用**：在本 repo 設定 Actions 變數 `HEMS_API_BASE`（API 網址，結尾不加 `/`），建置時會變成 `VITE_API_BASE`。
+- **讀取順序**：
+  1. 預測、歷史紀錄、排程先讀 API。
+  2. API 連不上或 8 秒內沒回應，才改讀快照。
+  3. 天氣不在資料庫裡，一律讀快照。
+- **沒設變數時**：行為和以前一樣，只讀快照。
+- **確認資料來源**：「系統資訊」頁會標出每份資料來自「API 即時讀取」還是「快照」。
+
+本機開發要接 API：建立 `.env.local`，寫入 `VITE_API_BASE=https://…`（不會進版控）。
 
 ### 時間軸的處理
 
@@ -242,7 +254,11 @@ python scripts/fetch_weather.py                            # → public/data/wea
 
 ## 之後接後端
 
-其餘資料都集中在 [`src/api/client.js`](src/api/client.js)。把對應函式內容從「呼叫模擬引擎」改成 `fetch()` 後端 API 即可，UI 不需改動。資料格式可參考 [`src/lib/simulate.js`](src/lib/simulate.js) 的輸出。
+預測、歷史紀錄、排程已可透過 hems-api 讀取（見上方「後端 API」）。
+
+其餘資料（例如即時量測）都集中在 [`src/api/client.js`](src/api/client.js)。等 API 有對應端點後，把函式內容從「呼叫模擬引擎」改成 `fetch()` 即可，UI 不需改動。資料格式可參考 [`src/lib/simulate.js`](src/lib/simulate.js) 的輸出。
+
+登入目前仍在瀏覽器端檢查；之後可改由 API 驗證。
 
 ## 技術
 

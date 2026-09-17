@@ -11,9 +11,12 @@ import { BATTERY, DEVICES, CATEGORY_LABEL } from '../lib/constants.js'
 import { SHIFTABLE_RULES } from '../lib/simulate.js'
 import { PRICE } from '../lib/tou.js'
 import { SEASONS } from '../lib/scenario.js'
-import { fetchDayAheadForecast, fetchWeatherData, fetchSchedules, cached } from '../api/forecastData.js'
+import { fetchDayAheadForecast, fetchWeatherData, fetchSchedules, cached, apiBase } from '../api/forecastData.js'
 import { fetchHistory } from '../api/client.js'
 import { ACCOUNTS, useAuth } from '../lib/auth.js'
+
+/** 資料是從哪裡讀到的：後端 API 即時讀取，或建置時匯出的靜態快照 */
+const origin = (d) => (d?.via === 'api' ? `API 即時讀取・產生於 ${d.generatedAt ?? '—'}` : `快照・匯出於 ${d?.generatedAt ?? '—'}`)
 
 const ROLE_SEES = {
   resident: '主頁面、各負載功率、用電規劃（可拖曳調整）、歷史紀錄與匯出；預測模型相關的圖與資料來源不顯示',
@@ -42,7 +45,7 @@ export default function System() {
     file,
     ok: d && !d.error,
     date: d?.targetDate ?? '—',
-    detail: d?.error ? d.error : d ? `匯出於 ${d.generatedAt ?? '—'}${d.pv ? '・含太陽能預測' : '・無太陽能預測'}` : '讀取中…',
+    detail: d?.error ? d.error : d ? `${origin(d)}${d.pv ? '・含太陽能預測' : '・無太陽能預測'}` : '讀取中…',
   })
   const dataRows = meta
     ? [
@@ -60,7 +63,7 @@ export default function System() {
           file: 'history.json',
           ok: Boolean(meta.history),
           date: meta.history ? `${meta.history.days.length} 天` : '—',
-          detail: meta.history ? `匯出於 ${meta.history.generatedAt ?? '—'}` : '讀取失敗',
+          detail: meta.history ? origin(meta.history) : '讀取失敗',
         },
         (() => {
           const s = meta.schedule
@@ -72,7 +75,7 @@ export default function System() {
             date: plans.length ? plans.map((p) => p.date).join('、') : s?.error ? '—' : '無',
             detail: s?.error
               ? s.error
-              : `匯出於 ${s?.generatedAt ?? '—'}・電價相符的日子電池照排程，其他日子用模擬調度`,
+              : `${origin(s)}・電價相符的日子電池照排程，其他日子用模擬調度`,
           }
         })(),
       ]
@@ -104,13 +107,13 @@ export default function System() {
             </table>
           </div>
           <p className="hint prose mt-16">
-            {'⚠️ 網站沒有後端，登入是在瀏覽器裡檢查，只用來區分住戶與管理員看到的畫面，不是資安保護：'}
+            {'⚠️ 後端 API 目前只提供唯讀資料，登入仍在瀏覽器裡檢查，只用來區分住戶與管理員看到的畫面，不是資安保護：'}
             {'懂技術的人看原始碼可以繞過，資料檔也仍能直接下載。修改帳密請用 npm run hash-password，'}
             {'把產生的設定貼到 src/lib/auth.js。'}
           </p>
         </Panel>
 
-        <Panel title="資料快照" sub="網站讀取的靜態資料（public/data，由 MongoDB 與 open-meteo 匯出）">
+        <Panel title="資料來源" sub={apiBase ? `先讀後端 API（${apiBase}），讀不到才用靜態快照；天氣一律讀快照` : '網站讀取的靜態快照（public/data，由 MongoDB 與 open-meteo 匯出）'}>
           <div className="table-wrap" tabIndex={0} role="region" aria-label="資料快照表">
             <table className="history-table compact">
               <thead>
