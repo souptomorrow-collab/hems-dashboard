@@ -138,8 +138,8 @@ for (const plan of Object.values(plans)) {
 // ---- 5. 天氣 ----
 console.log('\n[天氣]')
 let mismatch = 0
-// 歷史紀錄有一整年，但只有兩個展示週有發電量預測與天氣
-const showDays = hist.days.filter((d) => d.pv_day_ahead)
+// 歷史紀錄與發電量預測都有一整年，天氣只抓了兩個展示週，所以以有天氣的日子為準
+const showDays = hist.days.filter((d) => wx.days[d.date])
 for (const d of showDays) {
   const w = weatherFromEra5(wx.days[d.date], d.date)
   const pv = d.pv_actual ?? []
@@ -150,8 +150,8 @@ for (const d of showDays) {
     if ((period.label === '晴' && kwh < 3) || (period.label === '陰' && kwh > 8)) mismatch++
   }
 }
-check('展示週 14 天都有天氣資料', showDays.length === 14 && showDays.every((d) => wx.days[d.date]),
-  `展示週 ${showDays.length} 天、天氣 ${Object.keys(wx.days).length} 天（歷史紀錄共 ${hist.days.length} 天）`)
+check('有天氣的日子都在歷史紀錄裡', showDays.length === Object.keys(wx.days).length,
+  `天氣 ${Object.keys(wx.days).length} 天、對得上歷史紀錄 ${showDays.length} 天（歷史紀錄共 ${hist.days.length} 天）`)
 check('白天的晴／陰標籤和實際發電一致', mismatch === 0, `不一致 ${mismatch} 格`)
 
 console.log(failed ? `\n有 ${failed} 項沒有通過` : '\n全部通過')
