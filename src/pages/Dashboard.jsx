@@ -3,6 +3,7 @@ import Panel from '../components/Panel.jsx'
 import StatCard from '../components/StatCard.jsx'
 import EChart from '../components/EChart.jsx'
 import EnergyFlow from '../components/EnergyFlow.jsx'
+import SecondReplay from '../components/SecondReplay.jsx'
 import WeatherStrip from '../components/WeatherStrip.jsx'
 import { fetchLive, fetchToday, fetchShowcase } from '../api/client.js'
 import { COLORS, BATTERY, SLOT_HOURS, slotToTime } from '../lib/constants.js'
@@ -581,6 +582,11 @@ export default function Dashboard() {
       >
         <EChart option={realtimeOption} height={300 + SOC_EXTRA_HEIGHT} label="即時運轉：今天到目前為止的太陽能、負載、電網、電池功率與 SOC" />
       </Panel>
+
+      {/* 秒級重播：資料跟著網站部署，不經過資料庫（秒級一年 3,150 萬筆，雲端放不下） */}
+      <div className="mt-16">
+        <SecondReplay />
+      </div>
 
       {/* 今日全天計畫：前一晚排好、整天不變；和上面那張刻意分開，避免把「已發生」和「還沒發生」混為一談 */}
       <Panel

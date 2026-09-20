@@ -1836,3 +1836,13 @@ body {
     background: linear-gradient(var(--overlay-soft), var(--overlay-soft)), var(--bg-panel);
   }
 }
+
+/* 秒級重播 */
+.replay-ctl { display: flex; gap: 6px; }
+.replay-ctl .btn { padding: 3px 10px; font-size: 12px; }
+.replay-ctl .btn.on { background: var(--accent, #2f6fb5); color: #fff; border-color: transparent; }
+.replay-now { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: baseline; margin-bottom: 8px; font-size: 13px; }
+.replay-now span { color: var(--muted); margin-right: 6px; }
+.replay-now b { font-size: 17px; font-variant-numeric: tabular-nums; }
+.replay-now .plan { color: var(--muted); }
+.replay-now .plan b { font-size: 13px; color: var(--text); }

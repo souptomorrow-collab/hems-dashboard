@@ -1,0 +1,159 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import Panel from './Panel'
+import EChart from './EChart'
+import { cached, getJson, fetchSchedules } from '../api/forecastData'
+
+/* 秒級重播：把展示日的每秒資料播給實時運轉層看。
+
+   為什麼資料不是從資料庫來：秒級一年 3,150 萬筆，雲端資料庫（免費方案 512 MB）放不下，
+   其他組也用不到。所以 public/data/realtime_day.json 跟著網站一起部署（0.9 MB，
+   兩條 86,400 點的陣列，不存時間戳，時刻由位置推算），瀏覽器直接讀。
+   15 分鐘的計畫值仍然來自資料庫（排程），兩者在畫面上疊在一起看。
+
+   ★ 分鐘級以上是實測，分鐘之內是合成；太陽能連 15 分鐘平均都是日射量換算，不是實測出力。 */
+
+const SPEEDS = [1, 60, 300, 900]          // 1 秒＝1 秒 / 1 分 / 5 分 / 15 分
+const WINDOW_S = 900                      // 畫面上顯示最近 15 分鐘
+const TICK_MS = 100                       // 每 0.1 秒推進一次，播放才順
+
+const hhmmss = (s) =>
+  `${String((s / 3600) | 0).padStart(2, '0')}:${String(((s / 60) | 0) % 60).padStart(2, '0')}`
+  + `:${String(s % 60).padStart(2, '0')}`
+
+export default function SecondReplay() {
+  const [data, setData] = useState(null)
+  const [plan, setPlan] = useState(null)
+  const [err, setErr] = useState(null)
+  const [sec, setSec] = useState(0)
+  const [speed, setSpeed] = useState(60)
+  const [playing, setPlaying] = useState(false)
+  const carry = useRef(0)                 // 不足 1 秒的餘數，換速度時不會跳動
+
+  useEffect(() => {
+    cached('realtime_day', () => getJson('realtime_day.json'))
+      .then((d) => {
+        setData(d)
+        // 同一天的 15 分鐘排程計畫（來自資料庫），拿來和秒級實際值對照
+        cached('schedule', fetchSchedules)
+          .then((s) => setPlan(s?.byDate?.[d.date] ?? null))
+          .catch(() => setPlan(null))
+      })
+      .catch((e) => setErr(e.message))
+  }, [])
+
+  useEffect(() => {
+    if (!playing || !data) return undefined
+    const id = setInterval(() => {
+      carry.current += (speed * TICK_MS) / 1000
+      const step = Math.floor(carry.current)
+      if (!step) return
+      carry.current -= step
+      setSec((s) => (s + step) % data.n)
+    }, TICK_MS)
+    return () => clearInterval(id)
+  }, [playing, speed, data])
+
+  const view = useMemo(() => {
+    if (!data) return null
+    const lo = Math.max(0, sec - WINDOW_S + 1)
+    const x = []
+    const load = []
+    const pv = []
+    for (let i = lo; i <= sec; i++) {
+      x.push(hhmmss(i))
+      load.push(data.load_kw[i])
+      pv.push(data.pv_kw[i])
+    }
+    return { x, load, pv }
+  }, [data, sec])
+
+  // 這一秒所屬的 15 分鐘格，以及排程對這一格的計畫值
+  const slot = Math.floor(sec / 900)
+  const planRow = plan
+    ? {
+        load_kw: plan.load_kw[slot], pv_kw: plan.pv_kw[slot],
+        grid_buy_kw: plan.grid_buy_kw[slot], batt_kw: plan.batt_kw[slot], soc_pct: plan.soc_pct[slot],
+      }
+    : null
+  const now = data ? { load: data.load_kw[sec], pv: data.pv_kw[sec] } : null
+
+  const option = useMemo(() => {
+    if (!view) return {}
+    const series = (name, arr, color) => ({
+      name, type: 'line', data: arr, showSymbol: false, smooth: false,
+      lineStyle: { width: 1.6, color }, itemStyle: { color },
+    })
+    const s = [series('負載（每秒）', view.load, '#ef6c4d'), series('太陽能（每秒）', view.pv, '#f2b705')]
+    if (planRow) {
+      const flat = (v, name, color) => ({
+        name, type: 'line', data: view.x.map(() => v), showSymbol: false,
+        lineStyle: { width: 1.4, type: 'dashed', color }, itemStyle: { color },
+      })
+      s.push(flat(planRow.load_kw, '負載（本格計畫）', '#b34a30'))
+      s.push(flat(planRow.pv_kw, '太陽能（本格計畫）', '#b8860b'))
+    }
+    return {
+      grid: { left: 46, right: 12, top: 28, bottom: 28 },
+      tooltip: { trigger: 'axis' },
+      legend: { top: 0, itemWidth: 18, itemHeight: 8, textStyle: { fontSize: 11 } },
+      xAxis: { type: 'category', data: view.x, axisLabel: { interval: 179, fontSize: 11 } },
+      yAxis: { type: 'value', name: 'kW', min: 0, axisLabel: { fontSize: 11 } },
+      series: s,
+      animation: false,
+    }
+  }, [view, planRow])
+
+  if (err) return <Panel title="秒級重播"><div className="muted">讀取失敗：{err}</div></Panel>
+  if (!data) return <Panel title="秒級重播"><div className="muted">載入中…</div></Panel>
+
+  return (
+    <Panel
+      title="秒級重播"
+      sub={`${data.date}・每秒一筆，共 ${data.n.toLocaleString()} 筆・目前 ${hhmmss(sec)}`}
+      right={
+        <div className="replay-ctl">
+          <button className="btn" onClick={() => setPlaying((p) => !p)}>
+            {playing ? '暫停' : '播放'}
+          </button>
+          {SPEEDS.map((v) => (
+            <button
+              key={v}
+              className={`btn ${v === speed ? 'on' : ''}`}
+              onClick={() => setSpeed(v)}
+            >
+              {v}×
+            </button>
+          ))}
+        </div>
+      }
+    >
+      <div className="replay-now">
+        <div><span>負載</span><b>{now.load.toFixed(2)}</b> kW</div>
+        <div><span>太陽能</span><b>{now.pv.toFixed(2)}</b> kW</div>
+        <div><span>淨負載</span><b>{(now.load - now.pv).toFixed(2)}</b> kW</div>
+        {planRow && (
+          <div className="plan">
+            <span>本格計畫（{hhmmss(slot * 900).slice(0, 5)}）</span>
+            <b>購電 {planRow.grid_buy_kw.toFixed(2)}</b> kW・
+            <b>電池 {planRow.batt_kw.toFixed(2)}</b> kW・
+            <b>SOC {planRow.soc_pct.toFixed(1)}</b>%
+          </div>
+        )}
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={data.n - 1}
+        value={sec}
+        onChange={(e) => setSec(Number(e.target.value))}
+        style={{ width: '100%' }}
+        aria-label="重播進度"
+      />
+      <EChart option={option} height={260} label={`秒級重播：${data.date} 最近 15 分鐘的負載與太陽能`} />
+      <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+        秒級資料跟著網站一起部署（0.9 MB），不經過資料庫；虛線為排程對這一格的計畫值，來自資料庫。
+        負載每分鐘的平均為實測、分鐘內為合成；太陽能的 15 分鐘平均由實測日射量換算，秒級起伏為合成。
+      </p>
+    </Panel>
+  )
+}
