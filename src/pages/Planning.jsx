@@ -3,7 +3,7 @@ import Panel from '../components/Panel.jsx'
 import EChart from '../components/EChart.jsx'
 import Tile from '../components/Tile.jsx'
 import { fetchPlanning, recomputeSchedule } from '../api/client.js'
-import { DEVICES, COLORS, CATEGORY_LABEL, slotToTime, BATTERY } from '../lib/constants.js'
+import { DEVICES, COLORS, CATEGORY_LABEL, slotToTime, slotOfTime, SLOTS_PER_DAY, BATTERY } from '../lib/constants.js'
 import { isAllowedSlot, SHIFTABLE_RULES, bestWindow } from '../lib/simulate.js'
 import { getPriceSlots } from '../lib/tou.js'
 import DevicePrefs from '../components/DevicePrefs.jsx'
@@ -98,22 +98,13 @@ export default function Planning() {
         }
         const on = row.map((v, i) => (v ? i : -1)).filter((i) => i >= 0)
         const dur = SHIFTABLE_RULES[id]?.dur ?? on.length
-        if (!pref.deadline) {
-          // 取消期限：沒排的話補回最便宜的時段
-          if (!on.length) {
-            const s0 = bestWindow(id, dur, price, null)
-            if (s0 >= 0) next[id] = row.map((_, i) => i >= s0 && i < s0 + dur)
-          }
-          continue
-        }
-        const [hh, mm] = pref.deadline.split(':').map(Number)
-        const limit = (hh === 0 ? 24 : hh) * 4 + Math.floor(mm / 15)   // 最晚要結束的格
-        const end = on.length ? on[on.length - 1] + 1 : Infinity
-        if (end <= limit) continue
-        // 期限內重新挑最便宜的時段；挑不到就維持原樣並提示
-        const s0 = bestWindow(id, dur, price, null, 0, limit)
+        const from = pref.earliest ? slotOfTime(pref.earliest) % SLOTS_PER_DAY : 0
+        const limit = pref.deadline ? slotOfTime(pref.deadline, true) : SLOTS_PER_DAY
+        // 目前的時段已經落在使用者要的區間裡就不動它
+        if (on.length && on[0] >= from && on[on.length - 1] + 1 <= limit) continue
+        const s0 = bestWindow(id, dur, price, null, from, limit)
         if (s0 >= 0) next[id] = row.map((_, i) => i >= s0 && i < s0 + dur)
-        else setNotice(`⛔ ${id} 在 ${pref.deadline} 前排不進允許時段，維持原本的時段`)
+        else if (on.length) setNotice(`⛔ ${id} 排不進 ${pref.earliest ?? ''}～${pref.deadline ?? ''}，維持原本的時段`)
       }
       return next
     })

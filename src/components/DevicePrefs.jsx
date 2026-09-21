@@ -10,22 +10,29 @@ import { loadPrefs, savePrefs, canSave, DEFAULT_PREFS } from '../api/prefs.js'
    同時存在這台裝置，並立刻用規則法重排一次讓畫面有反應（預覽），
    真正的最佳解要等排程跑完才會更新。
 
-   ★ 只開放「要不要跑」與「最晚完成時間」，不開放指定幾點開——
-     指定死了就沒有最佳化的空間，省錢效果會變差。 */
+   ★ 只開放「要不要跑」與一個時間區間（最早幾點開始、最晚幾點完成），
+     不開放指定確切幾點開——指定死了就沒有最佳化的空間，省錢效果會變差。
+     區間是疊在設備本身的允許時段上的，不會蓋過它。 */
 
 const SHIFTABLE = DEVICES.filter((d) => d.category === 'shiftable')
 
-/** 該設備允許的完成時刻（每 15 分鐘一個選項，只列運轉結束落在允許時段內的） */
-function deadlineOptions(devId) {
+/** 該設備可選的時刻（整點）。kind='start' 列可以開始的、kind='end' 列可以完成的。 */
+function hourOptions(devId, kind) {
   const rule = SHIFTABLE_RULES[devId] ?? { dur: 4, windows: [[0, 24]] }
+  const hours = Math.ceil(rule.dur / 4)          // 運轉需要幾個整點
   const out = []
   for (const [a, b] of rule.windows) {
-    for (let h = a + Math.ceil(rule.dur / 4); h <= b; h++) {
-      const hh = h % 24
-      out.push(`${String(hh).padStart(2, '0')}:00`)
-    }
+    const lo = kind === 'start' ? a : a + hours
+    const hi = kind === 'start' ? b - hours : b
+    for (let h = lo; h <= hi; h++) out.push(`${String(h % 24).padStart(2, '0')}:00`)
   }
-  return [...new Set(out)]
+  return [...new Set(out)].sort()
+}
+
+/** "HH:MM" → 第幾格；asEnd 時 00:00 代表一天結束 */
+const slot = (t, asEnd = false) => {
+  const [h, m] = t.split(':').map(Number)
+  return (asEnd && h === 0 ? 24 : h) * 4 + Math.floor(m / 15)
 }
 
 export default function DevicePrefs({ onChange }) {
@@ -47,7 +54,10 @@ export default function DevicePrefs({ onChange }) {
 
   const update = (id, patch) => {
     const next = { ...devices, [id]: { ...(devices[id] ?? { enabled: true }), ...patch } }
-    if (patch.deadline === '') delete next[id].deadline
+    for (const k of ['earliest', 'deadline']) if (patch[k] === '') delete next[id][k]
+    // 兩端交叉時清掉另一端，免得送出一個空的區間（後端會擋，先在這裡避免）
+    const { earliest: e, deadline: d } = next[id]
+    if (e && d && slot(e) >= slot(d, true)) delete next[id][patch.earliest !== undefined ? 'deadline' : 'earliest']
     setDevices(next)
     onChange?.(next)                      // 立刻預覽，不等儲存
   }
@@ -94,19 +104,34 @@ export default function DevicePrefs({ onChange }) {
               <div className="prefs-rule">
                 {rule ? `可運轉 ${rule.text}・需 ${rule.dur * 15} 分鐘` : ''}
               </div>
-              <label className="prefs-deadline">
-                最晚完成
-                <select
-                  value={p.deadline ?? ''}
-                  disabled={p.enabled === false}
-                  onChange={(e) => update(dev.id, { deadline: e.target.value })}
-                >
-                  <option value="">不限</option>
-                  {deadlineOptions(dev.id).map((t) => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-              </label>
+              <div className="prefs-window">
+                <label className="prefs-deadline">
+                  最早開始
+                  <select
+                    value={p.earliest ?? ''}
+                    disabled={p.enabled === false}
+                    onChange={(e) => update(dev.id, { earliest: e.target.value })}
+                  >
+                    <option value="">不限</option>
+                    {hourOptions(dev.id, 'start')
+                      .filter((t) => !p.deadline || slot(t) < slot(p.deadline, true))
+                      .map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </label>
+                <label className="prefs-deadline">
+                  最晚完成
+                  <select
+                    value={p.deadline ?? ''}
+                    disabled={p.enabled === false}
+                    onChange={(e) => update(dev.id, { deadline: e.target.value })}
+                  >
+                    <option value="">不限</option>
+                    {hourOptions(dev.id, 'end')
+                      .filter((t) => !p.earliest || slot(t, true) > slot(p.earliest))
+                      .map((t) => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </label>
+              </div>
             </div>
           )
         })}

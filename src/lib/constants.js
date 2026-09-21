@@ -7,6 +7,12 @@ export const SLOT_MINUTES = 15
 export const SLOTS_PER_DAY = (24 * 60) / SLOT_MINUTES // 96
 export const SLOT_HOURS = SLOT_MINUTES / 60 // 0.25 小時
 
+/** "HH:MM" → slot 索引。asEnd：當作結束時刻時，00:00 與 24:00 都代表一天結束（第 96 格） */
+export function slotOfTime(hhmm, asEnd = false) {
+  const [h, m] = String(hhmm).split(':').map(Number)
+  return (asEnd && h === 0 ? 24 : h) * (60 / SLOT_MINUTES) + Math.floor(m / SLOT_MINUTES)
+}
+
 /** slot 索引 (0~95) → "HH:MM" 字串 */
 export function slotToTime(slot) {
   const mins = slot * SLOT_MINUTES
