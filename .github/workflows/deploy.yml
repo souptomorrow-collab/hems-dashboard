@@ -30,9 +30,13 @@ jobs:
       # 先檢查模擬引擎（能量平衡、SOC 上下限、排程時段…），沒過就不部署，免得把算錯的畫面推上線
       - run: npm run check
       # 後端 API 網址（repo 的 Actions 變數 HEMS_API_BASE）；沒設就只讀靜態快照
+      # 設備設定的寫入金鑰（變數 HEMS_PREFS_KEY）；沒設的話設定只會存在使用者的瀏覽器。
+      # 這個值本來就會出現在前端程式碼裡，所以用 Variables 而非 Secrets；
+      # 安全性靠後端限制：那把金鑰只能寫 user_prefs 一份文件，欄位還會逐一檢查。
       - run: npm run build
         env:
           VITE_API_BASE: ${{ vars.HEMS_API_BASE }}
+          VITE_PREFS_KEY: ${{ vars.HEMS_PREFS_KEY }}
       # v4 起預設不上傳點開頭的隱藏檔；dist 裡沒有這種檔案，不受影響
       - uses: actions/upload-pages-artifact@v5
         with:
