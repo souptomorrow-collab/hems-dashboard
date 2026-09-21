@@ -418,7 +418,8 @@ export function dispatchPlan(date, pv, load, plan) {
   const maxKwh = cap * BATTERY.socMax
   const maxE = BATTERY.maxPowerKw * SLOT_HOURS
   const eff = BATTERY.roundTrip
-  let soc = cap * BATTERY.socInit
+  // 排程每天接前一天實際結束的電量，不是固定 15%；舊排程沒有這個欄位就用 15%
+  let soc = cap * (Number.isFinite(plan.start_soc_pct) ? plan.start_soc_pct / 100 : BATTERY.socInit)
 
   const pvToLoad = [], pvToBatt = [], pvToGrid = []
   const battToLoad = [], gridToLoad = [], gridToBatt = []
