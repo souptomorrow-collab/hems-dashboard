@@ -1,46 +1,24 @@
 import { useEffect, useState } from 'react'
 import Panel from './Panel'
-import { DEVICES, slotToTime } from '../lib/constants.js'
+import { DEVICES } from '../lib/constants.js'
 import { SHIFTABLE_RULES } from '../lib/simulate.js'
-import { loadPrefs, savePrefs, canSave, DEFAULT_PREFS } from '../api/prefs.js'
+import { loadPrefs, savePrefs, canSave, toSegments } from '../api/prefs.js'
 
-/* 可轉移設備的使用者設定：要不要跑、最晚幾點完成。
+/* 可轉移設備要在什麼時候跑。
 
-   設定存進雲端資料庫（POST /prefs），排程程式下次重排時把它當約束；
-   同時存在這台裝置，並立刻用規則法重排一次讓畫面有反應（預覽），
-   真正的最佳解要等排程跑完才會更新。
+   時段由使用者在下方的甘特圖上拖出來，這裡只顯示摘要並存回雲端資料庫，
+   本機的排程程式看到就照這個時段算用電。沒排的設備不會運轉——
+   這套系統不替使用者決定時間，只算出「排在這個時段要花多少電費」。
 
-   ★ 只開放「要不要跑」與一個時間區間（最早幾點開始、最晚幾點完成），
-     不開放指定確切幾點開——指定死了就沒有最佳化的空間，省錢效果會變差。
-     區間是疊在設備本身的允許時段上的，不會蓋過它。
-     最早晚於最晚代表跨午夜（洗碗機 19:00~隔天 07:00），下拉會標示「隔天」。 */
+   時段的真相在上層的 schedule（甘特圖那一份），這裡不另存一份，
+   免得兩邊各存各的、改了一邊忘了另一邊。 */
 
 const SHIFTABLE = DEVICES.filter((d) => d.category === 'shiftable')
 
-/** 該設備可選的時刻（整點）。kind='start' 列可以開始的、kind='end' 列可以完成的。
-    from：已選的最早開始時刻。有的話，選項從它之後繞一圈排，跨午夜的才排在後面。 */
-function hourOptions(devId, kind, from) {
-  const rule = SHIFTABLE_RULES[devId] ?? { dur: 4, windows: [[0, 24]] }
-  const hours = Math.ceil(rule.dur / 4)          // 運轉需要幾個整點
-  const out = []
-  for (const [a, b] of rule.windows) {
-    const lo = kind === 'start' ? a : a + hours
-    const hi = kind === 'start' ? b - hours : b
-    for (let h = lo; h <= hi; h++) out.push(`${String(h % 24).padStart(2, '0')}:00`)
-  }
-  const base = from ? slot(from) : 0
-  const order = (t) => (slot(t) - base + 96) % 96
-  return [...new Set(out)].sort((x, y) => order(x) - order(y))
-}
+/** "18:00" → 分鐘數（24:00 算一天結束） */
+const mins = (t) => (t === '24:00' ? 1440 : Number(t.slice(0, 2)) * 60 + Number(t.slice(3)))
 
-/** "HH:MM" → 第幾格；asEnd 時 00:00 代表一天結束 */
-const slot = (t, asEnd = false) => {
-  const [h, m] = t.split(':').map(Number)
-  return (asEnd && h === 0 ? 24 : h) * 4 + Math.floor(m / 15)
-}
-
-export default function DevicePrefs({ onChange }) {
-  const [devices, setDevices] = useState(DEFAULT_PREFS)
+export default function DevicePrefs({ schedule, onClear, onLoaded }) {
   const [meta, setMeta] = useState({ source: 'default', updatedAt: null })
   const [state, setState] = useState({ busy: false, msg: '' })
 
@@ -48,35 +26,30 @@ export default function DevicePrefs({ onChange }) {
     let on = true
     loadPrefs().then((d) => {
       if (!on) return
-      setDevices(d.devices)
       setMeta({ source: d.source, updatedAt: d.updatedAt })
-      onChange?.(d.devices)
+      // 存過才套用；從沒存過就讓畫面留著排程給的建議時段，使用者有個起點可以拖
+      if (d.source !== 'default') onLoaded?.(d.devices)
     })
     return () => { on = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const update = (id, patch) => {
-    const next = { ...devices, [id]: { ...(devices[id] ?? { enabled: true }), ...patch } }
-    for (const k of ['earliest', 'deadline']) if (patch[k] === '') delete next[id][k]
-    // 兩端相同是空的區間（後端會擋），清掉另一端。
-    // 最早晚於最晚不是錯的，那代表跨午夜，例如洗碗機 19:00~隔天 07:00。
-    const { earliest: e, deadline: d } = next[id]
-    if (e && d && e === d) delete next[id][patch.earliest !== undefined ? 'deadline' : 'earliest']
-    setDevices(next)
-    onChange?.(next)                      // 立刻預覽，不等儲存
-  }
-
   const save = async () => {
     setState({ busy: true, msg: '' })
+    const devices = Object.fromEntries(SHIFTABLE.map((d) => {
+      const slots = toSegments(schedule?.[d.id])
+      return [d.id, slots.length ? { enabled: true, slots } : { enabled: false }]
+    }))
     const r = await savePrefs(devices)
     setState({
       busy: false,
       msg: r.saved === 'cloud'
-        ? '已存到雲端，排程下次重排時會照這個設定'
+        ? '已存到雲端，排程會照這些時段跑'
         : `只存在這台裝置${r.error ? `（雲端寫入失敗：${r.error}）` : '（未設定雲端金鑰）'}`,
     })
-    if (r.saved === 'cloud') setMeta({ source: 'cloud', updatedAt: new Date().toISOString().slice(0, 16).replace('T', ' ') })
+    if (r.saved === 'cloud') {
+      setMeta({ source: 'cloud', updatedAt: new Date().toISOString().slice(0, 16).replace('T', ' ') })
+    }
   }
 
   const where = { cloud: '雲端資料庫', local: '這台裝置', default: '預設值' }[meta.source]
@@ -84,71 +57,49 @@ export default function DevicePrefs({ onChange }) {
   return (
     <Panel
       title="可轉移設備設定"
-      sub={`你的要求・來自${where}${meta.updatedAt ? `・更新於 ${meta.updatedAt}` : ''}`}
+      sub={`在下方甘特圖上拖出運轉時段・來自${where}${meta.updatedAt ? `・更新於 ${meta.updatedAt}` : ''}`}
       className="mt-16"
       right={
         <button className="btn" onClick={save} disabled={state.busy}>
-          {state.busy ? '儲存中…' : '儲存設定'}
+          {state.busy ? '儲存中…' : '儲存給排程'}
         </button>
       }
     >
       <div className="prefs">
         {SHIFTABLE.map((dev) => {
-          const p = devices[dev.id] ?? { enabled: true }
+          const segs = toSegments(schedule?.[dev.id])
           const rule = SHIFTABLE_RULES[dev.id]
+          const total = segs.reduce((n, [a, b]) => n + mins(b) - mins(a), 0)
+          const need = rule ? rule.dur * 15 : null
           return (
             <div className="prefs-row" key={dev.id}>
-              <label className="prefs-name">
-                <input
-                  type="checkbox"
-                  checked={p.enabled !== false}
-                  onChange={(e) => update(dev.id, { enabled: e.target.checked })}
-                />
+              <div className="prefs-name">
                 <span>{dev.icon} {dev.name}</span>
-              </label>
-              <div className="prefs-rule">
-                {rule ? `可運轉 ${rule.text}・需 ${rule.dur * 15} 分鐘` : ''}
               </div>
-              <div className="prefs-window">
-                <label className="prefs-deadline">
-                  最早開始
-                  <select
-                    value={p.earliest ?? ''}
-                    disabled={p.enabled === false}
-                    onChange={(e) => update(dev.id, { earliest: e.target.value })}
-                  >
-                    <option value="">不限</option>
-                    {hourOptions(dev.id, 'start')
-                      .filter((t) => t !== p.deadline)
-                      .map((t) => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                </label>
-                <label className="prefs-deadline">
-                  最晚完成
-                  <select
-                    value={p.deadline ?? ''}
-                    disabled={p.enabled === false}
-                    onChange={(e) => update(dev.id, { deadline: e.target.value })}
-                  >
-                    <option value="">不限</option>
-                    {hourOptions(dev.id, 'end', p.earliest)
-                      .filter((t) => t !== p.earliest)
-                      .map((t) => (
-                        <option key={t} value={t}>
-                          {p.earliest && slot(t, true) <= slot(p.earliest) ? `${t}（隔天）` : t}
-                        </option>
-                      ))}
-                  </select>
-                </label>
+              <div className="prefs-rule">
+                {rule ? `可運轉 ${rule.text}・需 ${need} 分鐘` : ''}
+              </div>
+              <div className="prefs-when">
+                {segs.length ? (
+                  <>
+                    <b>{segs.map(([a, b]) => `${a}~${b}`).join('、')}</b>
+                    {need !== null && total !== need && (
+                      <span className="prefs-warn">　共 {total} 分鐘，需要 {need} 分鐘</span>
+                    )}
+                    <button className="btn-link" onClick={() => onClear?.(dev.id)}>清除</button>
+                  </>
+                ) : (
+                  <span className="muted">沒排，不會運轉</span>
+                )}
               </div>
             </div>
           )
         })}
       </div>
       <p className="muted" style={{ fontSize: 12, marginTop: 10 }}>
-        排程會在你給的範圍裡挑最省錢的時段，範圍以外的時間在下方會標成灰色。
-        改完會立刻在下方預覽（規則法估算）。{canSave
-          ? '按「儲存設定」寫回雲端資料庫，排程程式下次重排時會把它當約束，算出真正的最佳解。'
+        在下方甘特圖上按住拖曳就是設定運轉時段。沒排的設備不會運轉，排程不會替你決定時間。
+        {meta.source === 'default' && '目前顯示的是建議時段，還沒有存過——按下儲存才會生效。'}{canSave
+          ? '排好後按「儲存給排程」寫回雲端資料庫，本機的排程程式看到就重算。'
           : '目前未設定雲端金鑰，設定只會留在這台裝置。'}
         {state.msg && <><br /><b>{state.msg}</b></>}
       </p>

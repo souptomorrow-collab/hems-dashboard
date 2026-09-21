@@ -8,7 +8,11 @@
    寫入用的資料庫帳號也只有這個集合的權限。最壞情況是有人改了設定，覆蓋回來即可。
 
    設備代號一律用英文（washer／dryer／dishwasher）：Vercel 轉發 POST 內容時會弄壞 UTF-8，
-   中文鍵值傳不過來。中文名稱由 GET /prefs 的 names 欄位提供。 */
+   中文鍵值傳不過來。中文名稱由 GET /prefs 的 names 欄位提供。
+
+   存的是使用者在甘特圖上拖出來的運轉時段：
+     {"washer": {"enabled": true, "slots": [["18:00", "19:00"]]}}
+   排程照這個時段跑。沒有 slots 代表使用者沒指定，由排程自己挑最省錢的時段。 */
 
 const ENV = import.meta.env ?? {}
 const API = String(ENV.VITE_API_BASE ?? '').replace(/\/+$/, '')
@@ -18,6 +22,34 @@ const TIMEOUT_MS = 8000
 
 export const DEVICE_IDS = ['washer', 'dryer', 'dishwasher']
 export const DEFAULT_PREFS = Object.fromEntries(DEVICE_IDS.map((id) => [id, { enabled: true }]))
+
+const hhmm = (slot) => `${String(Math.floor(slot / 4)).padStart(2, '0')}:${String((slot % 4) * 15).padStart(2, '0')}`
+
+/** 甘特圖的 96 格 true/false → [["18:00", "19:00"], …]（連續的併成一段，24:00 收尾） */
+export function toSegments(row) {
+  if (!Array.isArray(row)) return []
+  const out = []
+  let start = null
+  for (let i = 0; i <= row.length; i++) {
+    if (row[i] && start === null) start = i
+    else if (!row[i] && start !== null) {
+      out.push([hhmm(start), i === 96 ? '24:00' : hhmm(i)])
+      start = null
+    }
+  }
+  return out
+}
+
+/** [["18:00", "19:00"], …] → 96 格 true/false */
+export function toRow(segments) {
+  const row = new Array(96).fill(false)
+  for (const [a, b] of segments ?? []) {
+    const s = Number(a.slice(0, 2)) * 4 + Number(a.slice(3)) / 15
+    const e = b === '24:00' ? 96 : Number(b.slice(0, 2)) * 4 + Number(b.slice(3)) / 15
+    for (let i = s; i < e && i < 96; i++) row[i] = true
+  }
+  return row
+}
 
 /** 有沒有辦法寫回雲端（沒有就只存這台裝置） */
 export const canSave = Boolean(API && KEY)

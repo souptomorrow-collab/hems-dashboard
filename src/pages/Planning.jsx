@@ -3,10 +3,10 @@ import Panel from '../components/Panel.jsx'
 import EChart from '../components/EChart.jsx'
 import Tile from '../components/Tile.jsx'
 import { fetchPlanning, recomputeSchedule } from '../api/client.js'
-import { DEVICES, COLORS, CATEGORY_LABEL, slotToTime, slotOfTime, SLOTS_PER_DAY, BATTERY } from '../lib/constants.js'
-import { isAllowedSlot, SHIFTABLE_RULES, bestWindow } from '../lib/simulate.js'
-import { getPriceSlots } from '../lib/tou.js'
+import { DEVICES, COLORS, CATEGORY_LABEL, slotToTime, SLOTS_PER_DAY, BATTERY } from '../lib/constants.js'
+import { isAllowedSlot, SHIFTABLE_RULES } from '../lib/simulate.js'
 import DevicePrefs from '../components/DevicePrefs.jsx'
+import { toRow } from '../api/prefs.js'
 import { useScenario, getScenario, SEASONS } from '../lib/scenario.js'
 import { tomorrow, fmtDate, pad2 } from '../lib/format.js'
 import { useTheme } from '../lib/theme.js'
@@ -40,7 +40,6 @@ export default function Planning() {
   const admin = useIsAdmin()
   const [plan, setPlan] = useState(null)
   const [schedule, setSchedule] = useState(null)
-  const [prefs, setPrefs] = useState(null)      // 使用者要求的範圍，用來在甘特上標出來
   const [computing, setComputing] = useState(false)
   // 演算法給的最佳排程。手動調整只改 plan／schedule，這份留著供「還原」使用
   const [optimal, setOptimal] = useState(null)
@@ -62,7 +61,7 @@ export default function Planning() {
     fetchPlanning().then((p) => {
       if (!on) return
       setPlan(p)
-      setSchedule(p.schedule)
+      setSchedule(withSaved(p.schedule, savedRef.current))
       setOptimal(p)
       setEdits(0)
       setComputing(false)
@@ -82,51 +81,32 @@ export default function Planning() {
     setEdits(0)
   }
 
-  /* ---- 使用者設定（要不要跑、最晚完成）----
-     設定改完立刻在畫面上預覽：關掉的設備清空那一列，設了最晚完成時間就把整段往前移到期限內。
-     這是規則法的估算，真正的最佳解要等排程程式讀了 user_prefs 重排後才會更新。 */
-  const applyPrefs = (prefs) => {
-    setPrefs(prefs ?? null)
-    const price = getPriceSlots(planDate)          // 當天 96 格電價，用來挑最便宜的時段
-    setSchedule((cur) => {
-      if (!cur) return cur
-      const next = { ...cur }
-      for (const [id, pref] of Object.entries(prefs ?? {})) {
-        const row = next[id]
-        if (!Array.isArray(row)) continue
-        if (pref.enabled === false) {
-          next[id] = row.map(() => false)
-          continue
-        }
-        const on = row.map((v, i) => (v ? i : -1)).filter((i) => i >= 0)
-        const dur = SHIFTABLE_RULES[id]?.dur ?? on.length
-        const from = pref.earliest ? slotOfTime(pref.earliest) % SLOTS_PER_DAY : 0
-        const limit = pref.deadline ? slotOfTime(pref.deadline, true) : SLOTS_PER_DAY
-        // 目前的時段已經落在使用者要的區間裡就不動它（limit 比 from 早＝跨午夜，頭尾兩段都算）
-        const inside = on.length && (limit < from
-          ? on[0] >= from || on[on.length - 1] + 1 <= limit
-          : on[0] >= from && on[on.length - 1] + 1 <= limit)
-        if (inside) continue
-        const s0 = bestWindow(id, dur, price, null, from, limit)
-        if (s0 >= 0) next[id] = row.map((_, i) => i >= s0 && i < s0 + dur)
-        else if (on.length) setNotice(`⛔ ${id} 排不進 ${pref.earliest ?? ''}～${pref.deadline ?? ''}，維持原本的時段`)
-      }
-      // 先後關係：烘衣機要在洗衣機之後。前一台被挪走時，後面那台也得跟著挪。
-      for (const [id, rule] of Object.entries(SHIFTABLE_RULES)) {
-        if (!rule.after || !Array.isArray(next[id]) || !Array.isArray(next[rule.after])) continue
-        const prevOn = next[rule.after].map((v, i) => (v ? i : -1)).filter((i) => i >= 0)
-        const on = next[id].map((v, i) => (v ? i : -1)).filter((i) => i >= 0)
-        if (!prevOn.length || !on.length) continue
-        const after = prevOn[prevOn.length - 1] + 1
-        if (on[0] >= after) continue                  // 已經在前一台之後
-        const pref = prefs?.[id] ?? {}
-        const limit = pref.deadline ? slotOfTime(pref.deadline, true) : SLOTS_PER_DAY
-        // 跨午夜的區間配上「要接在誰之後」會互相矛盾，這種情況以先後關係為準
-        const s0 = bestWindow(id, rule.dur, price, null, after, limit < after ? SLOTS_PER_DAY : limit)
-        if (s0 >= 0) next[id] = next[id].map((_, i) => i >= s0 && i < s0 + rule.dur)
-      }
-      return next
-    })
+  /* ---- 使用者存下來的運轉時段 ----
+     可轉移設備什麼時候跑由使用者在下面的甘特圖上拖出來，存在 user_prefs。
+     這裡把存下來的時段套回甘特圖，讓使用者看到的和排程實際會跑的一致。
+     排程與甘特可能不同步（排程還沒重跑），以使用者存的為準。 */
+  const savedRef = useRef(null)
+
+  const withSaved = (sched, devices) => {
+    if (!sched || !devices) return sched
+    const next = { ...sched }
+    for (const [id, p] of Object.entries(devices)) {
+      if (!Array.isArray(next[id])) continue
+      next[id] = p.enabled === false || !p.slots?.length ? new Array(SLOTS_PER_DAY).fill(false) : toRow(p.slots)
+    }
+    return next
+  }
+
+  const onPrefsLoaded = (devices) => {
+    savedRef.current = devices
+    setSchedule((cur) => withSaved(cur, devices))
+  }
+
+  /** 面板上把某一台清成「不跑」 */
+  const clearDevice = (id) => {
+    setSchedule((cur) => (cur && Array.isArray(cur[id])
+      ? { ...cur, [id]: new Array(SLOTS_PER_DAY).fill(false) }
+      : cur))
     setEdits((n) => n + 1)
   }
 
@@ -175,16 +155,6 @@ export default function Planning() {
     const lo = p.earliest ? slotOfTime(p.earliest) % SLOTS_PER_DAY : 0
     const hi = p.deadline ? slotOfTime(p.deadline, true) : SLOTS_PER_DAY
     return hi < lo ? slot < lo && slot >= hi : slot < lo || slot >= hi
-  }
-
-  /** 設備名稱下面那行「你要求 …」。沒設範圍就不顯示。 */
-  const wantText = (devId) => {
-    const p = prefs?.[devId]
-    if (!p) return null
-    if (p.enabled === false) return '不要跑'
-    if (!p.earliest && !p.deadline) return null
-    const cross = p.earliest && p.deadline && slotOfTime(p.earliest) > slotOfTime(p.deadline, true)
-    return `${p.earliest ?? '不限'}~${cross ? '隔天 ' : ''}${p.deadline ?? '不限'}`
   }
 
   const startDrag = (e, devId, slot) => {
@@ -367,18 +337,18 @@ export default function Planning() {
         <EChart option={battOption} height={300 + SOC_EXTRA_HEIGHT} label="隔日電池充放電規劃與 SOC" />
       </Panel>
 
-      {/* 使用者的要求：要不要跑、希望的時間範圍；存雲端供排程重排時使用 */}
-      <DevicePrefs onChange={applyPrefs} />
+      {/* 使用者指定的運轉時段：時段本身在下面的甘特圖上拖，這裡顯示摘要並存回雲端 */}
+      <DevicePrefs schedule={schedule} onClear={clearDevice} onLoaded={onPrefsLoaded} />
 
       {/* 設備運行時段甘特 */}
       <Panel
         title="各設備運行時段"
-        sub="排程排出來的結果・隔日 24 小時，15 分鐘為單位"
+        sub="可轉移設備按住拖曳就是設定運轉時段・隔日 24 小時，15 分鐘為單位"
         right={
           <span className={`hint ${notice ? 'plan-notice' : ''}`} role="status" aria-live="polite">
-            {notice || `✏️ 想試別的時段：按住拖曳一次排入或取消一整段（點一下只改一格），放開後${
+            {notice || `✏️ 按住拖曳一次排入或取消一整段（點一下只改一格），放開後${
               plan && plan.planSource !== 'sim' ? '購電與電費即時重算（電池維持原排程）' : '電池與成本即時重算'
-            }。只改這個畫面，不會存回上面的設定`}
+            }。排好後到上面按「儲存給排程」`}
           </span>
         }
         className="mt-16"
@@ -409,7 +379,6 @@ export default function Planning() {
                         {SHIFTABLE_RULES[dev.id] && (
                           <div className="dev-window">可運轉 {SHIFTABLE_RULES[dev.id].text}</div>
                         )}
-                        {wantText(dev.id) && <div className="dev-want">你要求 {wantText(dev.id)}</div>}
                       </td>
                       {schedule[dev.id].map((on, slot) => {
                         const peak = plan.tier[slot] === 'peak'
@@ -426,7 +395,6 @@ export default function Planning() {
                         if (editable) cls.push('editable')
                         if (inDrag) cls.push('painting')
                         if (shiftable && !allowed) cls.push('blocked')
-                        else if (shiftable && outsideWanted(dev.id, slot)) cls.push('unwanted')
                         const note = editable ? '（可按住拖曳調整）' : shiftable ? '（不在允許運轉的時段）' : ''
                         return (
                           <td
@@ -449,9 +417,6 @@ export default function Planning() {
               <span className="item"><span className="swatch" style={{ background: '#a855f7' }} /> 不可轉移設備運轉</span>
               <span className="item"><span className="swatch" style={{ background: 'rgba(239,68,68,0.18)' }} /> 尖峰時段</span>
               <span className="item"><span className="swatch blocked-swatch" /> 可轉移設備不允許運轉的時段</span>
-              {prefs && Object.values(prefs).some((p) => p?.enabled !== false && (p?.earliest || p?.deadline)) && (
-                <span className="item"><span className="swatch unwanted-swatch" /> 你要求的範圍以外</span>
-              )}
             </div>
           </>
         ) : (
