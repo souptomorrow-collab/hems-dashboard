@@ -3,6 +3,7 @@ import Panel from './Panel'
 import { DEVICES } from '../lib/constants.js'
 import { SHIFTABLE_RULES } from '../lib/simulate.js'
 import { loadPrefs, savePrefs, canSave, toSegments } from '../api/prefs.js'
+import { checkDevice, checkAll } from '../lib/deviceCheck.js'
 
 /* 可轉移設備要在什麼時候跑。
 
@@ -21,6 +22,13 @@ const mins = (t) => (t === '24:00' ? 1440 : Number(t.slice(0, 2)) * 60 + Number(
 export default function DevicePrefs({ schedule, onClear, onLoaded }) {
   const [meta, setMeta] = useState({ source: 'default', updatedAt: null })
   const [state, setState] = useState({ busy: false, msg: '' })
+  const [armed, setArmed] = useState(false)      // 有問題時要按第二次才真的存
+
+  const issues = checkAll(schedule)
+  const errors = issues.filter((i) => i.level === 'error')
+  const empty = SHIFTABLE.every((d) => !toSegments(schedule?.[d.id]).length)
+
+  useEffect(() => { setArmed(false) }, [schedule])   // 改過就重新要求確認
 
   useEffect(() => {
     let on = true
@@ -35,6 +43,16 @@ export default function DevicePrefs({ schedule, onClear, onLoaded }) {
   }, [])
 
   const save = async () => {
+    if (!armed && (errors.length || empty)) {
+      setArmed(true)
+      setState({
+        busy: false,
+        msg: empty
+          ? '三台都沒排，存下去之後都不會運轉。確定的話再按一次「儲存給排程」。'
+          : `還有 ${errors.length} 項問題（見上方紅字）。要照這樣存，再按一次「儲存給排程」。`,
+      })
+      return
+    }
     setState({ busy: true, msg: '' })
     const devices = Object.fromEntries(SHIFTABLE.map((d) => {
       const slots = toSegments(schedule?.[d.id])
@@ -47,6 +65,7 @@ export default function DevicePrefs({ schedule, onClear, onLoaded }) {
         ? '已存到雲端，排程會照這些時段跑'
         : `只存在這台裝置${r.error ? `（雲端寫入失敗：${r.error}）` : '（未設定雲端金鑰）'}`,
     })
+    setArmed(false)
     if (r.saved === 'cloud') {
       setMeta({ source: 'cloud', updatedAt: new Date().toISOString().slice(0, 16).replace('T', ' ') })
     }
@@ -60,8 +79,8 @@ export default function DevicePrefs({ schedule, onClear, onLoaded }) {
       sub={`在下方甘特圖上拖出運轉時段・來自${where}${meta.updatedAt ? `・更新於 ${meta.updatedAt}` : ''}`}
       className="mt-16"
       right={
-        <button className="btn" onClick={save} disabled={state.busy}>
-          {state.busy ? '儲存中…' : '儲存給排程'}
+        <button className={`btn${armed ? ' btn-armed' : ''}`} onClick={save} disabled={state.busy}>
+          {state.busy ? '儲存中…' : armed ? '仍要儲存' : '儲存給排程'}
         </button>
       }
     >
@@ -69,29 +88,34 @@ export default function DevicePrefs({ schedule, onClear, onLoaded }) {
         {SHIFTABLE.map((dev) => {
           const segs = toSegments(schedule?.[dev.id])
           const rule = SHIFTABLE_RULES[dev.id]
-          const total = segs.reduce((n, [a, b]) => n + mins(b) - mins(a), 0)
-          const need = rule ? rule.dur * 15 : null
+          const problems = checkDevice(dev.id, schedule)
           return (
             <div className="prefs-row" key={dev.id}>
               <div className="prefs-name">
                 <span>{dev.icon} {dev.name}</span>
               </div>
               <div className="prefs-rule">
-                {rule ? `可運轉 ${rule.text}・需 ${need} 分鐘` : ''}
+                {rule ? `可運轉 ${rule.text}・需 ${rule.dur * 15} 分鐘` : ''}
               </div>
               <div className="prefs-when">
                 {segs.length ? (
                   <>
                     <b>{segs.map(([a, b]) => `${a}~${b}`).join('、')}</b>
-                    {need !== null && total !== need && (
-                      <span className="prefs-warn">　共 {total} 分鐘，需要 {need} 分鐘</span>
-                    )}
                     <button className="btn-link" onClick={() => onClear?.(dev.id)}>清除</button>
                   </>
                 ) : (
                   <span className="muted">沒排，不會運轉</span>
                 )}
               </div>
+              {problems.length > 0 && (
+                <div className="prefs-issues">
+                  {problems.map((x) => (
+                    <span key={x.text} className={`issue ${x.level}`}>
+                      {x.level === 'error' ? '⛔' : '⚠️'} {x.text}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           )
         })}

@@ -5,6 +5,7 @@ import Tile from '../components/Tile.jsx'
 import { fetchPlanning, recomputeSchedule } from '../api/client.js'
 import { DEVICES, COLORS, CATEGORY_LABEL, slotToTime, SLOTS_PER_DAY, BATTERY } from '../lib/constants.js'
 import { isAllowedSlot, SHIFTABLE_RULES } from '../lib/simulate.js'
+import { checkDevice } from '../lib/deviceCheck.js'
 import DevicePrefs from '../components/DevicePrefs.jsx'
 import { toRow } from '../api/prefs.js'
 import { useScenario, getScenario, SEASONS } from '../lib/scenario.js'
@@ -119,6 +120,25 @@ export default function Planning() {
   const scheduleRef = useRef(schedule)
   scheduleRef.current = schedule
 
+  /* 拖曳中在提示列顯示「放開後這台會變成幾分鐘」。
+     只算真的會套用的格（拖過不允許運轉的時段會被跳過），數字才不會騙人。 */
+  const dragHint = (() => {
+    if (!drag) return null
+    const row = scheduleRef.current?.[drag.devId]
+    if (!Array.isArray(row)) return null
+    const lo = Math.min(drag.from, drag.to)
+    const hi = Math.max(drag.from, drag.to)
+    const after = row.map((v, i) =>
+      (i >= lo && i <= hi && isAllowedSlot(drag.devId, i) ? drag.value : v))
+    const n = after.filter(Boolean).length
+    const dev = DEVICES.find((x) => x.id === drag.devId)
+    const need = SHIFTABLE_RULES[drag.devId]?.dur
+    const diff = need == null || n === need ? ''
+      : n < need ? `，還差 ${(need - n) * 15} 分鐘` : `，多了 ${(n - need) * 15} 分鐘`
+    return `${drag.value ? '排入' : '取消'} ${dev?.name}　${slotToTime(lo)}~${slotToTime(hi + 1)}`
+      + `　放開後共 ${n * 15} 分鐘${need == null ? '' : `（需要 ${need * 15} 分鐘${diff}）`}`
+  })()
+
   const applyRange = (d) => {
     const cur = scheduleRef.current
     if (!d || !cur) return
@@ -135,12 +155,18 @@ export default function Planning() {
       if (v !== d.value) changed++
       return d.value
     })
+    const dev = DEVICES.find((x) => x.id === d.devId)
     if (skipped) {
-      const dev = DEVICES.find((x) => x.id === d.devId)
       setNotice(`⚠️ 已略過 ${skipped} 格不允許運轉的時段（${dev.name}可運轉 ${SHIFTABLE_RULES[d.devId].text}）`)
     }
     if (!changed) return
     const next = { ...cur, [d.devId]: row }
+    if (!skipped) {
+      const problems = checkDevice(d.devId, next)
+      setNotice(problems.length
+        ? `${problems[0].level === 'error' ? '⛔' : '⚠️'} ${dev.name}：${problems.map((x) => x.text).join('；')}`
+        : '')
+    }
     setSchedule(next)
     setEdits((n) => n + changed)
     // 切換情境的瞬間，舊情境的重算可能晚一步才回來，不能蓋掉新情境的結果
@@ -345,8 +371,8 @@ export default function Planning() {
         title="各設備運行時段"
         sub="可轉移設備按住拖曳就是設定運轉時段・隔日 24 小時，15 分鐘為單位"
         right={
-          <span className={`hint ${notice ? 'plan-notice' : ''}`} role="status" aria-live="polite">
-            {notice || `✏️ 按住拖曳一次排入或取消一整段（點一下只改一格），放開後${
+          <span className={`hint ${notice || dragHint ? 'plan-notice' : ''}`} role="status" aria-live="polite">
+            {dragHint || notice || `✏️ 按住拖曳一次排入或取消一整段（點一下只改一格），放開後${
               plan && plan.planSource !== 'sim' ? '購電與電費即時重算（電池維持原排程）' : '電池與成本即時重算'
             }。排好後到上面按「儲存給排程」`}
           </span>
