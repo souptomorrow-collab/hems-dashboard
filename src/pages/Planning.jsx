@@ -100,8 +100,11 @@ export default function Planning() {
         const dur = SHIFTABLE_RULES[id]?.dur ?? on.length
         const from = pref.earliest ? slotOfTime(pref.earliest) % SLOTS_PER_DAY : 0
         const limit = pref.deadline ? slotOfTime(pref.deadline, true) : SLOTS_PER_DAY
-        // 目前的時段已經落在使用者要的區間裡就不動它
-        if (on.length && on[0] >= from && on[on.length - 1] + 1 <= limit) continue
+        // 目前的時段已經落在使用者要的區間裡就不動它（limit 比 from 早＝跨午夜，頭尾兩段都算）
+        const inside = on.length && (limit < from
+          ? on[0] >= from || on[on.length - 1] + 1 <= limit
+          : on[0] >= from && on[on.length - 1] + 1 <= limit)
+        if (inside) continue
         const s0 = bestWindow(id, dur, price, null, from, limit)
         if (s0 >= 0) next[id] = row.map((_, i) => i >= s0 && i < s0 + dur)
         else if (on.length) setNotice(`⛔ ${id} 排不進 ${pref.earliest ?? ''}～${pref.deadline ?? ''}，維持原本的時段`)

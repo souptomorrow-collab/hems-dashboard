@@ -126,10 +126,19 @@ export function isAllowedSlot(devId, slot) {
 // 在允許的起始點中選出最便宜的連續運轉視窗；沒有可行的就回 -1
 // occupancy：各時段已被其他可轉移設備佔用的數量，用來避免多台同時運轉
 // earliest：最早從第幾格開始（接在另一台後面的設備用）
-/** 在允許時段內挑電費最低的連續 durSlots 格。latestEnd：最晚要結束的格（使用者設的完成時間）。 */
+/** 在允許時段內挑電費最低的連續 durSlots 格。latestEnd：最晚要結束的格（使用者設的完成時間）。
+    latestEnd 比 earliest 早代表跨午夜（洗碗機 19:00~隔天 07:00）：在一天 96 格的模型裡
+    就是頭尾兩段，起點可以落在 [earliest, 96) 或 [0, latestEnd)。 */
 export function bestWindow(devId, durSlots, price, occupancy, earliest = 0, latestEnd = SLOTS_PER_DAY) {
+  const starts = []
+  if (latestEnd < earliest) {
+    for (let s = earliest; s + durSlots <= SLOTS_PER_DAY; s++) starts.push(s)
+    for (let s = 0; s + durSlots <= latestEnd; s++) starts.push(s)
+  } else {
+    for (let s = earliest; s + durSlots <= Math.min(SLOTS_PER_DAY, latestEnd); s++) starts.push(s)
+  }
   let best = { start: -1, score: Infinity }
-  for (let start = earliest; start + durSlots <= Math.min(SLOTS_PER_DAY, latestEnd); start++) {
+  for (const start of starts) {
     let ok = true
     let score = 0
     for (let k = 0; k < durSlots && ok; k++) {

@@ -12,12 +12,14 @@ import { loadPrefs, savePrefs, canSave, DEFAULT_PREFS } from '../api/prefs.js'
 
    ★ 只開放「要不要跑」與一個時間區間（最早幾點開始、最晚幾點完成），
      不開放指定確切幾點開——指定死了就沒有最佳化的空間，省錢效果會變差。
-     區間是疊在設備本身的允許時段上的，不會蓋過它。 */
+     區間是疊在設備本身的允許時段上的，不會蓋過它。
+     最早晚於最晚代表跨午夜（洗碗機 19:00~隔天 07:00），下拉會標示「隔天」。 */
 
 const SHIFTABLE = DEVICES.filter((d) => d.category === 'shiftable')
 
-/** 該設備可選的時刻（整點）。kind='start' 列可以開始的、kind='end' 列可以完成的。 */
-function hourOptions(devId, kind) {
+/** 該設備可選的時刻（整點）。kind='start' 列可以開始的、kind='end' 列可以完成的。
+    from：已選的最早開始時刻。有的話，選項從它之後繞一圈排，跨午夜的才排在後面。 */
+function hourOptions(devId, kind, from) {
   const rule = SHIFTABLE_RULES[devId] ?? { dur: 4, windows: [[0, 24]] }
   const hours = Math.ceil(rule.dur / 4)          // 運轉需要幾個整點
   const out = []
@@ -26,7 +28,9 @@ function hourOptions(devId, kind) {
     const hi = kind === 'start' ? b - hours : b
     for (let h = lo; h <= hi; h++) out.push(`${String(h % 24).padStart(2, '0')}:00`)
   }
-  return [...new Set(out)].sort()
+  const base = from ? slot(from) : 0
+  const order = (t) => (slot(t) - base + 96) % 96
+  return [...new Set(out)].sort((x, y) => order(x) - order(y))
 }
 
 /** "HH:MM" → 第幾格；asEnd 時 00:00 代表一天結束 */
@@ -55,9 +59,10 @@ export default function DevicePrefs({ onChange }) {
   const update = (id, patch) => {
     const next = { ...devices, [id]: { ...(devices[id] ?? { enabled: true }), ...patch } }
     for (const k of ['earliest', 'deadline']) if (patch[k] === '') delete next[id][k]
-    // 兩端交叉時清掉另一端，免得送出一個空的區間（後端會擋，先在這裡避免）
+    // 兩端相同是空的區間（後端會擋），清掉另一端。
+    // 最早晚於最晚不是錯的，那代表跨午夜，例如洗碗機 19:00~隔天 07:00。
     const { earliest: e, deadline: d } = next[id]
-    if (e && d && slot(e) >= slot(d, true)) delete next[id][patch.earliest !== undefined ? 'deadline' : 'earliest']
+    if (e && d && e === d) delete next[id][patch.earliest !== undefined ? 'deadline' : 'earliest']
     setDevices(next)
     onChange?.(next)                      // 立刻預覽，不等儲存
   }
@@ -114,7 +119,7 @@ export default function DevicePrefs({ onChange }) {
                   >
                     <option value="">不限</option>
                     {hourOptions(dev.id, 'start')
-                      .filter((t) => !p.deadline || slot(t) < slot(p.deadline, true))
+                      .filter((t) => t !== p.deadline)
                       .map((t) => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </label>
@@ -126,9 +131,13 @@ export default function DevicePrefs({ onChange }) {
                     onChange={(e) => update(dev.id, { deadline: e.target.value })}
                   >
                     <option value="">不限</option>
-                    {hourOptions(dev.id, 'end')
-                      .filter((t) => !p.earliest || slot(t, true) > slot(p.earliest))
-                      .map((t) => <option key={t} value={t}>{t}</option>)}
+                    {hourOptions(dev.id, 'end', p.earliest)
+                      .filter((t) => t !== p.earliest)
+                      .map((t) => (
+                        <option key={t} value={t}>
+                          {p.earliest && slot(t, true) <= slot(p.earliest) ? `${t}（隔天）` : t}
+                        </option>
+                      ))}
                   </select>
                 </label>
               </div>
