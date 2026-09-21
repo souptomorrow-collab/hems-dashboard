@@ -10,8 +10,8 @@
           ├──────────────▶ [HEMS UI] 平常直接讀 API
           │  scripts/export_snapshots.py（從 API 匯出，資料更新後手動執行）
           ▼
-     public/data/forecast_day.json               夏月展示日（2010-09-06）  ← API 連不上時讀這些
-     public/data/forecast_day_non_summer.json    非夏月展示日（2010-11-18）
+     public/data/forecast_day.json               夏月展示日（2010-07-19）  ← API 連不上時讀這些
+     public/data/forecast_day_non_summer.json    非夏月展示日（2010-10-18）
      public/data/history.json                    歷史紀錄（一整年）
      public/data/schedule.json                   排程組的排程結果（hems.schedule）
      public/data/weather.json                    展示日期的台北 ERA5 天氣（scripts/fetch_weather.py，一律讀這份）

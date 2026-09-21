@@ -17,6 +17,7 @@
     降雨量、日射量是「前一小時的累積／平均」→ 第 h 小時取 h+1 那筆
 """
 import os
+import argparse
 import json
 import urllib.request
 from datetime import date, timedelta
@@ -49,8 +50,17 @@ def fetch(a, b):
 
 
 def main():
-    hist = json.load(open(os.path.join(DATA, "history.json"), encoding="utf-8"))
-    want = [date.fromisoformat(d["date"]) for d in hist["days"]]
+    ap = argparse.ArgumentParser(description="抓展示用日期的台北實際天氣")
+    ap.add_argument("--from", dest="start", help="起日 YYYY-MM-DD（和 --to 成對；可重複用逗號分隔多段）")
+    ap.add_argument("--to", dest="end", help="迄日 YYYY-MM-DD")
+    args = ap.parse_args()
+    if args.start and args.end:
+        # 指定期間：展示週換月份時用這個重抓，不必受 history.json 的範圍限制
+        lo, hi = date.fromisoformat(args.start), date.fromisoformat(args.end)
+        want = [lo + timedelta(days=i) for i in range((hi - lo).days + 1)]
+    else:
+        hist = json.load(open(os.path.join(DATA, "history.json"), encoding="utf-8"))
+        want = [date.fromisoformat(d["date"]) for d in hist["days"]]
     out = {}
     for a, b in spans(want):
         h = fetch(a, b)
@@ -71,6 +81,11 @@ def main():
                 # 晴空指數：地面日射量 ÷ 大氣層頂日射量；太陽太低時比值不穩定，留空
                 rows["kt"].append(round(ghi / i0, 3) if i0 >= 30 else None)
             out[d.isoformat()] = rows
+
+    path0 = os.path.join(DATA, "weather.json")
+    if args.start and args.end and os.path.exists(path0):
+        old = json.load(open(path0, encoding="utf-8")).get("days", {})
+        out = {**old, **out}                       # 這次抓到的覆蓋同一天，其餘保留
 
     payload = {
         "source": "open-meteo ERA5 再分析資料（台北 25.033°N, 121.565°E）",
