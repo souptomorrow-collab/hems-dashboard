@@ -4,7 +4,9 @@ import EChart from '../components/EChart.jsx'
 import Tile from '../components/Tile.jsx'
 import { fetchPlanning, recomputeSchedule } from '../api/client.js'
 import { DEVICES, COLORS, CATEGORY_LABEL, slotToTime, BATTERY } from '../lib/constants.js'
-import { isAllowedSlot, SHIFTABLE_RULES } from '../lib/simulate.js'
+import { isAllowedSlot, SHIFTABLE_RULES, bestWindow } from '../lib/simulate.js'
+import { getPriceSlots } from '../lib/tou.js'
+import DevicePrefs from '../components/DevicePrefs.jsx'
 import { useScenario, getScenario, SEASONS } from '../lib/scenario.js'
 import { tomorrow, fmtDate, pad2 } from '../lib/format.js'
 import { useTheme } from '../lib/theme.js'
@@ -77,6 +79,45 @@ export default function Planning() {
     setPlan(optimal)
     setSchedule(optimal.schedule)
     setEdits(0)
+  }
+
+  /* ---- 使用者設定（要不要跑、最晚完成）----
+     設定改完立刻在畫面上預覽：關掉的設備清空那一列，設了最晚完成時間就把整段往前移到期限內。
+     這是規則法的估算，真正的最佳解要等排程程式讀了 user_prefs 重排後才會更新。 */
+  const applyPrefs = (prefs) => {
+    const price = getPriceSlots(planDate)          // 當天 96 格電價，用來挑最便宜的時段
+    setSchedule((cur) => {
+      if (!cur) return cur
+      const next = { ...cur }
+      for (const [id, pref] of Object.entries(prefs ?? {})) {
+        const row = next[id]
+        if (!Array.isArray(row)) continue
+        if (pref.enabled === false) {
+          next[id] = row.map(() => false)
+          continue
+        }
+        const on = row.map((v, i) => (v ? i : -1)).filter((i) => i >= 0)
+        const dur = SHIFTABLE_RULES[id]?.dur ?? on.length
+        if (!pref.deadline) {
+          // 取消期限：沒排的話補回最便宜的時段
+          if (!on.length) {
+            const s0 = bestWindow(id, dur, price, null)
+            if (s0 >= 0) next[id] = row.map((_, i) => i >= s0 && i < s0 + dur)
+          }
+          continue
+        }
+        const [hh, mm] = pref.deadline.split(':').map(Number)
+        const limit = (hh === 0 ? 24 : hh) * 4 + Math.floor(mm / 15)   // 最晚要結束的格
+        const end = on.length ? on[on.length - 1] + 1 : Infinity
+        if (end <= limit) continue
+        // 期限內重新挑最便宜的時段；挑不到就維持原樣並提示
+        const s0 = bestWindow(id, dur, price, null, 0, limit)
+        if (s0 >= 0) next[id] = row.map((_, i) => i >= s0 && i < s0 + dur)
+        else setNotice(`⛔ ${id} 在 ${pref.deadline} 前排不進允許時段，維持原本的時段`)
+      }
+      return next
+    })
+    setEdits((n) => n + 1)
   }
 
   /* ---- 手動調整可轉移設備：按住拖曳一段，放開時一次套用 ----
@@ -295,6 +336,9 @@ export default function Planning() {
       <Panel title="電池充放電規劃" sub={`太陽能充電 / 電網充電 / 放電 與 SOC（虛線為 ${Math.round(BATTERY.socMin * 100)}%–${Math.round(BATTERY.socMax * 100)}% 上下限）`} className="mt-16">
         <EChart option={battOption} height={300 + SOC_EXTRA_HEIGHT} label="隔日電池充放電規劃與 SOC" />
       </Panel>
+
+      {/* 使用者設定：要不要跑、最晚完成時間；存雲端供排程重排時使用 */}
+      <DevicePrefs onChange={applyPrefs} />
 
       {/* 設備運行時段甘特 */}
       <Panel

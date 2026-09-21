@@ -126,9 +126,10 @@ export function isAllowedSlot(devId, slot) {
 // 在允許的起始點中選出最便宜的連續運轉視窗；沒有可行的就回 -1
 // occupancy：各時段已被其他可轉移設備佔用的數量，用來避免多台同時運轉
 // earliest：最早從第幾格開始（接在另一台後面的設備用）
-function bestWindow(devId, durSlots, price, occupancy, earliest = 0) {
+/** 在允許時段內挑電費最低的連續 durSlots 格。latestEnd：最晚要結束的格（使用者設的完成時間）。 */
+export function bestWindow(devId, durSlots, price, occupancy, earliest = 0, latestEnd = SLOTS_PER_DAY) {
   let best = { start: -1, score: Infinity }
-  for (let start = earliest; start + durSlots <= SLOTS_PER_DAY; start++) {
+  for (let start = earliest; start + durSlots <= Math.min(SLOTS_PER_DAY, latestEnd); start++) {
     let ok = true
     let score = 0
     for (let k = 0; k < durSlots && ok; k++) {
