@@ -11,6 +11,7 @@ import {
   LegendComponent,
   MarkLineComponent,
   MarkAreaComponent,
+  DataZoomComponent,
 } from 'echarts/components'
 import { LabelLayout } from 'echarts/features' // 座標軸標籤的 hideOverlap 要用
 import { CanvasRenderer } from 'echarts/renderers'
@@ -25,6 +26,7 @@ echarts.use([
   LegendComponent,
   MarkLineComponent,
   MarkAreaComponent,
+  DataZoomComponent, // 整月檢視的縮放（滑鼠滾輪／下方拖曳條）
   LabelLayout,
   CanvasRenderer,
 ])
@@ -52,21 +54,28 @@ function adaptLegend(option, narrow) {
   return { ...option, legend: { ...lg, type: 'plain' }, grid }
 }
 
+/** onEvents 支援的事件（要用別的事件再加進來） */
+const EVENTS = ['click', 'datazoom']
+
 /**
  * 輕量 ECharts 包裝元件。
  * - option 改變時自動 setOption
  * - 視窗 / 容器大小改變時自動 resize，窄版時調整圖例（見 adaptLegend）
  * - 資料還沒到（option 是空物件）時顯示載入中的底色，不是一塊空白
+ * - onEvents：{ click(params, chart), datazoom(params, chart) }，例如點長條就縮放到那一天
  * - 卸載時 dispose 釋放資源
  */
-export default function EChart({ option, height = 320, className = '', style, label }) {
+export default function EChart({ option, height = 320, className = '', style, label, onEvents }) {
   const elRef = useRef(null)
   const chartRef = useRef(null)
   const [narrow, setNarrow] = useState(false)
+  const handlers = useRef(onEvents)
+  handlers.current = onEvents
 
   useEffect(() => {
     const chart = echarts.init(elRef.current, null, { renderer: 'canvas' })
     chartRef.current = chart
+    for (const name of EVENTS) chart.on(name, (p) => handlers.current?.[name]?.(p, chart))
 
     const ro = new ResizeObserver(([entry]) => {
       chart.resize()

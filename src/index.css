@@ -1845,26 +1845,26 @@ body {
 /* 秒級重播 */
 .replay-ctl { display: flex; gap: 6px; }
 .replay-ctl .btn { padding: 3px 10px; font-size: 12px; }
-.replay-ctl .btn.on { background: var(--accent, #2f6fb5); color: #fff; border-color: transparent; }
+.replay-ctl .btn.on { background: var(--accent-solid); color: #fff; border-color: transparent; }
 .replay-now { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: baseline; margin-bottom: 8px; font-size: 13px; }
-.replay-now span { color: var(--muted); margin-right: 6px; }
+.replay-now span { color: var(--text-muted); margin-right: 6px; }
 .replay-now b { font-size: 17px; font-variant-numeric: tabular-nums; }
-.replay-now .plan { color: var(--muted); }
+.replay-now .plan { color: var(--text-muted); }
 .replay-now .plan b { font-size: 13px; color: var(--text); }
 
 /* 可轉移設備設定 */
 .prefs { display: grid; gap: 10px; }
 .prefs-row { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(160px, 1.6fr) auto; gap: 8px 16px; align-items: center; }
 .prefs-name { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
-.prefs-rule { font-size: 12.5px; color: var(--muted); }
+.prefs-rule { font-size: 12.5px; color: var(--text-muted); }
 .prefs-when { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; font-size: 13px; color: var(--text); }
-.btn-link { background: none; border: 0; padding: 0 2px; font-size: 12px; color: var(--muted); cursor: pointer; text-decoration: underline; }
+.btn-link { background: none; border: 0; padding: 0 2px; font-size: 12px; color: var(--text-muted); cursor: pointer; text-decoration: underline; }
 .btn-link:hover { color: var(--accent); }
 .prefs-when .muted { font-size: 12.5px; }
 .prefs-issues { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 10px; margin: -2px 0 2px 26px; }
 .issue { font-size: 12px; font-weight: 600; }
 .issue.error { color: var(--t-peak); }
-.issue.warn { color: var(--muted); }
+.issue.warn { color: var(--text-muted); }
 .btn.btn-armed { border-color: var(--t-peak); color: var(--t-peak); }
 @media (max-width: 640px) { .prefs-row { grid-template-columns: 1fr; gap: 4px; } }
 
@@ -1873,3 +1873,12 @@ body {
   background: var(--surface); color: var(--text); font-variant-numeric: tabular-nums; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .replay-now .plan.actual span { color: var(--accent); }
+
+/* 整月排程與實時運轉（用電規劃頁最下方） */
+.month-ctl { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 8px; }
+.month-ctl .btn { padding: 3px 10px; font-size: 12px; }
+.month-status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px;
+  color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.month-status .spinner { width: 12px; height: 12px; }
+.month-status.done { color: var(--t-offpeak); }
+.month-status.warn { color: var(--t-peak); }

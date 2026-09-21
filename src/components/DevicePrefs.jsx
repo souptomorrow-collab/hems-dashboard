@@ -62,7 +62,7 @@ export default function DevicePrefs({ schedule, onClear, onLoaded }) {
     setState({
       busy: false,
       msg: r.saved === 'cloud'
-        ? '已存到雲端，排程會照這些時段跑'
+        ? '已存到雲端。本機排程程式會重排兩個展示月，頁面最下方「整月排程與實時運轉」看得到一天一天換成新設定'
         : `只存在這台裝置${r.error ? `（雲端寫入失敗：${r.error}）` : '（未設定雲端金鑰）'}`,
     })
     setArmed(false)

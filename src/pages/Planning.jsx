@@ -7,6 +7,7 @@ import { DEVICES, COLORS, CATEGORY_LABEL, slotToTime, SLOTS_PER_DAY, BATTERY } f
 import { isAllowedSlot, SHIFTABLE_RULES } from '../lib/simulate.js'
 import { checkDevice } from '../lib/deviceCheck.js'
 import DevicePrefs from '../components/DevicePrefs.jsx'
+import MonthView from '../components/MonthView.jsx'
 import { toRow } from '../api/prefs.js'
 import { useScenario, getScenario, SEASONS } from '../lib/scenario.js'
 import { tomorrow, fmtDate, pad2 } from '../lib/format.js'
@@ -317,7 +318,7 @@ export default function Planning() {
               <p className="hint" style={{ marginTop: 4 }}>
                 {plan.planSource !== 'sim'
                   ? (admin
-                      ? `電池充放電：排程組的 ${plan.planSource} 排程（資料集 ${plan.planDate}）。排程未包含可轉移設備，預設不排入，可在下方手動排入`
+                      ? `電池充放電：排程組的 ${plan.planSource} 排程（資料集 ${plan.planDate}），照下方存下的可轉移設備時段排的。改了時段按「儲存給排程」，本機會重排兩個展示月，最下方看得到整月的變化`
                       : '洗衣機、烘衣機、洗碗機預設不排入，可在下方自行安排時段')
                   : (admin ? `電池充放電：模擬調度（${plan.planNote ?? '這個情境還沒有排程組的排程'}）` : null)}
               </p>
@@ -449,6 +450,9 @@ export default function Planning() {
           <div className="skeleton" style={{ height: 360 }} />
         )}
       </Panel>
+
+      {/* 兩個展示月整月的日前排程與實時運轉；存下新時段後看得到它一天一天換成新設定 */}
+      <MonthView />
     </>
   )
 }

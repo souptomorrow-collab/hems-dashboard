@@ -12,7 +12,7 @@
 
    存的是使用者在甘特圖上拖出來的運轉時段：
      {"washer": {"enabled": true, "slots": [["18:00", "19:00"]]}}
-   排程照這個時段跑。沒有 slots 代表使用者沒指定，由排程自己挑最省錢的時段。 */
+   排程照這個時段跑；沒有 slots（或 enabled 為 false）的設備不運轉，排程不替使用者挑時間。 */
 
 const ENV = import.meta.env ?? {}
 const API = String(ENV.VITE_API_BASE ?? '').replace(/\/+$/, '')
@@ -84,14 +84,18 @@ async function call(path, init) {
   }
 }
 
-/** 目前的設定。回傳 { devices, source: 'cloud' | 'local' | 'default', updatedAt } */
+/** 存到雲端之後發出的事件（detail.stamp＝這次設定的版本）。整月檢視收到就開始追蹤本機重算的進度 */
+export const PREFS_SAVED = 'hems:prefs-saved'
+
+/** 目前的設定。回傳 { devices, source: 'cloud' | 'local' | 'default', updatedAt, stamp }
+    stamp 是設定的版本，和排程、實時運轉每天記的 prefs_stamp 同格式 */
 export async function loadPrefs() {
   if (API) {
     try {
       const d = await call('/prefs')
       if (d.devices && Object.keys(d.devices).length) {
         writeLocal(d.devices)
-        return { devices: d.devices, source: 'cloud', updatedAt: d.updated_at ?? null }
+        return { devices: d.devices, source: 'cloud', updatedAt: d.updated_at ?? null, stamp: d.stamp ?? null }
       }
     } catch (e) {
       console.warn('讀取雲端設定失敗，改用本機：', e.message)
@@ -99,8 +103,8 @@ export async function loadPrefs() {
   }
   const local = readLocal()
   return local
-    ? { devices: local, source: 'local', updatedAt: null }
-    : { devices: DEFAULT_PREFS, source: 'default', updatedAt: null }
+    ? { devices: local, source: 'local', updatedAt: null, stamp: null }
+    : { devices: DEFAULT_PREFS, source: 'default', updatedAt: null, stamp: null }
 }
 
 /** 儲存設定。一律先存這台裝置，再試著寫回雲端。
@@ -109,12 +113,14 @@ export async function savePrefs(devices) {
   writeLocal(devices)
   if (!canSave) return { saved: 'local', error: null }
   try {
-    await call('/prefs', {
+    const r = await call('/prefs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Api-Key': KEY },
       body: JSON.stringify({ devices }),
     })
-    return { saved: 'cloud', error: null }
+    const stamp = r.stamp ?? null
+    window.dispatchEvent(new CustomEvent(PREFS_SAVED, { detail: { stamp } }))
+    return { saved: 'cloud', error: null, stamp }
   } catch (e) {
     return { saved: 'local', error: e.message }
   }

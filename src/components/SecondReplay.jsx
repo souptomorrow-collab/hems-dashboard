@@ -3,6 +3,7 @@ import Panel from './Panel'
 import EChart from './EChart'
 import { cached, getJson, fetchSchedules, fetchOperation } from '../api/forecastData'
 import { useScenario } from '../lib/scenario.js'
+import { DEVICES } from '../lib/constants.js'
 
 /* 秒級重播：把展示日的每秒資料播給實時運轉層看。
 
@@ -23,6 +24,8 @@ const MONTHS = {
   non_summer: { month: '2010-01', days: 31, show: '2010-01-11' },
 }
 const WINDOW_S = 900                      // 畫面上顯示最近 15 分鐘
+const RATED_KW = Object.fromEntries(
+  DEVICES.filter((d) => d.category === 'shiftable').map((d) => [d.id, d.ratedW / 1000]))
 const TICK_MS = 100                       // 每 0.1 秒推進一次，播放才順
 
 const hhmmss = (s) =>
@@ -77,6 +80,16 @@ export default function SecondReplay() {
     return () => clearInterval(id)
   }, [playing, speed, data])
 
+  // 可轉移設備每一格的功率：使用者存下的時段（排程裡的 devices）× 額定功率。
+  // 秒級檔只有不可轉移負載，設備照額定功率加上去，和排程的計畫值（本來就含設備）才對得上
+  const devKw = useMemo(() => {
+    const out = new Array(96).fill(0)
+    for (const [id, on] of Object.entries(plan?.devices ?? {})) {
+      on.forEach((v, k) => { if (v) out[k] += RATED_KW[id] ?? 0 })
+    }
+    return out
+  }, [plan])
+
   const view = useMemo(() => {
     if (!data) return null
     const lo = Math.max(0, sec - WINDOW_S + 1)
@@ -85,11 +98,11 @@ export default function SecondReplay() {
     const pv = []
     for (let i = lo; i <= sec; i++) {
       x.push(hhmmss(i))
-      load.push(data.load_kw[i])
+      load.push(+(data.load_kw[i] + devKw[Math.floor(i / 900)]).toFixed(3))
       pv.push(data.pv_kw[i])
     }
     return { x, load, pv }
-  }, [data, sec])
+  }, [data, sec, devKw])
 
   // 這一秒所屬的 15 分鐘格，以及排程對這一格的計畫值
   const slot = Math.floor(sec / 900)
@@ -103,7 +116,7 @@ export default function SecondReplay() {
     ? { grid_kw: op.grid_kw[slot], batt_kw: op.batt_kw[slot], soc_pct: op.soc_pct[slot],
         curtail_kw: op.curtail_kw[slot] }
     : null
-  const now = data ? { load: data.load_kw[sec], pv: data.pv_kw[sec] } : null
+  const now = data ? { load: data.load_kw[sec] + devKw[slot], pv: data.pv_kw[sec], dev: devKw[slot] } : null
 
   const option = useMemo(() => {
     if (!view) return {}
@@ -111,7 +124,7 @@ export default function SecondReplay() {
       name, type: 'line', data: arr, showSymbol: false, smooth: false,
       lineStyle: { width: 1.6, color }, itemStyle: { color },
     })
-    const s = [series('負載（每秒）', view.load, '#ef6c4d'), series('太陽能（每秒）', view.pv, '#f2b705')]
+    const s = [series('負載（每秒，含可轉移設備）', view.load, '#ef6c4d'), series('太陽能（每秒）', view.pv, '#f2b705')]
     if (planRow) {
       const flat = (v, name, color) => ({
         name, type: 'line', data: view.x.map(() => v), showSymbol: false,
@@ -170,7 +183,7 @@ export default function SecondReplay() {
       }
     >
       <div className="replay-now">
-        <div><span>負載</span><b>{now.load.toFixed(2)}</b> kW</div>
+        <div><span>負載</span><b>{now.load.toFixed(2)}</b> kW{now.dev > 0 && <span className="dim">（設備 {now.dev.toFixed(1)}）</span>}</div>
         <div><span>太陽能</span><b>{now.pv.toFixed(2)}</b> kW</div>
         <div><span>淨負載</span><b>{(now.load - now.pv).toFixed(2)}</b> kW</div>
         {planRow && (
@@ -203,6 +216,7 @@ export default function SecondReplay() {
       <EChart option={option} height={260} label={`秒級重播：${data.date} 最近 15 分鐘的負載與太陽能`} />
       <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
         秒級資料跟著網站一起部署（0.9 MB），不經過資料庫；虛線為排程對這一格的計畫值，來自資料庫。
+        可轉移設備照使用者存下的時段、以額定功率加進負載。
         負載每分鐘的平均為實測、分鐘內為合成；太陽能的 15 分鐘平均由實測日射量換算，秒級起伏為合成。
       </p>
     </Panel>

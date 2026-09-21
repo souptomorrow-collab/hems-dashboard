@@ -35,6 +35,7 @@ import { simulateWeather, weatherFromEra5 } from '../lib/weather.js'
 import { fetchDayAheadForecast, fetchWeatherData, fetchSchedules, cached, getJson } from './forecastData.js'
 import { isSummer } from '../lib/tou.js'
 import { getScenario, scenarioDate } from '../lib/scenario.js'
+import { DEVICES } from '../lib/constants.js'
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms))
 
@@ -75,16 +76,31 @@ function assembleFixed(d, atSlot, dayAhead) {
   return future.map((v, i) => (i <= s ? (d.actual?.[i] ?? v) : v))
 }
 
+/** 可轉移設備的額定功率（kW），以英文代號查 */
+const RATED_KW = Object.fromEntries(
+  DEVICES.filter((d) => d.category === 'shiftable').map((d) => [d.id, d.ratedW / 1000]))
+
+/**
+ * 排程的 load_kw 含使用者存下的可轉移設備（排程是照那些時段排的）。
+ * 這裡要的是不可轉移負載：把設備功率扣掉，設備另外由甘特圖加回來，才不會算兩次。
+ */
+function nonShiftable(plan) {
+  const dev = Object.entries(plan.devices ?? {})
+  if (!dev.length) return plan.load_kw
+  return plan.load_kw.map((v, i) =>
+    +Math.max(0, v - dev.reduce((a, [id, on]) => a + (on?.[i] ? (RATED_KW[id] ?? 0) : 0), 0)).toFixed(4))
+}
+
 /**
  * 展示日的日前負載預測（前一晚 23:45 發布、一天一次）。
- * 那天有排程組的排程時，用排程裡的 load_kw：電池功率是針對這條負載排的，
+ * 那天有排程組的排程時，用排程裡的 load_kw（扣掉可轉移設備）：電池功率是針對這條負載排的，
  * 資料庫的預測之後若重算過（2026-09-17 改為一整年 walk-forward），兩者會不同，
  * 混用會讓購電與電池對不上。沒有排程時用 history 的 day_ahead，
  * 都沒有才由呼叫端退回快照的 slots（當天 00:00 發布那筆）。
  */
 async function dayAheadLoad(dateStr, plan) {
   const ok = (a) => Array.isArray(a) && a.length === 96 && a.every(Number.isFinite)
-  if (ok(plan?.load_kw)) return plan.load_kw
+  if (ok(plan?.load_kw)) return nonShiftable(plan)
   const da = (await fetchHistory())?.days?.find((x) => x.date === dateStr)?.day_ahead
   return ok(da) ? da : null
 }

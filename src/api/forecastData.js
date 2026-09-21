@@ -148,8 +148,9 @@ export async function fetchWeatherData() {
 
 /**
  * 排程組的排程結果（MILP），來自 hems.schedule（API 的 /schedules；快照由 scripts/export_snapshots.py 匯出）。
- * 以排程日期（資料集日期）為鍵；每份 96 格：price、load_kw、pv_kw、pv_used_kw、grid_buy_kw、
- * batt_kw（正＝充電）、soc_pct（該格結束時）。
+ * 以排程日期（資料集日期）為鍵；每份 96 格：price、load_kw（含可轉移設備）、pv_kw、pv_used_kw、grid_buy_kw、
+ * batt_kw（正＝充電）、soc_pct（該格結束時）；devices 為可轉移設備每格開(1)關(0)，
+ * prefs_stamp 為這份是用哪一版使用者設定算的（和 GET /prefs 的 stamp 比，就知道是不是新設定）。
  * @returns {Promise<{source:string|null, generatedAt:string|null, byDate:Object<string,object>}>}
  */
 export async function fetchSchedules() {
@@ -205,6 +206,16 @@ const cache = new Map()
 /** 讀取失敗後隔多久才重試。
  *  原本失敗就立刻刪掉快取：檔案不存在時，每 5 秒更新一次的即時畫面每次都重抓，console 一直洗出 404 */
 const RETRY_MS = 60000
+
+/**
+ * 強制重讀一份（整月檢視在本機重算期間輪詢用）。讀成功才換掉快取，
+ * 其他元件之後拿到的也是新的；讀失敗就維持原本那份。
+ */
+export async function refreshCached(key, loader) {
+  const v = await loader()
+  cache.set(key, Promise.resolve(v))
+  return v
+}
 
 export function cached(key, loader) {
   if (!cache.has(key)) {
