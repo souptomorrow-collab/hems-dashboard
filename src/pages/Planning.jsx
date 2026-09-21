@@ -109,6 +109,20 @@ export default function Planning() {
         if (s0 >= 0) next[id] = row.map((_, i) => i >= s0 && i < s0 + dur)
         else if (on.length) setNotice(`⛔ ${id} 排不進 ${pref.earliest ?? ''}～${pref.deadline ?? ''}，維持原本的時段`)
       }
+      // 先後關係：烘衣機要在洗衣機之後。前一台被挪走時，後面那台也得跟著挪。
+      for (const [id, rule] of Object.entries(SHIFTABLE_RULES)) {
+        if (!rule.after || !Array.isArray(next[id]) || !Array.isArray(next[rule.after])) continue
+        const prevOn = next[rule.after].map((v, i) => (v ? i : -1)).filter((i) => i >= 0)
+        const on = next[id].map((v, i) => (v ? i : -1)).filter((i) => i >= 0)
+        if (!prevOn.length || !on.length) continue
+        const after = prevOn[prevOn.length - 1] + 1
+        if (on[0] >= after) continue                  // 已經在前一台之後
+        const pref = prefs?.[id] ?? {}
+        const limit = pref.deadline ? slotOfTime(pref.deadline, true) : SLOTS_PER_DAY
+        // 跨午夜的區間配上「要接在誰之後」會互相矛盾，這種情況以先後關係為準
+        const s0 = bestWindow(id, rule.dur, price, null, after, limit < after ? SLOTS_PER_DAY : limit)
+        if (s0 >= 0) next[id] = next[id].map((_, i) => i >= s0 && i < s0 + rule.dur)
+      }
       return next
     })
     setEdits((n) => n + 1)
