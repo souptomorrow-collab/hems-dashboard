@@ -2,13 +2,18 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Panel from './Panel'
 import EChart from './EChart'
 import { cached, getJson, fetchSchedules } from '../api/forecastData'
+import { useScenario } from '../lib/scenario.js'
 
 /* 秒級重播：把展示日的每秒資料播給實時運轉層看。
 
    為什麼資料不是從資料庫來：秒級一年 3,150 萬筆，雲端資料庫（免費方案 512 MB）放不下，
-   其他組也用不到。所以 public/data/realtime_day.json 跟著網站一起部署（0.9 MB，
-   兩條 86,400 點的陣列，不存時間戳，時刻由位置推算），瀏覽器直接讀。
-   15 分鐘的計畫值仍然來自資料庫（排程），兩者在畫面上疊在一起看。
+   其他組也用不到。所以只抽出兩個展示日跟著網站一起部署（各約 1 MB，兩條 86,400 點的陣列，
+   不存時間戳，時刻由位置推算），瀏覽器直接讀：
+     夏月   public/data/realtime_day.json
+     非夏月 public/data/realtime_day_non_summer.json
+   換展示日就重跑 scripts/make_realtime_snapshot.py。
+   15 分鐘的計畫值仍然來自資料庫（排程），兩者在畫面上疊在一起看——
+   看得到實時層在兩次排程之間怎麼跟著實際負載走。
 
    ★ 分鐘級以上是實測，分鐘之內是合成；太陽能連 15 分鐘平均都是日射量換算，不是實測出力。 */
 
@@ -21,6 +26,7 @@ const hhmmss = (s) =>
   + `:${String(s % 60).padStart(2, '0')}`
 
 export default function SecondReplay() {
+  const { season } = useScenario()
   const [data, setData] = useState(null)
   const [plan, setPlan] = useState(null)
   const [err, setErr] = useState(null)
@@ -30,16 +36,21 @@ export default function SecondReplay() {
   const carry = useRef(0)                 // 不足 1 秒的餘數，換速度時不會跳動
 
   useEffect(() => {
-    cached('realtime_day', () => getJson('realtime_day.json'))
+    let on = true
+    const file = season === 'summer' ? 'realtime_day.json' : 'realtime_day_non_summer.json'
+    setData(null); setPlan(null); setErr(null); setSec(0); setPlaying(false)
+    cached(`realtime_${season}`, () => getJson(file))
       .then((d) => {
+        if (!on) return
         setData(d)
         // 同一天的 15 分鐘排程計畫（來自資料庫），拿來和秒級實際值對照
         cached('schedule', fetchSchedules)
-          .then((s) => setPlan(s?.byDate?.[d.date] ?? null))
-          .catch(() => setPlan(null))
+          .then((s) => on && setPlan(s?.byDate?.[d.date] ?? null))
+          .catch(() => on && setPlan(null))
       })
-      .catch((e) => setErr(e.message))
-  }, [])
+      .catch((e) => on && setErr(e.message))
+    return () => { on = false }
+  }, [season])
 
   useEffect(() => {
     if (!playing || !data) return undefined
