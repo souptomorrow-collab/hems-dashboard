@@ -47,6 +47,7 @@ const API_PATHS = {
   'forecast_day_non_summer.json': '/forecast/day?season=non_summer',
   'history.json': '/history',
   'schedule.json': '/schedules',
+  'operation.json': '/operation',
 }
 
 /** 兩個情境各一份展示日快照（API 的 /forecast/day?season=summer、non_summer） */
@@ -162,6 +163,16 @@ export async function fetchSchedules() {
     if (ok) byDate[s.date] = s
   }
   return { source: d.source ?? null, generatedAt: d.generated_at ?? null, via: d.via, byDate }
+}
+
+/** 實時運轉層每 15 分鐘的紀錄（逐秒控制 900 次的平均），依日期查。讀不到就回空的。 */
+export async function fetchOperation() {
+  const d = await getJson('operation.json')
+  const byDate = {}
+  for (const x of Array.isArray(d.days) ? d.days : []) {
+    if (typeof x?.date === 'string' && Array.isArray(x.soc_pct) && x.soc_pct.length === 96) byDate[x.date] = x
+  }
+  return { via: d.via, byDate }
 }
 
 /**

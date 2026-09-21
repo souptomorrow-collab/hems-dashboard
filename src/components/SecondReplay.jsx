@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Panel from './Panel'
 import EChart from './EChart'
-import { cached, getJson, fetchSchedules } from '../api/forecastData'
+import { cached, getJson, fetchSchedules, fetchOperation } from '../api/forecastData'
 import { useScenario } from '../lib/scenario.js'
 
 /* 秒級重播：把展示日的每秒資料播給實時運轉層看。
@@ -35,6 +35,7 @@ export default function SecondReplay() {
   const [day, setDay] = useState(range.show)
   const [data, setData] = useState(null)
   const [plan, setPlan] = useState(null)
+  const [op, setOp] = useState(null)        // 實時層實際做了什麼（actual_operation）
   const [err, setErr] = useState(null)
   const [sec, setSec] = useState(0)
   const [speed, setSpeed] = useState(60)
@@ -46,7 +47,7 @@ export default function SecondReplay() {
 
   useEffect(() => {
     let on = true
-    setData(null); setPlan(null); setErr(null); setSec(0); setPlaying(false)
+    setData(null); setPlan(null); setOp(null); setErr(null); setSec(0); setPlaying(false)
     cached(`realtime_${day}`, () => getJson(`realtime/${day}.json`))
       .then((d) => {
         if (!on) return
@@ -55,6 +56,10 @@ export default function SecondReplay() {
         cached('schedule', fetchSchedules)
           .then((s) => on && setPlan(s?.byDate?.[d.date] ?? null))
           .catch(() => on && setPlan(null))
+        // 同一天實時層的實際結果：和計畫對照，看得到它怎麼跟著實際負載修正
+        cached('operation', fetchOperation)
+          .then((o) => on && setOp(o?.byDate?.[d.date] ?? null))
+          .catch(() => on && setOp(null))
       })
       .catch((e) => on && setErr(e.message))
     return () => { on = false }
@@ -93,6 +98,10 @@ export default function SecondReplay() {
         load_kw: plan.load_kw[slot], pv_kw: plan.pv_kw[slot],
         grid_buy_kw: plan.grid_buy_kw[slot], batt_kw: plan.batt_kw[slot], soc_pct: plan.soc_pct[slot],
       }
+    : null
+  const opRow = op
+    ? { grid_kw: op.grid_kw[slot], batt_kw: op.batt_kw[slot], soc_pct: op.soc_pct[slot],
+        curtail_kw: op.curtail_kw[slot] }
     : null
   const now = data ? { load: data.load_kw[sec], pv: data.pv_kw[sec] } : null
 
@@ -170,6 +179,15 @@ export default function SecondReplay() {
             <b>購電 {planRow.grid_buy_kw.toFixed(2)}</b> kW・
             <b>電池 {planRow.batt_kw.toFixed(2)}</b> kW・
             <b>SOC {planRow.soc_pct.toFixed(1)}</b>%
+          </div>
+        )}
+        {opRow && (
+          <div className="plan actual">
+            <span>實時層實際</span>
+            <b>購電 {opRow.grid_kw.toFixed(2)}</b> kW・
+            <b>電池 {opRow.batt_kw.toFixed(2)}</b> kW・
+            <b>SOC {opRow.soc_pct.toFixed(1)}</b>%
+            {opRow.curtail_kw > 0.005 && <>・棄光 {opRow.curtail_kw.toFixed(2)} kW</>}
           </div>
         )}
       </div>

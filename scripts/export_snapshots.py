@@ -30,6 +30,7 @@ FILES = [
     ("forecast_day_non_summer.json", "/forecast/day?season=non_summer", 1),
     ("history.json", "/history", 1),
     ("schedule.json", "/schedules", None),
+    ("operation.json", "/operation", None),
 ]
 
 
@@ -61,6 +62,8 @@ def check(name, d):
         assert d["pv"] and len(d["pv"]) == 96, f"{name} 沒有發電量預測"
     elif name == "history.json":
         assert d["days"] and all(len(x["day_ahead"]) == 96 for x in d["days"]), name
+    elif name == "operation.json":
+        assert d["days"] and all(len(x["soc_pct"]) == 96 for x in d["days"]), "實時運轉紀錄不完整"
     else:
         assert d["schedules"], "沒有排程"
 
@@ -78,6 +81,8 @@ for name, path, indent in FILES:
         extra = f"　{len(d['days'])} 天（{d['days'][0]['date']} ~ {d['days'][-1]['date']}）"
     elif name.startswith("forecast_day"):
         extra = f"　展示日 {d['target_date']}"
+    elif name == "operation.json":
+        extra = f"　{len(d['days'])} 天"
     else:
         extra = f"　{len(d['schedules'])} 份"
     print(f"{name:30s} {os.path.getsize(os.path.join(DATA, name)) / 1024:7.0f} KB{extra}")
