@@ -231,22 +231,31 @@ export default function MonthView() {
     if (!days?.some((d) => d.plan || d.op)) return {}
     const L = lines(days)
     const B = beforeDays ? lines(beforeDays) : null
-    const line = (name, data, color, grid, { lineStyle, ...rest } = {}) => ({
-      name, type: 'line', data, xAxisIndex: grid, yAxisIndex: grid, showSymbol: false,
+    // 同一個角色（實時運轉、日前排程、改設定前）在兩格裡的線用同一個名字：圖例只有四項，
+    // 點一下同時切換兩格；提示框用 id 分出是 SOC 還是購電
+    const line = (id, name, data, color, grid, { lineStyle, ...rest } = {}) => ({
+      id, name, type: 'line', data, xAxisIndex: grid, yAxisIndex: grid, showSymbol: false,
       lineStyle: { width: 1.5, color, ...lineStyle }, itemStyle: { color }, ...rest,
     })
     const shade = { silent: true, itemStyle: { color: C.weekend }, data: weekendAreas(days) }
     const series = [
-      B && line('SOC・改設定前', B.socRt, C.before, 0, { lineStyle: { width: 1 }, z: 1 }),
-      line('SOC・日前排程', L.socPlan, C.plan, 0, { lineStyle: { width: 1.2, type: 'dashed' }, z: 2 }),
-      line('SOC・實時運轉', L.socRt, C.rt, 0, { z: 3, markArea: shade }),
-      line('可轉移設備', L.dev, C.dev, 1, {
+      line('soc-rt', '實時運轉', L.socRt, C.rt, 0, { z: 3, markArea: shade }),
+      line('soc-plan', '日前排程', L.socPlan, C.plan, 0, { lineStyle: { width: 1.2, type: 'dashed' }, z: 2 }),
+      line('dev', '可轉移設備', L.dev, C.dev, 1, {
         step: 'start', lineStyle: { width: 0 }, areaStyle: { color: C.dev, opacity: 0.35 }, z: 0, markArea: shade,
       }),
-      B && line('購電・改設定前', B.gridRt, C.before, 1, { step: 'start', lineStyle: { width: 1 }, z: 1 }),
-      line('購電・日前排程', L.gridPlan, C.plan, 1, { step: 'start', lineStyle: { width: 1, type: 'dashed' }, z: 2 }),
-      line('購電・實時運轉', L.gridRt, C.rt, 1, { step: 'start', lineStyle: { width: 1.3 }, z: 3 }),
+      B && line('soc-before', '改設定前', B.socRt, C.before, 0, { lineStyle: { width: 1 }, z: 1 }),
+      B && line('dev-before', '改設定前', B.dev, C.before, 1, { step: 'start', lineStyle: { width: 1, type: 'dashed' }, z: 1 }),
+      B && line('grid-before', '改設定前', B.gridRt, C.before, 1, { step: 'start', lineStyle: { width: 1 }, z: 1 }),
+      line('grid-plan', '日前排程', L.gridPlan, C.plan, 1, { step: 'start', lineStyle: { width: 1, type: 'dashed' }, z: 2 }),
+      line('grid-rt', '實時運轉', L.gridRt, C.rt, 1, { step: 'start', lineStyle: { width: 1.3 }, z: 3 }),
     ].filter(Boolean)
+    const LABEL = {
+      'soc-rt': 'SOC・實時運轉', 'soc-plan': 'SOC・日前排程', 'soc-before': 'SOC・改設定前',
+      dev: '可轉移設備', 'dev-before': '設備・改設定前',
+      'grid-rt': '購電・實時運轉', 'grid-plan': '購電・日前排程', 'grid-before': '購電・改設定前',
+    }
+    const ORDER = Object.keys(LABEL)
     const timeAxis = (grid, show) => ({
       type: 'time', gridIndex: grid, min: t0, max: t1,
       axisLine: { lineStyle: { color: SPLIT_LINE } },
@@ -260,22 +269,24 @@ export default function MonthView() {
     const { start, end } = zoomRef.current
     return {
       animation: false,
-      legend: { ...baseLegend, data: series.map((s) => s.name) },
+      legend: { ...baseLegend, data: [...new Set(series.map((s) => s.name))] },
       tooltip: {
         ...baseTooltip,
         formatter: (ps) => {
           const list = ps.filter((p) => p.value?.[1] != null)
+            .sort((a, b) => ORDER.indexOf(a.seriesId) - ORDER.indexOf(b.seriesId))
           if (!list.length) return ''
           return `${fmtTime(list[0].value[0])}<br/>` + list.map((p) => {
-            const soc = p.seriesName.startsWith('SOC')
-            return `${p.marker}${p.seriesName}：${soc ? `${(+p.value[1]).toFixed(1)}%` : `${(+p.value[1]).toFixed(2)} kW`}`
+            const soc = p.seriesId.startsWith('soc')
+            return `${p.marker}${LABEL[p.seriesId]}：${soc ? `${(+p.value[1]).toFixed(1)}%` : `${(+p.value[1]).toFixed(2)} kW`}`
           }).join('<br/>')
         },
       },
       axisPointer: { link: [{ xAxisIndex: 'all' }] },
       grid: [
-        { left: 48, right: 16, top: 58, height: 150 },
-        { left: 48, right: 16, top: 250, height: 120 },
+        // 窄螢幕圖例換行時 EChart 會把第一格往下推一行（22px），兩格之間要留得下
+        { left: 48, right: 16, top: 58, height: 145 },
+        { left: 48, right: 16, top: 262, height: 120 },
       ],
       xAxis: [timeAxis(0, false), timeAxis(1, true)],
       yAxis: [
@@ -307,7 +318,7 @@ export default function MonthView() {
         })),
       },
       beforeDays && {
-        name: '實時・改設定前', type: 'bar', barMaxWidth: 16, barGap: '-100%', z: 3, silent: true,
+        name: '改設定前', type: 'bar', barMaxWidth: 16, barGap: '-100%', z: 3, silent: true,
         itemStyle: { color: 'transparent', borderColor: C.before, borderWidth: 1.5, borderType: 'dashed' },
         data: beforeDays.map((d) => round(d.rtCost)),
       },
@@ -317,14 +328,14 @@ export default function MonthView() {
         data: days.map((d) => round(d.planCost)),
       },
       beforeDays && {
-        name: '排程・改設定前', type: 'line', z: 3, showSymbol: false,
+        name: '改設定前', type: 'line', z: 3, showSymbol: false,
         lineStyle: { width: 1, type: 'dotted', color: C.before }, itemStyle: { color: C.before },
         data: beforeDays.map((d) => round(d.planCost)),
       },
     ].filter(Boolean)
     return {
       animation: false,
-      legend: { ...baseLegend, data: series.map((s) => s.name) },
+      legend: { ...baseLegend, data: [...new Set(series.map((s) => s.name))] },
       tooltip: {
         ...baseTooltip,
         axisPointer: { type: 'shadow' },
@@ -430,7 +441,7 @@ export default function MonthView() {
       </div>
       <EChart
         option={mainOption}
-        height={420}
+        height={432}
         onEvents={mainEvents}
         label={`2010 年 ${cur.name}整月的電池 SOC 與向電網購電：日前排程與實時運轉${before ? '，含改設定前的對照' : ''}`}
       />
