@@ -3,7 +3,7 @@
 從後端 API（hems-api）匯出 UI 的靜態快照到 public/data/。不需要資料庫連線字串。
 
   forecast_day.json               夏月展示日 2010-07-19（/forecast/day?season=summer）
-  forecast_day_non_summer.json    非夏月展示日 2010-10-18（/forecast/day?season=non_summer）
+  forecast_day_non_summer.json    非夏月展示日 2010-01-11（/forecast/day?season=non_summer）
   history.json                    歷史紀錄（/history，一整年）
   schedule.json                   排程組的排程（/schedules，tag=main）
 
