@@ -1867,3 +1867,8 @@ body {
 .issue.warn { color: var(--muted); }
 .btn.btn-armed { border-color: var(--t-peak); color: var(--t-peak); }
 @media (max-width: 640px) { .prefs-row { grid-template-columns: 1fr; gap: 4px; } }
+
+/* 秒級重播：選哪一天 */
+.replay-day input { padding: 4px 8px; font-size: 13px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface); color: var(--text); font-variant-numeric: tabular-nums; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
