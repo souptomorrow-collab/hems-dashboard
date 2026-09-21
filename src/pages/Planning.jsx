@@ -40,6 +40,7 @@ export default function Planning() {
   const admin = useIsAdmin()
   const [plan, setPlan] = useState(null)
   const [schedule, setSchedule] = useState(null)
+  const [prefs, setPrefs] = useState(null)      // 使用者要求的範圍，用來在甘特上標出來
   const [computing, setComputing] = useState(false)
   // 演算法給的最佳排程。手動調整只改 plan／schedule，這份留著供「還原」使用
   const [optimal, setOptimal] = useState(null)
@@ -85,6 +86,7 @@ export default function Planning() {
      設定改完立刻在畫面上預覽：關掉的設備清空那一列，設了最晚完成時間就把整段往前移到期限內。
      這是規則法的估算，真正的最佳解要等排程程式讀了 user_prefs 重排後才會更新。 */
   const applyPrefs = (prefs) => {
+    setPrefs(prefs ?? null)
     const price = getPriceSlots(planDate)          // 當天 96 格電價，用來挑最便宜的時段
     setSchedule((cur) => {
       if (!cur) return cur
@@ -163,6 +165,26 @@ export default function Planning() {
     setEdits((n) => n + changed)
     // 切換情境的瞬間，舊情境的重算可能晚一步才回來，不能蓋掉新情境的結果
     recomputeSchedule(next).then((p) => p.season === getScenario().season && setPlan(p))
+  }
+
+  // 這一格在不在使用者要求的範圍內。沒設範圍就一律算在內。
+  // hi 比 lo 早代表跨午夜（洗碗機 19:00~隔天 07:00），範圍是頭尾兩段。
+  const outsideWanted = (devId, slot) => {
+    const p = prefs?.[devId]
+    if (!p || p.enabled === false || (!p.earliest && !p.deadline)) return false
+    const lo = p.earliest ? slotOfTime(p.earliest) % SLOTS_PER_DAY : 0
+    const hi = p.deadline ? slotOfTime(p.deadline, true) : SLOTS_PER_DAY
+    return hi < lo ? slot < lo && slot >= hi : slot < lo || slot >= hi
+  }
+
+  /** 設備名稱下面那行「你要求 …」。沒設範圍就不顯示。 */
+  const wantText = (devId) => {
+    const p = prefs?.[devId]
+    if (!p) return null
+    if (p.enabled === false) return '不要跑'
+    if (!p.earliest && !p.deadline) return null
+    const cross = p.earliest && p.deadline && slotOfTime(p.earliest) > slotOfTime(p.deadline, true)
+    return `${p.earliest ?? '不限'}~${cross ? '隔天 ' : ''}${p.deadline ?? '不限'}`
   }
 
   const startDrag = (e, devId, slot) => {
@@ -345,17 +367,18 @@ export default function Planning() {
         <EChart option={battOption} height={300 + SOC_EXTRA_HEIGHT} label="隔日電池充放電規劃與 SOC" />
       </Panel>
 
-      {/* 使用者設定：要不要跑、最晚完成時間；存雲端供排程重排時使用 */}
+      {/* 使用者的要求：要不要跑、希望的時間範圍；存雲端供排程重排時使用 */}
       <DevicePrefs onChange={applyPrefs} />
 
       {/* 設備運行時段甘特 */}
       <Panel
         title="各設備運行時段"
-        sub="隔日 24 小時・15 分鐘為單位"
+        sub="排程排出來的結果・隔日 24 小時，15 分鐘為單位"
         right={
           <span className={`hint ${notice ? 'plan-notice' : ''}`} role="status" aria-live="polite">
-            {notice || `✏️ 可轉移設備在允許時段內按住拖曳，一次排入或取消一整段（點一下只改一格），放開後${
-              plan && plan.planSource !== 'sim' ? '購電與電費即時重算（電池維持原排程）' : '電池與成本即時重算'}`}
+            {notice || `✏️ 想試別的時段：按住拖曳一次排入或取消一整段（點一下只改一格），放開後${
+              plan && plan.planSource !== 'sim' ? '購電與電費即時重算（電池維持原排程）' : '電池與成本即時重算'
+            }。只改這個畫面，不會存回上面的設定`}
           </span>
         }
         className="mt-16"
@@ -386,6 +409,7 @@ export default function Planning() {
                         {SHIFTABLE_RULES[dev.id] && (
                           <div className="dev-window">可運轉 {SHIFTABLE_RULES[dev.id].text}</div>
                         )}
+                        {wantText(dev.id) && <div className="dev-want">你要求 {wantText(dev.id)}</div>}
                       </td>
                       {schedule[dev.id].map((on, slot) => {
                         const peak = plan.tier[slot] === 'peak'
@@ -402,6 +426,7 @@ export default function Planning() {
                         if (editable) cls.push('editable')
                         if (inDrag) cls.push('painting')
                         if (shiftable && !allowed) cls.push('blocked')
+                        else if (shiftable && outsideWanted(dev.id, slot)) cls.push('unwanted')
                         const note = editable ? '（可按住拖曳調整）' : shiftable ? '（不在允許運轉的時段）' : ''
                         return (
                           <td
@@ -424,6 +449,9 @@ export default function Planning() {
               <span className="item"><span className="swatch" style={{ background: '#a855f7' }} /> 不可轉移設備運轉</span>
               <span className="item"><span className="swatch" style={{ background: 'rgba(239,68,68,0.18)' }} /> 尖峰時段</span>
               <span className="item"><span className="swatch blocked-swatch" /> 可轉移設備不允許運轉的時段</span>
+              {prefs && Object.values(prefs).some((p) => p?.enabled !== false && (p?.earliest || p?.deadline)) && (
+                <span className="item"><span className="swatch unwanted-swatch" /> 你要求的範圍以外</span>
+              )}
             </div>
           </>
         ) : (

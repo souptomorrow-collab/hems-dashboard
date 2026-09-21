@@ -84,7 +84,7 @@ export default function DevicePrefs({ onChange }) {
   return (
     <Panel
       title="可轉移設備設定"
-      sub={`目前來自${where}${meta.updatedAt ? `・更新於 ${meta.updatedAt}` : ''}`}
+      sub={`你的要求・來自${where}${meta.updatedAt ? `・更新於 ${meta.updatedAt}` : ''}`}
       className="mt-16"
       right={
         <button className="btn" onClick={save} disabled={state.busy}>
@@ -146,7 +146,8 @@ export default function DevicePrefs({ onChange }) {
         })}
       </div>
       <p className="muted" style={{ fontSize: 12, marginTop: 10 }}>
-        改完會立刻在下方圖表預覽（規則法估算）。{canSave
+        排程會在你給的範圍裡挑最省錢的時段，範圍以外的時間在下方會標成灰色。
+        改完會立刻在下方預覽（規則法估算）。{canSave
           ? '按「儲存設定」寫回雲端資料庫，排程程式下次重排時會把它當約束，算出真正的最佳解。'
           : '目前未設定雲端金鑰，設定只會留在這台裝置。'}
         {state.msg && <><br /><b>{state.msg}</b></>}
