@@ -10,6 +10,7 @@ import ErrorBoundary from './ErrorBoundary.jsx'
 import { useScenario, setSeason, SEASONS, scenarioNow, seasonOf, nextDayOf, todayOf } from '../lib/scenario.js'
 import { getDemo, stopDemo, useDemoEnabled } from '../lib/demoClock.js'
 import { useAuth, logout } from '../lib/auth.js'
+import { pingDemo } from '../api/prefs.js'
 
 // admin：只有管理員看得到的頁面
 const NAV = [
@@ -66,6 +67,14 @@ export default function Layout() {
   const offSeason = seasonToggle && shown && natural && shown.key !== natural.key
   const theme = useTheme()
   const [collapsed, setCollapsed] = useState(readCollapsed)
+
+  // 展示模式開著：每分鐘告訴本機的待命程式「還在展示」，它就會叫起、留著排程監看（在哪台電腦開網頁都一樣）
+  useEffect(() => {
+    if (!demoOn || !admin) return undefined
+    pingDemo()
+    const id = setInterval(pingDemo, 60000)
+    return () => clearInterval(id)
+  }, [demoOn, admin])
 
   // 關掉展示模式就回到今天實際的季節（平常沒有切換鈕，不能停在另一季）
   useEffect(() => {

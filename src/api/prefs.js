@@ -131,3 +131,17 @@ export async function savePrefs(devices, from = null) {
     return { saved: 'local', error: e.message }
   }
 }
+
+/** 展示模式開著：告訴本機的待命程式（device_plan/scripts/demo_agent.py）有人在展示，
+    它會叫起排程監看；網頁在展示模式下每分鐘送一次，停了 30 分鐘它就把監看程式關掉。
+    不管在哪一台電腦打開網頁都有效（這台電腦要開著、有跑待命程式）。回傳有沒有送成功 */
+export async function pingDemo() {
+  if (!canSave) return false
+  try {
+    await call('/wake', { method: 'POST', headers: { 'X-Api-Key': KEY } })
+    return true
+  } catch (e) {
+    console.warn('展示訊號送不出去：', e.message)
+    return false
+  }
+}

@@ -9,6 +9,7 @@
    ============================================================ */
 import { useEffect, useState } from 'react'
 import { fetchWatcherStatus } from '../api/forecastData.js'
+import { pingDemo } from '../api/prefs.js'
 import {
   useDemoClock,
   getDemo,
@@ -33,9 +34,10 @@ const wk = (date) => {
 const p2 = (n) => String(n).padStart(2, '0')
 const hms = (s) => `${p2(Math.floor(s / 3600))}:${p2(Math.floor(s / 60) % 60)}:${p2(s % 60)}`
 
-/* 本機排程程式（watch_prefs.py）：網頁叫不動電腦裡的程式，所以在這台電腦註冊了 hems-watch:// 連結
-   （device_plan/scripts/register_protocol.py）。按下展示模式時它沒在跑，就開這個連結，
-   瀏覽器問過之後在背景叫起它；已經在跑的不會開第二份。沒註冊的電腦按了不會有反應。 */
+/* 本機排程程式（watch_prefs.py）：網頁叫不動電腦裡的程式，所以放程式的那台電腦登入時會先跑一個
+   待命程式（device_plan/scripts/demo_agent.py）。展示模式開著時網頁每分鐘送一次「還在展示」（POST /wake，
+   Layout 負責送），待命程式看到就叫起監看程式，30 分鐘沒人展示就關掉——在哪一台電腦按都一樣。
+   待命程式沒在跑時，「啟動」退回用 hems-watch:// 連結（只在註冊過的那台電腦有效，見 register_protocol.py）。 */
 const WATCH_URL = 'hems-watch://start'
 
 /* monthOnly：用電規劃頁不需要時段的進度條與速度（隔日規劃不看今天播到幾點），
@@ -63,31 +65,37 @@ export default function DemoBar({ monthOnly = false }) {
     const back = fast ? setTimeout(() => setLaunchedAt(0), 60000) : null
     return () => { on = false; clearInterval(id); if (back) clearTimeout(back) }
   }, [launchedAt])
+  // 手動「啟動」：送喚醒訊號給待命程式；待命程式也沒在跑，才退回 hems-watch:// 連結（要在點擊裡做，瀏覽器才允許）
   const launch = () => {
-    window.location.href = WATCH_URL
+    pingDemo()
+    if (!watcher?.agent) window.location.href = WATCH_URL
     setLaunchedAt(Date.now())
   }
-  // 開啟展示模式：從月初開始（用電規劃頁先不播）。本機排程程式沒在跑就順便叫起來
-  // （要在按鈕的點擊裡做，瀏覽器才允許開外部程式）
+  // 開啟展示模式：從月初開始（用電規劃頁先不播）。「還在展示」的訊號由 Layout 每分鐘送，
+  // 待命程式收到就叫起監看程式；這裡只是接下來一分鐘查快一點，狀態早點變成「運作中」
   const onPower = () => {
     if (demo.enabled) {
       stopDemo()
       return
     }
-    if (watcher && !watcher.running) launch()
     startDemo({ days, day: 0, play: !monthOnly })
+    setLaunchedAt(Date.now())
   }
   const watchChip = watcher && (
     <span
-      className={`watch-chip ${watcher.running ? 'ok' : 'off'}`}
+      className={`watch-chip ${watcher.running ? 'ok' : watcher.agent ? 'idle' : 'off'}`}
       role="status"
       title={watcher.running
         ? `本機的 watch_prefs.py 在跑，${watcher.age_s ?? '?'} 秒前回報`
-        : '本機的 watch_prefs.py 沒有在跑：使用者改設定後不會重排。按「啟動」叫起來（這台電腦要先執行過 register_protocol.py）'}
+        : watcher.agent
+          ? '放程式的電腦開著、待命中：開展示模式（或按「啟動」）就會叫起排程監看，30 分鐘沒人展示會自己關掉'
+          : '放程式的電腦上待命程式沒在跑（電腦關機、睡眠，或還沒執行 install_agent.py）。在那台電腦上按「啟動」會用 hems-watch:// 叫起來'}
     >
       {watcher.running
         ? (watcher.state === 'computing' ? `本機排程：重算中${watcher.job ? `（${watcher.job}）` : ''}` : '本機排程：運作中')
-        : (Date.now() - launchedAt < 60000 ? '本機排程：啟動中…' : '本機排程：沒有在跑')}
+        : Date.now() - launchedAt < 60000 || (demo.enabled && watcher.agent)
+          ? '本機排程：啟動中…'
+          : watcher.agent ? '本機排程：待命中' : '本機排程：沒有在跑'}
       {!watcher.running && <button className="btn-link" onClick={launch}>啟動</button>}
     </span>
   )

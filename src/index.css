@@ -1895,3 +1895,6 @@ body {
 .demo-day input { padding: 3px 6px; font-size: 13px; border: 1px solid var(--border); border-radius: 6px;
   background: var(--bg-panel-2); color: var(--text); }
 .demo-wk { font-size: 12px; color: var(--text-muted); }
+
+.watch-chip.idle { color: var(--text-muted); }
+.watch-chip.idle::before { background: var(--accent); }
