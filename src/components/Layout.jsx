@@ -3,12 +3,12 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useClock } from '../hooks/useClock.js'
 import { fmtClock, fmtDate } from '../lib/format.js'
 import { getCurrentTier, isSummer, TIER_LABEL } from '../lib/tou.js'
-import { LOCATION } from '../lib/time.js'
+import { LOCATION, nowTaipei } from '../lib/time.js'
 import { useTheme, toggleTheme } from '../lib/theme.js'
 import DemoBar from './DemoBar.jsx'
 import ErrorBoundary from './ErrorBoundary.jsx'
 import { useScenario, setSeason, SEASONS, scenarioNow, seasonOf, nextDayOf, todayOf } from '../lib/scenario.js'
-import { getDemo, stopDemo } from '../lib/demoClock.js'
+import { getDemo, stopDemo, useDemoEnabled } from '../lib/demoClock.js'
 import { useAuth, logout } from '../lib/auth.js'
 
 // admin：只有管理員看得到的頁面
@@ -52,17 +52,27 @@ export default function Layout() {
   const admin = session?.role === 'admin'
   const nav = NAV.filter((n) => !n.admin || admin)
   const { season } = useScenario()
+  const demoOn = useDemoEnabled()
   // 情境切換與展示模式是給管理員展示用的；住戶一律看今天實際的季節
   const scenarioPage = admin && SEASON_PAGES.has(pathname)
+  // 夏月／非夏月切換只在展示模式出現（選要播 7 月還是 1 月）；平常就是今天實際的季節
+  const seasonToggle = scenarioPage && demoOn
   // 情境頁的電價徽章跟著情境走（非夏月情境下，九月的今天也照非夏月的尖離峰顯示）
   const tier = getCurrentTier(scenarioPage ? scenarioNow(now, season) : now)
   const summer = isSummer(now)
   // 展示的情境和今天實際的季節不同時（例如九月切到非夏月），頁首下方說明一下，免得看的人搞混
   const shown = SEASONS.find((s) => s.key === season)
   const natural = SEASONS.find((s) => s.key === seasonOf(now))
-  const offSeason = scenarioPage && shown && natural && shown.key !== natural.key
+  const offSeason = seasonToggle && shown && natural && shown.key !== natural.key
   const theme = useTheme()
   const [collapsed, setCollapsed] = useState(readCollapsed)
+
+  // 關掉展示模式就回到今天實際的季節（平常沒有切換鈕，不能停在另一季）
+  useEffect(() => {
+    if (demoOn) return
+    const real = seasonOf(nowTaipei())
+    if (season !== real) setSeason(real)
+  }, [demoOn, season])
 
   // 住戶登入時（或管理員登出後換住戶登入），把管理員切過的情境、開著的展示模式恢復原狀
   useEffect(() => {
@@ -165,8 +175,8 @@ export default function Layout() {
             <span className="badge loc" title={`情境地點・${LOCATION.utc}`}>
               📍 {LOCATION.label}
             </span>
-            {scenarioPage ? (
-              <div className="seg season-seg" role="group" aria-label="電價季節情境">
+            {seasonToggle ? (
+              <div className="seg season-seg" role="group" aria-label="展示哪個月（電價季節）">
                 {SEASONS.map((s) => (
                   <button
                     key={s.key}
