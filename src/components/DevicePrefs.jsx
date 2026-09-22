@@ -23,7 +23,14 @@ const mins = (t) => (t === '24:00' ? 1440 : Number(t.slice(0, 2)) * 60 + Number(
 const md = (date) => (date ? `${+date.slice(5, 7)}/${+date.slice(8, 10)}` : '')
 
 /* cloud：展示模式才讀寫雲端設定、送去本機排程；平常是模擬的，甘特圖調整後電費即時重算就好 */
-export default function DevicePrefs({ schedule, date, monthView = false, cloud = true, onClear, onLoaded, onSaved }) {
+const EVERY_DAY = [1, 2, 3, 4, 5, 6, 7]
+const WEEK_ZH = ['', '一', '二', '三', '四', '五', '六', '日']
+
+/* days：每台設備每週哪幾天開（1＝週一 … 7＝週日）；planWeekday：隔日是星期幾 */
+export default function DevicePrefs({
+  schedule, date, monthView = false, cloud = true, days = {}, planWeekday = null,
+  onDaysChange, onClear, onLoaded, onSaved,
+}) {
   const [meta, setMeta] = useState({ source: 'default', updatedAt: null })
   const [state, setState] = useState({ busy: false, msg: '' })
   const [armed, setArmed] = useState(false)      // 有問題時要按第二次才真的存
@@ -66,7 +73,8 @@ export default function DevicePrefs({ schedule, date, monthView = false, cloud =
     setState({ busy: true, msg: '' })
     const devices = Object.fromEntries(SHIFTABLE.map((d) => {
       const slots = toSegments(schedule?.[d.id])
-      return [d.id, slots.length ? { enabled: true, slots } : { enabled: false }]
+      const on = days[d.id] ?? EVERY_DAY
+      return [d.id, slots.length && on.length ? { enabled: true, slots, days: on } : { enabled: false, days: on }]
     }))
     const r = await savePrefs(devices, date)
     onSaved?.(devices)
@@ -109,6 +117,28 @@ export default function DevicePrefs({ schedule, date, monthView = false, cloud =
               <div className="prefs-rule">
                 {rule ? `可運轉 ${rule.text}・需 ${rule.dur * 15} 分鐘` : ''}
               </div>
+              <div className="prefs-days" role="group" aria-label={`${dev.name}每週哪幾天開`}>
+                {EVERY_DAY.map((w) => {
+                  const list = days[dev.id] ?? EVERY_DAY
+                  const on = list.includes(w)
+                  return (
+                    <button
+                      key={w}
+                      className={`day-chip${on ? ' on' : ''}${w === planWeekday ? ' tomorrow' : ''}`}
+                      aria-pressed={on}
+                      title={`${on ? '取消' : '加上'}週${WEEK_ZH[w]}${w === planWeekday ? '（就是明天）' : ''}`}
+                      onClick={() => onDaysChange?.(dev.id, on ? list.filter((x) => x !== w) : [...list, w].sort())}
+                    >
+                      {WEEK_ZH[w]}
+                    </button>
+                  )
+                })}
+                {planWeekday && (
+                  <span className="muted day-note">
+                    明天（週{WEEK_ZH[planWeekday]}）{(days[dev.id] ?? EVERY_DAY).includes(planWeekday) ? '開' : '不開'}
+                  </span>
+                )}
+              </div>
               <div className="prefs-when">
                 {segs.length ? (
                   <>
@@ -133,7 +163,8 @@ export default function DevicePrefs({ schedule, date, monthView = false, cloud =
         })}
       </div>
       <p className="muted" style={{ fontSize: 12, marginTop: 10 }}>
-        在下方甘特圖上按住拖曳就是設定隔日的運轉時段。沒排的設備不會運轉，排程不會替你決定時間。
+        在下方甘特圖上按住拖曳就是設定運轉時段，上面的「一～日」設定每週哪幾天開（亮的是會開的日子）。
+        沒排的設備不會運轉，排程不會替你決定時間。
         {cloud ? (
           <>
             存下後從隔日起重新排程（之後每天沿用，直到下次再改），今天以前已經排好、跑過的不動。

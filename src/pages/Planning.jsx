@@ -39,6 +39,12 @@ const OBJECTIVE = {
   descPlan: '電池在離峰與太陽能充足時充電、尖峰時放電，電費最低',
 }
 const HOURS = Array.from({ length: 24 }, (_, h) => h)
+const EVERY_DAY = [1, 2, 3, 4, 5, 6, 7] // 每週哪幾天開：1＝週一 … 7＝週日（ISO 星期），沒設定＝每天
+const WEEK_ZH = ['', '一', '二', '三', '四', '五', '六', '日']
+const isoWeekday = (ymd) => {
+  const [y, m, d] = ymd.split('-').map(Number)
+  return new Date(y, m - 1, d).getDay() || 7
+}
 const parseDay = (s) => {
   const [y, m, d] = s.split('-').map(Number)
   return new Date(y, m - 1, d)
@@ -131,6 +137,31 @@ export default function Planning() {
      排程與甘特可能不同步（排程還沒重跑），以使用者存的為準。 */
   const savedRef = useRef(null)
 
+  /* ---- 每週哪幾天開 ----
+     甘特圖設定「幾點開」，這裡設定「每週哪幾天開」。隔日剛好不是它開的日子，
+     那台設備隔日就不跑：甘特圖那一列變淡，電費照不開計算（effective）。 */
+  const [days, setDays] = useState({})
+  const planIso = planDay ? isoWeekday(planDay) : null
+  const runsTomorrow = (id) => (days[id] ?? EVERY_DAY).includes(planIso)
+  const effective = (sched, d = days) => {
+    if (!sched || !planIso) return sched
+    const next = { ...sched }
+    for (const dev of DEVICES.filter((x) => x.category === 'shiftable')) {
+      if (Array.isArray(next[dev.id]) && !(d[dev.id] ?? EVERY_DAY).includes(planIso)) {
+        next[dev.id] = new Array(SLOTS_PER_DAY).fill(false)
+      }
+    }
+    return next
+  }
+  const changeDays = (id, list) => {
+    const next = { ...days, [id]: list }
+    setDays(next)
+    setEdits((n) => n + 1)
+    if (schedule) {
+      recomputeSchedule(effective(schedule, next), planDay).then((p) => p.season === getScenario().season && setPlan(p))
+    }
+  }
+
   const withSaved = (sched, devices) => {
     if (!sched || !devices) return sched
     const next = { ...sched }
@@ -143,6 +174,7 @@ export default function Planning() {
 
   const onPrefsLoaded = (devices) => {
     savedRef.current = devices
+    setDays(Object.fromEntries(Object.entries(devices).map(([id, p]) => [id, p.days ?? EVERY_DAY])))
     setSchedule((cur) => withSaved(cur, devices))
   }
 
@@ -213,7 +245,7 @@ export default function Planning() {
     setSchedule(next)
     setEdits((n) => n + changed)
     // 切換情境的瞬間，舊情境的重算可能晚一步才回來，不能蓋掉新情境的結果
-    recomputeSchedule(next, planDay).then((p) => p.season === getScenario().season && setPlan(p))
+    recomputeSchedule(effective(next), planDay).then((p) => p.season === getScenario().season && setPlan(p))
   }
 
   // 這一格在不在使用者要求的範圍內。沒設範圍就一律算在內。
@@ -430,6 +462,9 @@ export default function Planning() {
         date={planDay}
         monthView={demoOn}
         cloud={demoOn}
+        days={days}
+        planWeekday={planIso}
+        onDaysChange={changeDays}
         onClear={clearDevice}
         onLoaded={onPrefsLoaded}
         onSaved={(devices) => { savedRef.current = devices }}
@@ -463,7 +498,7 @@ export default function Planning() {
                 </thead>
                 <tbody>
                   {DEVICES.map((dev) => (
-                    <tr key={dev.id}>
+                    <tr key={dev.id} className={dev.category === 'shiftable' && !runsTomorrow(dev.id) ? 'off-day' : undefined}>
                       <td className="dev-name">
                         <span style={{ marginRight: 6 }}>{dev.icon}</span>
                         {dev.name}
@@ -473,6 +508,9 @@ export default function Planning() {
                         </span>
                         {SHIFTABLE_RULES[dev.id] && (
                           <div className="dev-window">可運轉 {SHIFTABLE_RULES[dev.id].text}</div>
+                        )}
+                        {dev.category === 'shiftable' && !runsTomorrow(dev.id) && (
+                          <div className="dev-window off-note">明天（週{WEEK_ZH[planIso]}）不開</div>
                         )}
                       </td>
                       {schedule[dev.id].map((on, slot) => {
