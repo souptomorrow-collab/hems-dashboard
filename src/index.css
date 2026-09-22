@@ -1890,3 +1890,4 @@ body {
 .watch-chip.ok::before { background: var(--t-offpeak); }
 .watch-chip.off { color: var(--t-peak); }
 .watch-chip.off::before { background: var(--t-peak); }
+.demo-bar .demo-idle, .demo-bar .demo-note { flex: 1 1 260px; min-width: 0; }
