@@ -15,6 +15,21 @@ import { fetchDayAheadForecast, fetchWeatherData, fetchSchedules, cached, apiBas
 import { fetchHistory } from '../api/client.js'
 import { ACCOUNTS, useAuth } from '../lib/auth.js'
 
+/** ['2010-01-01', '2010-01-02', …] → 「2010-01-01～01-31、2010-07-01～07-31（共 62 天）」：連續的日子併成一段 */
+function dateRanges(dates) {
+  const ds = [...new Set(dates)].sort()
+  const day = (d) => Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10)) / 86400000
+  const parts = []
+  let start = ds[0]
+  for (let i = 1; i <= ds.length; i++) {
+    if (i < ds.length && day(ds[i]) === day(ds[i - 1]) + 1) continue
+    const end = ds[i - 1]
+    parts.push(end === start ? start : `${start}～${end.slice(0, 4) === start.slice(0, 4) ? end.slice(5) : end}`)
+    start = ds[i]
+  }
+  return `${parts.join('、')}（共 ${ds.length} 天）`
+}
+
 /** 資料是從哪裡讀到的：後端 API 即時讀取，或建置時匯出的靜態快照 */
 const origin = (d) => (d?.via === 'api' ? `API 即時讀取・產生於 ${d.generatedAt ?? '—'}` : `快照・匯出於 ${d?.generatedAt ?? '—'}`)
 
@@ -72,7 +87,7 @@ export default function System() {
             label: '排程組排程（MILP）',
             file: 'schedule.json',
             ok: Boolean(s && !s.error),
-            date: plans.length ? plans.map((p) => p.date).join('、') : s?.error ? '—' : '無',
+            date: plans.length ? dateRanges(plans.map((p) => p.date)) : s?.error ? '—' : '無',
             detail: s?.error
               ? s.error
               : `${origin(s)}・電價相符的日子電池照排程，其他日子用模擬調度`,
