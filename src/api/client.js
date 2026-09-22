@@ -35,10 +35,10 @@ import { fetchDayAheadForecast, fetchWeatherData, fetchSchedules, cached, getJso
 import { isSummer } from '../lib/tou.js'
 import { getScenario, nextDayOf, todayOf, scenarioNow, scenarioDate, SEASONS } from '../lib/scenario.js'
 import { getDemo } from '../lib/demoClock.js'
-import { routineRows } from '../lib/simRoutine.js'
 
-/** 平常模式：可轉移設備照作息開關（lib/simRoutine.js）；展示模式照資料庫的排程，回傳 null */
-const routineFor = (date) => (getDemo().enabled ? null : routineRows(date))
+/* 可轉移設備：展示模式照資料庫的排程（使用者確認的時段）；平常模式是模擬的，
+   由模擬在允許時段內挑最便宜的時段當建議時段，並假設使用者照建議確認（三台每天都跑） */
+const routineFor = () => null
 import { DEVICES } from '../lib/constants.js'
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms))

@@ -4,15 +4,18 @@ import EChart from '../components/EChart.jsx'
 import Tile from '../components/Tile.jsx'
 import { fetchPlanning, recomputeSchedule } from '../api/client.js'
 import { DEVICES, COLORS, CATEGORY_LABEL, slotToTime, SLOTS_PER_DAY, BATTERY } from '../lib/constants.js'
-import { isAllowedSlot, SHIFTABLE_RULES } from '../lib/simulate.js'
-import { checkDevice } from '../lib/deviceCheck.js'
-import DevicePrefs from '../components/DevicePrefs.jsx'
+import { SHIFTABLE_RULES } from '../lib/simulate.js'
+import DevicePrefs, { deviceStatus } from '../components/DevicePrefs.jsx'
 import MonthView from '../components/MonthView.jsx'
-import { toRow } from '../api/prefs.js'
+import { loadPrefs, savePrefs } from '../api/prefs.js'
 import { useScenario, getScenario, SEASONS, useScenarioDays } from '../lib/scenario.js'
 import { refreshCached, fetchSchedules } from '../api/forecastData.js'
 import { PREFS_SAVED } from '../api/prefs.js'
 import { useDemoEnabled, getDemo, togglePlay } from '../lib/demoClock.js'
+import {
+  SHIFT_IDS, defaultCond, fromPrefs, toPrefs, condKey, estimate, rowsOf, startsFromRows, checkCond,
+  durOf, latestStart, hardOk, inDefault, nameOf, hm,
+} from '../lib/deviceJobs.js'
 import { tomorrow, fmtDate, pad2 } from '../lib/format.js'
 import { useTheme } from '../lib/theme.js'
 import { useIsAdmin } from '../lib/auth.js'
@@ -39,12 +42,7 @@ const OBJECTIVE = {
   descPlan: '電池在離峰與太陽能充足時充電、尖峰時放電，電費最低',
 }
 const HOURS = Array.from({ length: 24 }, (_, h) => h)
-const EVERY_DAY = [1, 2, 3, 4, 5, 6, 7] // 每週哪幾天開：1＝週一 … 7＝週日（ISO 星期），沒設定＝每天
-const WEEK_ZH = ['', '一', '二', '三', '四', '五', '六', '日']
-const isoWeekday = (ymd) => {
-  const [y, m, d] = ymd.split('-').map(Number)
-  return new Date(y, m - 1, d).getDay() || 7
-}
+const md = (d) => (d ? `${+d.slice(5, 7)}/${+d.slice(8, 10)}` : '')
 const parseDay = (s) => {
   const [y, m, d] = s.split('-').map(Number)
   return new Date(y, m - 1, d)
@@ -56,9 +54,6 @@ export default function Planning() {
   const [plan, setPlan] = useState(null)
   const [schedule, setSchedule] = useState(null)
   const [computing, setComputing] = useState(false)
-  // 演算法給的最佳排程。手動調整只改 plan／schedule，這份留著供「還原」使用
-  const [optimal, setOptimal] = useState(null)
-  const [edits, setEdits] = useState(0) // 手動改過幾格；0 = 目前就是最佳排程
   // 點到不允許運轉的格子時，短暫顯示原因（原本點了沒反應，看不出為什麼）
   const [notice, setNotice] = useState('')
   useEffect(() => {
@@ -71,6 +66,13 @@ export default function Planning() {
   const demoOn = useDemoEnabled() // 展示模式：最下方多顯示整月排程與實時運轉
   // 資料集的隔日：平常是 2010-07-20、2010-01-12；展示模式跟著播放走，播到月底是 null
   const { next: planDay } = useScenarioDays()
+  const [cond, setCond] = useState(null) // 隔日各設備的條件（lib/deviceJobs.js）
+  const [sent, setSent] = useState('') // 已送出（或雲端讀到）的條件，判斷有沒有改過
+  const loaded = useRef(null) // 載入時的 { cond, starts, source, plan }：「復原更改」與電費比較用
+  const [est, setEst] = useState(null) // 各設備預估幾點開（第幾格；不跑是 null）
+  const [estSource, setEstSource] = useState('price') // schedule＝日前排程（MILP）、price＝依電價估
+  const [sending, setSending] = useState(false)
+  const [prefsMsg, setPrefsMsg] = useState('')
 
   // 展示模式播放中進到這頁先暫停：拖甘特圖時隔日不會跟著播放換掉，調整完到上方按 ▶ 繼續
   useEffect(() => {
@@ -102,185 +104,119 @@ export default function Planning() {
     return () => { on = false; clearInterval(id) }
   }, [awaiting, planDay])
 
-  // 進頁面即取得隔日的最佳化排程；切換夏月／非夏月情境時重新規劃，手動調整一併清掉
+  // 進頁面即取得隔日的規劃與條件；切換情境、換天、本機重排好時重新載入，沒送出的更改一併清掉
   useEffect(() => {
     let on = true
     if (!planDay) return undefined // 展示模式播到月底，沒有隔日可以規劃
     setComputing(true)
-    fetchPlanning(planDay).then((p) => {
+    setPrefsMsg('')
+    ;(async () => {
+      const p = await fetchPlanning(planDay)
       if (!on || !p) return
       planStamp.current = p.planStamp
-      setPlan(p)
-      setSchedule(withSaved(p.schedule, savedRef.current))
-      setOptimal(p)
-      setEdits(0)
+      let c = defaultCond()
+      if (demoOn) {
+        const d = await loadPrefs(planDay) // 那天適用的條件（改過的會沿用到月底）
+        if (!on) return
+        c = fromPrefs(d.devices)
+      }
+      // 預估時間：展示模式有日前排程就用排程的（MILP 把設備和電池一起排）；平常模式或沒有排程時依電價估
+      const fromPlan = demoOn && p.planSource !== 'sim'
+      const starts = fromPlan ? startsFromRows(p.schedule) : estimate(c, p.price)
+      const rows = { ...p.schedule, ...rowsOf(starts) }
+      const cur = fromPlan ? p : await recomputeSchedule(rows, planDay)
+      if (!on) return
+      loaded.current = { cond: c, starts, source: fromPlan ? 'schedule' : 'price', plan: cur }
+      setCond(c)
+      setSent(condKey(c))
+      setEst(starts)
+      setEstSource(loaded.current.source)
+      setSchedule(rows)
+      setPlan(cur)
       setComputing(false)
-    })
+    })()
     return () => { on = false }
-  }, [season, reload, planDay])
+  }, [season, reload, planDay, demoOn])
 
-  // 還原成演算法給的最佳排程（捨棄手動調整）。
-  // 原本這顆是「重新計算最佳化」：重跑同一套固定的模擬、結果完全一樣，
-  // 還加了 650 毫秒的假延遲讓它看起來像在算。實際唯一的作用是丟掉手動調整，
-  // 所以直接換回一開始存下的那份——瞬間完成，也不假裝在計算。
-  // 之後排程組有即時的排程服務時，可以改回真正觸發重新排程。
-  const restore = () => {
-    if (!optimal) return
-    setPlan(optimal)
-    setSchedule(optimal.schedule)
-    setEdits(0)
+  /** 套用新的條件：條件沒變的設備沿用載入時的預估（展示模式是排程排的），改過的依電價估；再重算電費 */
+  const apply = (c) => {
+    const base = loaded.current
+    if (!base || !schedule || !plan) return
+    const same = (ids) => ids.every((id) => JSON.stringify(c[id]) === JSON.stringify(base.cond[id]))
+    const starts = estimate(c, plan.price)
+    if (same(['dishwasher'])) starts.dishwasher = base.starts.dishwasher
+    if (same(['washer', 'dryer'])) Object.assign(starts, { washer: base.starts.washer, dryer: base.starts.dryer })
+    const rows = { ...schedule, ...rowsOf(starts) }
+    const all = same(SHIFT_IDS)
+    setCond(c)
+    setEst(starts)
+    setEstSource(all ? base.source : 'price')
+    setSchedule(rows)
+    if (all) setPlan(base.plan)
+    // 切換情境的瞬間，舊情境的重算晚一步回來時不能蓋掉新的
+    else recomputeSchedule(rows, planDay).then((p) => p.season === getScenario().season && setPlan(p))
   }
+  const change = (id, patch) => apply({ ...cond, [id]: { ...cond[id], ...patch } })
+  const allOff = () => apply(Object.fromEntries(SHIFT_IDS.map((id) => [id, { ...cond[id], mode: 'off' }])))
+  const allDefault = () => apply(defaultCond())
+  const undo = () => loaded.current && apply(loaded.current.cond)
+  const dirty = Boolean(cond) && condKey(cond) !== sent
+  const problems = useMemo(() => (cond && plan ? checkCond(cond, plan.price) : []), [cond, plan])
 
-  /* ---- 使用者存下來的運轉時段 ----
-     可轉移設備什麼時候跑由使用者在下面的甘特圖上拖出來，存在 user_prefs。
-     這裡把存下來的時段套回甘特圖，讓使用者看到的和排程實際會跑的一致。
-     排程與甘特可能不同步（排程還沒重跑），以使用者存的為準。 */
-  const savedRef = useRef(null)
-
-  /* ---- 每週哪幾天開 ----
-     甘特圖設定「幾點開」，這裡設定「每週哪幾天開」。隔日剛好不是它開的日子，
-     那台設備隔日就不跑：甘特圖那一列變淡，電費照不開計算（effective）。 */
-  const [days, setDays] = useState({})
-  const planIso = planDay ? isoWeekday(planDay) : null
-  const runsTomorrow = (id) => (days[id] ?? EVERY_DAY).includes(planIso)
-  const effective = (sched, d = days) => {
-    if (!sched || !planIso) return sched
-    const next = { ...sched }
-    for (const dev of DEVICES.filter((x) => x.category === 'shiftable')) {
-      if (Array.isArray(next[dev.id]) && !(d[dev.id] ?? EVERY_DAY).includes(planIso)) {
-        next[dev.id] = new Array(SLOTS_PER_DAY).fill(false)
-      }
-    }
-    return next
-  }
-  const changeDays = (id, list) => {
-    const next = { ...days, [id]: list }
-    setDays(next)
-    setEdits((n) => n + 1)
-    if (schedule) {
-      recomputeSchedule(effective(schedule, next), planDay).then((p) => p.season === getScenario().season && setPlan(p))
+  /** 送出條件：本機排程程式從隔日起重排（今天以前不動），改的條件沿用到月底 */
+  const submit = async () => {
+    if (!cond) return
+    setSending(true)
+    const r = await savePrefs(toPrefs(cond), planDay)
+    setSending(false)
+    if (r.saved === 'cloud') {
+      setSent(condKey(cond))
+      setPrefsMsg(`已送出。本機排程程式從隔日（${md(planDay)}）起重排、今天以前不動，條件沿用到月底；最下方整月檢視看得到一天一天更新。`)
+    } else {
+      setPrefsMsg(`沒有送出：${r.error ?? '未設定雲端金鑰'}`)
     }
   }
 
-  const withSaved = (sched, devices) => {
-    if (!sched || !devices) return sched
-    const next = { ...sched }
-    for (const [id, p] of Object.entries(devices)) {
-      if (!Array.isArray(next[id])) continue
-      next[id] = p.enabled === false || !p.slots?.length ? new Array(SLOTS_PER_DAY).fill(false) : toRow(p.slots)
-    }
-    return next
-  }
-
-  const onPrefsLoaded = (devices) => {
-    savedRef.current = devices
-    setDays(Object.fromEntries(Object.entries(devices).map(([id, p]) => [id, p.days ?? EVERY_DAY])))
-    setSchedule((cur) => withSaved(cur, devices))
-  }
-
-  /** 面板上把某一台清成「不跑」 */
-  const clearDevice = (id) => {
-    setSchedule((cur) => (cur && Array.isArray(cur[id])
-      ? { ...cur, [id]: new Array(SLOTS_PER_DAY).fill(false) }
-      : cur))
-    setEdits((n) => n + 1)
-  }
-
-  /* ---- 手動調整可轉移設備：按住拖曳一段，放開時一次套用 ----
-     按下的那一格原本是關就整段打開、原本是開就整段關掉；只點一下（沒拖）就是切換那一格。
-     拖曳中只更新畫面上的預覽，放開才重算電池調度與成本，拖的過程不會卡。
-     拖過不允許運轉的時段會自動跳過，放開後提示略過了幾格。 */
-  const [drag, setDrag] = useState(null) // { devId, from, to, value }
+  /* ---- 在甘特圖上拖動可轉移設備＝指定時間 ----
+     按住設備那一列：按在原本的運轉段上就整段拖著走，按在別處就從那一格開始；放開後改成「指定時間」。
+     一次運轉的長度固定；超出一天、或烘衣機超過 22:00 的，自動往前靠。拖到一半按 Esc 可以放棄。 */
+  const [drag, setDrag] = useState(null) // { devId, grab, start, inside, moved, clamped }
   const dragRef = useRef(null)
-  const scheduleRef = useRef(schedule)
-  scheduleRef.current = schedule
-
-  /* 拖曳中在提示列顯示「放開後這台會變成幾分鐘」。
-     只算真的會套用的格（拖過不允許運轉的時段會被跳過），數字才不會騙人。 */
-  const dragHint = (() => {
-    if (!drag) return null
-    const row = scheduleRef.current?.[drag.devId]
-    if (!Array.isArray(row)) return null
-    const lo = Math.min(drag.from, drag.to)
-    const hi = Math.max(drag.from, drag.to)
-    const after = row.map((v, i) =>
-      (i >= lo && i <= hi && isAllowedSlot(drag.devId, i) ? drag.value : v))
-    const n = after.filter(Boolean).length
-    const dev = DEVICES.find((x) => x.id === drag.devId)
-    const need = SHIFTABLE_RULES[drag.devId]?.dur
-    const diff = need == null || n === need ? ''
-      : n < need ? `，還差 ${(need - n) * 15} 分鐘` : `，多了 ${(n - need) * 15} 分鐘`
-    return `${drag.value ? '排入' : '取消'} ${dev?.name}　${slotToTime(lo)}~${slotToTime(hi + 1)}`
-      + `　放開後共 ${n * 15} 分鐘${need == null ? '' : `（需要 ${need * 15} 分鐘${diff}）`}`
-  })()
-
-  const applyRange = (d) => {
-    const cur = scheduleRef.current
-    if (!d || !cur) return
-    const lo = Math.min(d.from, d.to)
-    const hi = Math.max(d.from, d.to)
-    let changed = 0
-    let skipped = 0
-    const row = cur[d.devId].map((v, i) => {
-      if (i < lo || i > hi) return v
-      if (!isAllowedSlot(d.devId, i)) {
-        skipped++
-        return v
-      }
-      if (v !== d.value) changed++
-      return d.value
-    })
-    const dev = DEVICES.find((x) => x.id === d.devId)
-    if (skipped) {
-      setNotice(`⚠️ 已略過 ${skipped} 格不允許運轉的時段（${dev.name}可運轉 ${SHIFTABLE_RULES[d.devId].text}）`)
-    }
-    if (!changed) return
-    const next = { ...cur, [d.devId]: row }
-    if (!skipped) {
-      const problems = checkDevice(d.devId, next)
-      setNotice(problems.length
-        ? `${problems[0].level === 'error' ? '⛔' : '⚠️'} ${dev.name}：${problems.map((x) => x.text).join('；')}`
-        : '')
-    }
-    setSchedule(next)
-    setEdits((n) => n + changed)
-    // 切換情境的瞬間，舊情境的重算可能晚一步才回來，不能蓋掉新情境的結果
-    recomputeSchedule(effective(next), planDay).then((p) => p.season === getScenario().season && setPlan(p))
+  const place = (devId, raw) => {
+    const s = Math.max(0, Math.min(latestStart(devId), raw))
+    return { start: s, clamped: s !== raw }
   }
+  const dragHint = drag
+    ? `指定 ${nameOf(drag.devId)}　${hm(drag.start)}～${hm(drag.start + durOf(drag.devId))}　放開後改成指定時間`
+    : null
 
-  // 這一格在不在使用者要求的範圍內。沒設範圍就一律算在內。
-  // hi 比 lo 早代表跨午夜（洗碗機 19:00~隔天 07:00），範圍是頭尾兩段。
-  const outsideWanted = (devId, slot) => {
-    const p = prefs?.[devId]
-    if (!p || p.enabled === false || (!p.earliest && !p.deadline)) return false
-    const lo = p.earliest ? slotOfTime(p.earliest) % SLOTS_PER_DAY : 0
-    const hi = p.deadline ? slotOfTime(p.deadline, true) : SLOTS_PER_DAY
-    return hi < lo ? slot < lo && slot >= hi : slot < lo || slot >= hi
+  const commitDrag = (d) => {
+    if (d.inside && !d.moved) return // 按一下原本的運轉段：不改
+    if (d.clamped) {
+      setNotice(`⚠️ ${nameOf(d.devId)}要在 ${hm(latestStart(d.devId) + durOf(d.devId))} 前跑完，改從 ${hm(d.start)} 開始`)
+    }
+    change(d.devId, { mode: 'fixed', start: d.start })
   }
 
   const startDrag = (e, devId, slot) => {
-    const dev = DEVICES.find((d) => d.id === devId)
-    if (dev.category !== 'shiftable' || !schedule || e.button > 0) return // 滑鼠右鍵、中鍵不算
-    if (!isAllowedSlot(devId, slot)) {
-      setNotice(`⛔ ${dev.name}的允許運轉時段是 ${SHIFTABLE_RULES[devId].text}，${slotToTime(slot)} 不能排`)
-      return
-    }
+    if (!schedule || !cond || e.button > 0) return // 滑鼠右鍵、中鍵不算
     e.preventDefault() // 拖曳時不要選取到文字
-    const d = { devId, from: slot, to: slot, value: !schedule[devId][slot] }
+    const cur = est?.[devId]
+    const inside = cur != null && slot >= cur && slot < cur + durOf(devId)
+    const grab = inside ? slot - cur : 0
+    const d = { devId, grab, inside, moved: false, ...place(devId, slot - grab) }
     dragRef.current = d
     setDrag(d)
 
-    // 監聽在按下的當下就掛上，不能等 useEffect：useEffect 要等畫面更新後才執行，
-    // 手指很快點一下時「放開」可能比監聽先發生，拖曳狀態會卡住、畫面停在預覽
-    // 手指拖曳時 pointer 事件會一直送給按下的那一格，所以用座標找出現在停在哪一格；
-    // 只認同一台設備那一列，拖出這一列就停在最後經過的那一格
+    // 監聽在按下的當下就掛上，不能等 useEffect：手指很快點一下時「放開」可能比監聽先發生。
+    // 手指拖曳時 pointer 事件會一直送給按下的那一格，所以用座標找出現在停在哪一格；只認同一台設備那一列
     const move = (ev) => {
-      const cur = dragRef.current
+      const c = dragRef.current
       const cell = document.elementFromPoint(ev.clientX, ev.clientY)?.closest?.('td[data-slot]')
-      if (!cur || !cell || cell.dataset.dev !== cur.devId) return
-      const s = Number(cell.dataset.slot)
-      if (s === cur.to) return
-      dragRef.current = { ...cur, to: s }
+      if (!c || !cell || cell.dataset.dev !== c.devId) return
+      const next = place(c.devId, Number(cell.dataset.slot) - c.grab)
+      if (next.start === c.start) return
+      dragRef.current = { ...c, ...next, moved: true }
       setDrag(dragRef.current)
     }
     const finish = (commit) => {
@@ -288,14 +224,14 @@ export default function Planning() {
       window.removeEventListener('pointerup', up)
       window.removeEventListener('pointercancel', cancel)
       window.removeEventListener('keydown', esc)
-      const cur = dragRef.current
+      const c = dragRef.current
       dragRef.current = null
       setDrag(null)
-      if (commit) applyRange(cur)
+      if (commit && c) commitDrag(c)
     }
     const up = () => finish(true)
     const cancel = () => finish(false)
-    const esc = (ev) => ev.key === 'Escape' && finish(false) // 拖到一半按 Esc 可以放棄
+    const esc = (ev) => ev.key === 'Escape' && finish(false)
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
     window.addEventListener('pointercancel', cancel)
@@ -365,15 +301,14 @@ export default function Planning() {
   }, [plan, theme])
 
   const s = plan?.summary
-  // 手動調整過排程時，電費和演算法給的最佳排程差多少（手動改一格就看得出代價）
-  const costDiff = s && optimal && edits > 0
-    ? +(s.optimizedCost - optimal.summary.optimizedCost).toFixed(1)
-    : null
-  const costDiffText = costDiff == null
+  // 改了條件後，電費和改之前（載入時／已送出的）差多少
+  const base = loaded.current?.plan?.summary
+  const costDiff = s && base ? +(s.optimizedCost - base.optimizedCost).toFixed(1) : null
+  const costDiffText = costDiff == null || !dirty
     ? ''
     : costDiff === 0
-    ? '和最佳排程相同'
-    : `比最佳排程${costDiff > 0 ? '多' : '少'} ${Math.abs(costDiff)} 元`
+    ? '和改之前相同'
+    : `比改之前${costDiff > 0 ? '多' : '少'} ${Math.abs(costDiff)} 元`
 
   if (!planDay) {
     return (
@@ -403,8 +338,8 @@ export default function Planning() {
               <p className="hint" style={{ marginTop: 4 }}>
                 {plan.planSource !== 'sim'
                   ? (admin
-                      ? `電池充放電：排程組的 ${plan.planSource} 排程（資料集 ${plan.planDate}），照下方存下的可轉移設備時段排的。只能調整隔日：改了時段按「儲存給排程」，本機從隔日起重排、今天以前不動，最下方看得到整月的變化`
-                      : '洗衣機、烘衣機、洗碗機預設不排入，可在下方自行安排時段')
+                      ? `電池與可轉移設備：排程組的 ${plan.planSource} 日前排程（資料集 ${plan.planDate}），設備和電池一起排，設備時間是預估；實際幾點開由實時層每 15 分鐘重排決定。改條件後按「送出給排程」，本機從隔日起重排、今天以前不動，最下方看得到整月的變化`
+                      : '洗衣機、烘衣機、洗碗機設條件就好，幾點開由排程決定')
                   : (admin
                       ? (demoOn
                           ? `電池充放電：模擬調度（${plan.planNote ?? '這一天還沒有排程組的排程'}）`
@@ -423,14 +358,14 @@ export default function Planning() {
             {awaiting && <div className="hint" role="status" style={{ marginBottom: 8 }}>⏳ 本機正在照新設定重排隔日…</div>}
             <button
               className="btn primary"
-              onClick={restore}
-              disabled={computing || edits === 0}
-              title={edits === 0 ? '目前就是最佳排程；在下方甘特表手動調整後才需要還原' : '捨棄手動調整，回到演算法的最佳排程'}
+              onClick={undo}
+              disabled={computing || !dirty}
+              title={dirty ? '捨棄還沒送出的更改，回到載入時的條件' : '條件沒有改過'}
             >
-              ↺ 還原最佳排程
+              ↺ 復原更改
             </button>
             <div className="dim" style={{ fontSize: 11, marginTop: 6 }}>
-              {edits === 0 ? '目前為最佳排程' : `已手動調整 ${edits} 格`}
+              {dirty ? (demoOn ? '條件改過，還沒送出' : '條件改過') : (demoOn ? '目前是已送出的條件' : '目前是預設條件')}
             </div>
           </div>
         </div>
@@ -456,29 +391,32 @@ export default function Planning() {
         <EChart option={battOption} height={300 + SOC_EXTRA_HEIGHT} label="隔日電池充放電規劃與 SOC" />
       </Panel>
 
-      {/* 使用者指定的運轉時段：時段本身在下面的甘特圖上拖，這裡顯示摘要並存回雲端 */}
+      {/* 隔日可轉移設備的條件（在下面的甘特圖上拖動＝指定時間） */}
       <DevicePrefs
-        schedule={schedule}
+        cond={cond}
+        est={est}
+        estSource={estSource}
         date={planDay}
-        monthView={demoOn}
         cloud={demoOn}
-        days={days}
-        planWeekday={planIso}
-        onDaysChange={changeDays}
-        onClear={clearDevice}
-        onLoaded={onPrefsLoaded}
-        onSaved={(devices) => { savedRef.current = devices }}
+        dirty={dirty}
+        sending={sending}
+        msg={prefsMsg}
+        problems={problems}
+        onChange={change}
+        onAllOff={allOff}
+        onAllDefault={allDefault}
+        onSubmit={submit}
       />
 
       {/* 設備運行時段甘特 */}
       <Panel
         title="各設備運行時段"
-        sub="可轉移設備按住拖曳就是設定運轉時段・隔日 24 小時，15 分鐘為單位"
+        sub="可轉移設備：深藍＝指定時間、淺藍＝系統決定的預估；按住拖曳＝改成指定時間・隔日 24 小時，15 分鐘為單位"
         right={
           <span className={`hint ${notice || dragHint ? 'plan-notice' : ''}`} role="status" aria-live="polite">
-            {dragHint || notice || `✏️ 按住拖曳一次排入或取消一整段（點一下只改一格），放開後${
+            {dragHint || notice || `✏️ 按住設備那一列拖曳＝指定時間（按在原本的運轉段上就整段拖著走）；放開後${
               plan && plan.planSource !== 'sim' ? '購電與電費即時重算（電池維持原排程）' : '電池與成本即時重算'
-            }。排好後到上面按「儲存給排程」`}
+            }${demoOn ? '。改好到上面按「送出給排程」' : ''}`}
           </span>
         }
         className="mt-16"
@@ -498,7 +436,7 @@ export default function Planning() {
                 </thead>
                 <tbody>
                   {DEVICES.map((dev) => (
-                    <tr key={dev.id} className={dev.category === 'shiftable' && !runsTomorrow(dev.id) ? 'off-day' : undefined}>
+                    <tr key={dev.id}>
                       <td className="dev-name">
                         <span style={{ marginRight: 6 }}>{dev.icon}</span>
                         {dev.name}
@@ -507,28 +445,32 @@ export default function Planning() {
                           {CATEGORY_LABEL[dev.category]}
                         </span>
                         {SHIFTABLE_RULES[dev.id] && (
-                          <div className="dev-window">可運轉 {SHIFTABLE_RULES[dev.id].text}</div>
+                          <div className="dev-window">預設 {SHIFTABLE_RULES[dev.id].text}</div>
                         )}
-                        {dev.category === 'shiftable' && !runsTomorrow(dev.id) && (
-                          <div className="dev-window off-note">明天（週{WEEK_ZH[planIso]}）不開</div>
-                        )}
+                        {dev.category === 'shiftable' && (() => {
+                          const st = deviceStatus(cond?.[dev.id], est?.[dev.id])
+                          return <div className={`dev-window status-${st.tone}`}>{st.text}</div>
+                        })()}
                       </td>
                       {schedule[dev.id].map((on, slot) => {
                         const peak = plan.tier[slot] === 'peak'
                         const shiftable = dev.category === 'shiftable'
-                        const allowed = isAllowedSlot(dev.id, slot)
-                        const editable = shiftable && allowed
-                        // 拖曳中：這一格在拖過的範圍內，就先照放開後的結果顯示
-                        const inDrag = editable && drag?.devId === dev.id &&
-                          slot >= Math.min(drag.from, drag.to) && slot <= Math.max(drag.from, drag.to)
-                        const shownOn = inDrag ? drag.value : on
+                        // 拖曳中：這一台照放開後的位置顯示
+                        const dragging = shiftable && drag?.devId === dev.id
+                        const inDrag = dragging && slot >= drag.start && slot < drag.start + durOf(dev.id)
+                        const shownOn = dragging ? inDrag : on
                         const cls = ['cell']
                         if (peak) cls.push('peak-bg')
                         if (shownOn) cls.push('on', shiftable ? 'shiftable' : 'fixed')
-                        if (editable) cls.push('editable')
+                        if (shownOn && shiftable && !dragging && cond?.[dev.id]?.mode === 'auto') cls.push('est')
+                        if (shiftable) cls.push('editable')
                         if (inDrag) cls.push('painting')
-                        if (shiftable && !allowed) cls.push('blocked')
-                        const note = editable ? '（可按住拖曳調整）' : shiftable ? '（不在允許運轉的時段）' : ''
+                        if (shiftable && !hardOk(dev.id, slot)) cls.push('blocked')
+                        else if (shiftable && !inDefault(dev.id, slot)) cls.push('outside')
+                        const note = !shiftable ? ''
+                          : !hardOk(dev.id, slot) ? '（22:00 以後不能運轉）'
+                          : !inDefault(dev.id, slot) ? '（預設範圍外，可以指定）'
+                          : '（按住拖曳＝指定時間）'
                         return (
                           <td
                             key={slot}
@@ -546,10 +488,12 @@ export default function Planning() {
               </table>
             </div>
             <div className="legend mt-16">
-              <span className="item"><span className="swatch" style={{ background: '#3b82f6' }} /> 可轉移設備運轉</span>
+              <span className="item"><span className="swatch" style={{ background: '#3b82f6' }} /> 可轉移設備（指定時間）</span>
+              <span className="item"><span className="swatch est-swatch" /> 可轉移設備（系統決定・預估）</span>
               <span className="item"><span className="swatch" style={{ background: '#a855f7' }} /> 不可轉移設備運轉</span>
               <span className="item"><span className="swatch" style={{ background: 'rgba(239,68,68,0.18)' }} /> 尖峰時段</span>
-              <span className="item"><span className="swatch blocked-swatch" /> 可轉移設備不允許運轉的時段</span>
+              <span className="item"><span className="swatch outside-swatch" /> 預設範圍外（可以指定）</span>
+              <span className="item"><span className="swatch blocked-swatch" /> 烘衣機 22:00 後不能運轉</span>
             </div>
           </>
         ) : (

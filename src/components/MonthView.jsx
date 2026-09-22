@@ -54,12 +54,14 @@ const dayStart = (date) => {
 const md = (date) => `${+date.slice(5, 7)}/${+date.slice(8, 10)}`
 const weekday = (date) => new Date(dayStart(date)).getDay()
 
-/** 一天的整理：排程與實時的電費、可轉移設備功率、是不是目前的設定 */
+/** 一天的整理：排程與實時的電費、可轉移設備功率、是不是目前的設定。
+    設備功率照實時層實際開機的時間（每 15 分鐘重排、排到現在開才開機）；沒有實時紀錄才用日前排程的預估 */
 function dayInfo(date, plan, op, stamp) {
   const price = plan?.price
-  const devKw = plan
-    ? Array.from({ length: 96 }, (_, i) => Object.entries(plan.devices ?? {})
-        .reduce((a, [id, on]) => a + (on?.[i] ? (RATED_KW[id] ?? 0) : 0), 0))
+  const on = op?.devices ?? plan?.devices
+  const devKw = on
+    ? Array.from({ length: 96 }, (_, i) => Object.entries(on)
+        .reduce((a, [id, v]) => a + (v?.[i] ? (RATED_KW[id] ?? 0) : 0), 0))
     : null
   return {
     date,

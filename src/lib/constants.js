@@ -30,8 +30,7 @@ export function slotToHour(slot) {
 export const BATTERY = {
   capacityKwh: 13.5, // 可用電量
   maxPowerKw: 5, // 最大連續充放電功率
-  socMin: 0.15, // 不可轉移負載能用到這裡（計畫書更新版：由 10% 上修以延長壽命）
-  socFloor: 0.05, // 15% 以下的 10% 保留給可轉移設備（實時層在設備運轉時動用），最後 5% 不動
+  socMin: 0.15, // 下限 15%，所有負載都一樣（可轉移設備不另外保留電；排程會把它排在便宜或有太陽能的時段）
   socMax: 0.9, // 上限 90%
   socInit: 0.15, // 初始電量 15%
   roundTrip: 0.9, // 往返效率

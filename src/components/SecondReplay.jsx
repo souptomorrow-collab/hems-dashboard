@@ -93,15 +93,15 @@ export default function SecondReplay() {
     return () => clearInterval(id)
   }, [playing, speed, data])
 
-  // 可轉移設備每一格的功率：使用者存下的時段（排程裡的 devices）× 額定功率。
-  // 秒級檔只有不可轉移負載，設備照額定功率加上去，和排程的計畫值（本來就含設備）才對得上
+  // 可轉移設備每一格的功率：實時層實際開機的時間（op.devices）× 額定功率；沒有實時紀錄才用日前排程的預估。
+  // 秒級檔只有不可轉移負載，設備照額定功率加上去，和實時運轉的負載（本來就含設備）才對得上
   const devKw = useMemo(() => {
     const out = new Array(96).fill(0)
-    for (const [id, on] of Object.entries(plan?.devices ?? {})) {
+    for (const [id, on] of Object.entries(op?.devices ?? plan?.devices ?? {})) {
       on.forEach((v, k) => { if (v) out[k] += RATED_KW[id] ?? 0 })
     }
     return out
-  }, [plan])
+  }, [plan, op])
 
   const view = useMemo(() => {
     if (!data) return null

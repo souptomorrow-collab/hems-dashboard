@@ -133,8 +133,7 @@ for (const plan of Object.values(plans)) {
   for (const k of [0.8, 1.2]) {
     const x = dispatchPlan(d, plan.pv_kw, plan.load_kw.map((v) => v * k), plan)
     const ok = Math.min(...x.gridKw) >= 0
-      // 排程可能從保留區（15% 以下）開始：前一天的可轉移設備用掉了，期限前才充回
-      && Math.min(...x.socPct) >= BATTERY.socFloor * 100 - 0.05 && Math.max(...x.socPct) <= BATTERY.socMax * 100 + 0.05
+      && Math.min(...x.socPct) >= BATTERY.socMin * 100 - 0.05 && Math.max(...x.socPct) <= BATTERY.socMax * 100 + 0.05
       && Math.max(...x.chargeKw, ...x.dischargeKw) <= BATTERY.maxPowerKw + 1e-6
     check(`負載 ×${k}：購電不為負、SOC 與功率在限制內`, ok,
       `SOC ${Math.min(...x.socPct)}～${Math.max(...x.socPct)}%`)

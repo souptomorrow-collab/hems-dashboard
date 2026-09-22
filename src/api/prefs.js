@@ -4,15 +4,17 @@
    寫：POST /prefs，需要金鑰 VITE_PREFS_KEY（建置時由 GitHub Actions 變數帶入）
 
    為什麼金鑰放在前端還可以：後端那個端點只能寫 hems.user_prefs 的一份文件，
-   設備代號限定三個、欄位限定 enabled 與 deadline，其餘一律 400；
+   設備代號限定三個、欄位限定 enabled、earliest、deadline、slots，其餘一律 400；
    寫入用的資料庫帳號也只有這個集合的權限。最壞情況是有人改了設定，覆蓋回來即可。
 
    設備代號一律用英文（washer／dryer／dishwasher）：Vercel 轉發 POST 內容時會弄壞 UTF-8，
    中文鍵值傳不過來。中文名稱由 GET /prefs 的 names 欄位提供。
 
-   存的是使用者在甘特圖上拖出來的運轉時段：
-     {"washer": {"enabled": true, "slots": [["18:00", "19:00"]]}}
-   排程照這個時段跑；沒有 slots（或 enabled 為 false）的設備不運轉，排程不替使用者挑時間。 */
+   流程（2026-09-23 定案：滾動決定、開機才定案）：使用者設的是條件，幾點開由排程決定
+     {"washer": {"enabled": true, "deadline": "18:00"}, "dryer": {"enabled": false},
+      "dishwasher": {"enabled": true, "slots": [["20:00", "21:00"]]}}
+   earliest／deadline＝最早開始、最晚完成（沒給用預設範圍）；slots＝指定時間；enabled false＝那天不跑。
+   日前排程先排出預估時間，實時層每 15 分鐘重排，排到「現在開」才開機。條件的換算見 lib/deviceJobs.js。 */
 
 const ENV = import.meta.env ?? {}
 const API = String(ENV.VITE_API_BASE ?? '').replace(/\/+$/, '')
@@ -88,29 +90,27 @@ async function call(path, init) {
     整月檢視收到就開始追蹤本機重算的進度 */
 export const PREFS_SAVED = 'hems:prefs-saved'
 
-/** 目前的設定。date 給資料集日期就是那天適用的（用電規劃頁給隔日）。
-    回傳 { devices, source: 'cloud' | 'local' | 'default', updatedAt, stamp, changedFrom }
+/** 目前的設定。date 給資料集日期就是那天適用的條件（用電規劃頁給隔日；改過的條件沿用到月底）。
+    回傳 { devices, from, source: 'cloud' | 'local' | 'default', updatedAt, stamp, changedFrom }
+    devices：各設備的條件（沒列出的＝預設）；from：那天的條件是哪天改的（null＝原本的設定）
     stamp 是設定的版本，和排程、實時運轉每天記的 prefs_stamp 同格式；
     changedFrom 是最近一次改的是哪天起（null＝原本的設定整個換掉，兩個月整月重排） */
 export async function loadPrefs(date = null) {
   if (API) {
     try {
       const d = await call(date ? `/prefs?date=${date}` : '/prefs')
-      if (d.devices && Object.keys(d.devices).length) {
-        writeLocal(d.devices)
-        return {
-          devices: d.devices, source: 'cloud', updatedAt: d.updated_at ?? null,
-          stamp: d.stamp ?? null, changedFrom: d.changed_from ?? null,
-        }
+      return {
+        devices: d.devices ?? {}, from: d.from ?? null,
+        source: 'cloud', updatedAt: d.updated_at ?? null,
+        stamp: d.stamp ?? null, changedFrom: d.changed_from ?? null,
       }
     } catch (e) {
       console.warn('讀取雲端設定失敗，改用本機：', e.message)
     }
   }
   const local = readLocal()
-  return local
-    ? { devices: local, source: 'local', updatedAt: null, stamp: null, changedFrom: null }
-    : { devices: DEFAULT_PREFS, source: 'default', updatedAt: null, stamp: null, changedFrom: null }
+  const none = { from: null, updatedAt: null, stamp: null, changedFrom: null }
+  return local ? { ...none, devices: local, source: 'local' } : { ...none, devices: DEFAULT_PREFS, source: 'default' }
 }
 
 /** 儲存設定。from＝從哪天起生效（使用者只能改隔日，給隔日的資料集日期）。

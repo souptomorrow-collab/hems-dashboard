@@ -102,20 +102,21 @@ function devicePowerWhenOn(dev, slot, weather) {
   return +p.toFixed(3)
 }
 
-/* 可轉移設備的運轉條件（UI 模擬排程用的作息假設）
-   dur      一次運轉幾格（15 分鐘一格）
-   windows  允許運轉的時段 [起, 迄)（小時），整段運轉都要落在裡面
+/* 可轉移設備的運轉條件（和資料庫 meta.devices 相同）
+   dur      一次運轉幾格（15 分鐘一格），開了就連續跑完
+   windows  預設範圍 [起, 迄)（小時）：使用者沒設條件時，系統在這裡面挑開機時間；使用者可以設別的範圍或指定時間
    after    要等哪一台跑完才能開始
+   烘衣機另有硬性限制：22:00 前跑完（lib/deviceJobs.js 的 HARD_END），使用者指定也不能超過。
    洗衣機、烘衣機避開深夜（運轉聲會吵到鄰居），烘衣機得等洗衣機洗完；
    洗碗機是晚餐後放進去，可以延到隔天清晨前洗完。
    原本沒有這些限制，排程只看電價，會把洗衣機排到凌晨 00:00 開始洗。 */
 export const SHIFTABLE_RULES = {
   washer: { dur: 4, windows: [[6, 22]], text: '06:00–22:00' },
-  dryer: { dur: 6, windows: [[6, 23]], after: 'washer', text: '06:00–23:00，接在洗衣機之後' },
-  dishwasher: { dur: 4, windows: [[0, 7], [19, 24]], text: '19:00～隔天 07:00' },
+  dryer: { dur: 6, windows: [[6, 22]], after: 'washer', text: '06:00–22:00，接在洗衣機之後' },
+  dishwasher: { dur: 4, windows: [[0, 7], [19, 24]], text: '00:00–07:00、19:00–24:00' },
 }
 
-/** 第 slot 格是否在該設備允許運轉的時段內（沒有規則的設備一律允許） */
+/** 第 slot 格是否在該設備的預設範圍內（沒有規則的設備一律算在內）；平常模式的模擬排程用 */
 export function isAllowedSlot(devId, slot) {
   const rule = SHIFTABLE_RULES[devId]
   if (!rule) return true

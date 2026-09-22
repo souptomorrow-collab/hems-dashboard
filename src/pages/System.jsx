@@ -198,7 +198,7 @@ export default function System() {
                 <th>分類</th>
                 <th className="num">額定功率</th>
                 <th className="num">一次運轉</th>
-                <th>允許運轉時段</th>
+                <th>預設範圍（系統自動排）</th>
               </tr>
             </thead>
             <tbody>
