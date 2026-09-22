@@ -166,6 +166,14 @@ export async function fetchSchedules() {
   return { source: d.source ?? null, generatedAt: d.generated_at ?? null, via: d.via, byDate }
 }
 
+/** 本機排程程式（device_plan/scripts/watch_prefs.py）還在不在跑（API 的 /status，每 10 秒一次心跳）。
+    沒有設定後端 API 就回 null（不知道），畫面上就不顯示 */
+export async function fetchWatcherStatus() {
+  if (!API_BASE) return null
+  const d = await fetchJson(`${API_BASE}/status`, TIMEOUT_MS)
+  return d?.watcher ?? null
+}
+
 /** 實時運轉層每 15 分鐘的紀錄（逐秒控制 900 次的平均），依日期查。讀不到就回空的。 */
 export async function fetchOperation() {
   const d = await getJson('operation.json')

@@ -1882,3 +1882,11 @@ body {
 .month-status .spinner { width: 12px; height: 12px; }
 .month-status.done { color: var(--t-offpeak); }
 .month-status.warn { color: var(--t-peak); }
+
+/* 展示列：本機排程程式（watch_prefs.py）的狀態 */
+.watch-chip { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; font-size: 12px;
+  color: var(--text-muted); white-space: nowrap; }
+.watch-chip::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); }
+.watch-chip.ok::before { background: var(--t-offpeak); }
+.watch-chip.off { color: var(--t-peak); }
+.watch-chip.off::before { background: var(--t-peak); }
