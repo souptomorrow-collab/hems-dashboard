@@ -29,12 +29,11 @@
    所有函式都回傳 Promise。
    ============================================================ */
 import { liveSnapshot, simulateDay, simulateWithSchedule } from '../lib/simulate.js'
-import { tomorrow } from '../lib/format.js'
 import { nowTaipei } from '../lib/time.js'
 import { simulateWeather, weatherFromEra5 } from '../lib/weather.js'
 import { fetchDayAheadForecast, fetchWeatherData, fetchSchedules, cached, getJson } from './forecastData.js'
 import { isSummer } from '../lib/tou.js'
-import { getScenario, scenarioDate } from '../lib/scenario.js'
+import { getScenario, scenarioDate, nextDayOf } from '../lib/scenario.js'
 import { DEVICES } from '../lib/constants.js'
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms))
@@ -157,15 +156,26 @@ function era5For(wx, dateStr) {
   return era5Memo.get(dateStr)
 }
 
+/** 資料集某一天（例如隔日）的輸入，從歷史紀錄組：日前預測、實際、發電量預測 */
+async function historyDay(dateStr) {
+  const x = (await fetchHistory())?.days?.find((v) => v.date === dateStr)
+  if (!x?.day_ahead) throw new Error(`歷史紀錄沒有 ${dateStr}`)
+  return {
+    targetDate: x.date, slots: x.day_ahead, actual: x.actual ?? null,
+    pv: x.pv_day_ahead ?? null, pvActual: x.pv_actual ?? null,
+  }
+}
+
 /**
  * 目前情境的輸入：不可轉移負載（96 格）、太陽能（96 格）、天氣。
+ * day 不給是展示日（今天），給資料集日期就是那一天（用電規劃頁的隔日）。
  * 讀不到快照時三者都回 null，各函式自動改用模擬值。
  */
-async function scenarioInputs(atSlot = null) {
+async function scenarioInputs(atSlot = null, day = null) {
   const season = getScenario().season
   let d
   try {
-    d = await showcase(season)
+    d = day ? await historyDay(day) : await showcase(season)
   } catch (e) {
     lastForecastMeta = { source: 'sim', refresh: null, datasetDate: null, error: e.message }
     lastPvMeta = { source: 'sim', datasetDate: null, error: e.message }
@@ -380,21 +390,30 @@ export async function fetchToday(now = nowTaipei(), atSlot = null) {
   return { ...simulateDay(at, weather ?? simulateWeather(at), fixed, pv, plan), season }
 }
 
-/** 隔日預測 + 最佳化排程（頁面三規劃） */
-export async function fetchPlanning(baseDate = nowTaipei()) {
-  const { season, fixed, pv, weather, plan } = await scenarioInputs()
-  const date = scenarioDate(tomorrow(baseDate), season)
+/**
+ * 隔日預測 + 最佳化排程（頁面三規劃）。
+ * 隔日＝資料集展示日的下一天（夏月 2010-07-20、非夏月 2010-01-12），負載、太陽能、天氣、排程都取那一天，
+ * 電價也照那一天算（和排程用的一樣，週末不會對不上）。planStamp 是那份排程用哪一版設定算的。
+ */
+export async function fetchPlanning() {
+  const day = nextDayOf(getScenario().season)
+  const { season, fixed, pv, weather, plan } = await scenarioInputs(null, day)
+  const date = parseYmd(day)
   await delay(120)
-  return { ...simulateDay(date, weather ?? simulateWeather(date), fixed, pv, plan), season }
+  return {
+    ...simulateDay(date, weather ?? simulateWeather(date), fixed, pv, plan),
+    season, planDay: day, planStamp: plan?.prefs_stamp ?? null,
+  }
 }
 
 /**
  * 依使用者手動調整後的排程重新計算電池調度與成本（不重跑 GA）。
  * @param {object} schedule  { deviceId: boolean[96] }
  */
-export async function recomputeSchedule(schedule, baseDate = nowTaipei()) {
-  const { season, fixed, pv, weather, plan } = await scenarioInputs()
-  const date = scenarioDate(tomorrow(baseDate), season)
+export async function recomputeSchedule(schedule) {
+  const day = nextDayOf(getScenario().season)
+  const { season, fixed, pv, weather, plan } = await scenarioInputs(null, day)
+  const date = parseYmd(day)
   await delay(60)
   return {
     ...simulateWithSchedule(date, schedule, weather ?? simulateWeather(date), fixed, pv, plan),

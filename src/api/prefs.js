@@ -84,18 +84,24 @@ async function call(path, init) {
   }
 }
 
-/** 存到雲端之後發出的事件（detail.stamp＝這次設定的版本）。整月檢視收到就開始追蹤本機重算的進度 */
+/** 存到雲端之後發出的事件（detail.stamp＝這次設定的版本、detail.from＝從哪天起生效）。
+    整月檢視收到就開始追蹤本機重算的進度 */
 export const PREFS_SAVED = 'hems:prefs-saved'
 
-/** 目前的設定。回傳 { devices, source: 'cloud' | 'local' | 'default', updatedAt, stamp }
-    stamp 是設定的版本，和排程、實時運轉每天記的 prefs_stamp 同格式 */
-export async function loadPrefs() {
+/** 目前的設定。date 給資料集日期就是那天適用的（用電規劃頁給隔日）。
+    回傳 { devices, source: 'cloud' | 'local' | 'default', updatedAt, stamp, changedFrom }
+    stamp 是設定的版本，和排程、實時運轉每天記的 prefs_stamp 同格式；
+    changedFrom 是最近一次改的是哪天起（null＝原本的設定整個換掉，兩個月整月重排） */
+export async function loadPrefs(date = null) {
   if (API) {
     try {
-      const d = await call('/prefs')
+      const d = await call(date ? `/prefs?date=${date}` : '/prefs')
       if (d.devices && Object.keys(d.devices).length) {
         writeLocal(d.devices)
-        return { devices: d.devices, source: 'cloud', updatedAt: d.updated_at ?? null, stamp: d.stamp ?? null }
+        return {
+          devices: d.devices, source: 'cloud', updatedAt: d.updated_at ?? null,
+          stamp: d.stamp ?? null, changedFrom: d.changed_from ?? null,
+        }
       }
     } catch (e) {
       console.warn('讀取雲端設定失敗，改用本機：', e.message)
@@ -103,24 +109,24 @@ export async function loadPrefs() {
   }
   const local = readLocal()
   return local
-    ? { devices: local, source: 'local', updatedAt: null, stamp: null }
-    : { devices: DEFAULT_PREFS, source: 'default', updatedAt: null, stamp: null }
+    ? { devices: local, source: 'local', updatedAt: null, stamp: null, changedFrom: null }
+    : { devices: DEFAULT_PREFS, source: 'default', updatedAt: null, stamp: null, changedFrom: null }
 }
 
-/** 儲存設定。一律先存這台裝置，再試著寫回雲端。
-    回傳 { saved: 'cloud' | 'local', error } */
-export async function savePrefs(devices) {
+/** 儲存設定。from＝從哪天起生效（使用者只能改隔日，給隔日的資料集日期）。
+    一律先存這台裝置，再試著寫回雲端。回傳 { saved: 'cloud' | 'local', error, stamp, from } */
+export async function savePrefs(devices, from = null) {
   writeLocal(devices)
   if (!canSave) return { saved: 'local', error: null }
   try {
     const r = await call('/prefs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Api-Key': KEY },
-      body: JSON.stringify({ devices }),
+      body: JSON.stringify(from ? { devices, from } : { devices }),
     })
     const stamp = r.stamp ?? null
-    window.dispatchEvent(new CustomEvent(PREFS_SAVED, { detail: { stamp } }))
-    return { saved: 'cloud', error: null, stamp }
+    window.dispatchEvent(new CustomEvent(PREFS_SAVED, { detail: { stamp, from: r.from ?? from } }))
+    return { saved: 'cloud', error: null, stamp, from: r.from ?? from }
   } catch (e) {
     return { saved: 'local', error: e.message }
   }

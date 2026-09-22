@@ -9,7 +9,8 @@ import { checkDevice } from '../lib/deviceCheck.js'
 import DevicePrefs from '../components/DevicePrefs.jsx'
 import MonthView from '../components/MonthView.jsx'
 import { toRow } from '../api/prefs.js'
-import { useScenario, getScenario, SEASONS } from '../lib/scenario.js'
+import { useScenario, getScenario, SEASONS, nextDayOf } from '../lib/scenario.js'
+import { SCHEDULES_REFRESHED } from '../api/forecastData.js'
 import { tomorrow, fmtDate, pad2 } from '../lib/format.js'
 import { useTheme } from '../lib/theme.js'
 import { useIsAdmin } from '../lib/auth.js'
@@ -55,6 +56,19 @@ export default function Planning() {
   }, [notice])
   const planDate = useMemo(() => tomorrow(), [])
   const { season } = useScenario()
+  const planDay = nextDayOf(season) // 資料集的隔日（夏月 2010-07-20、非夏月 2010-01-12）
+  const [reload, setReload] = useState(0)
+  const planStamp = useRef(null)
+
+  // 存下新時段後，本機會先重排隔日。整月檢視每 5 秒重讀排程，隔日那份換成新設定就重新載入這頁的規劃
+  useEffect(() => {
+    const onRefresh = (e) => {
+      const s = e.detail?.byDate?.[planDay]?.prefs_stamp ?? null
+      if (s && s !== planStamp.current) setReload((n) => n + 1)
+    }
+    window.addEventListener(SCHEDULES_REFRESHED, onRefresh)
+    return () => window.removeEventListener(SCHEDULES_REFRESHED, onRefresh)
+  }, [planDay])
 
   // 進頁面即取得隔日的最佳化排程；切換夏月／非夏月情境時重新規劃，手動調整一併清掉
   useEffect(() => {
@@ -62,6 +76,7 @@ export default function Planning() {
     setComputing(true)
     fetchPlanning().then((p) => {
       if (!on) return
+      planStamp.current = p.planStamp
       setPlan(p)
       setSchedule(withSaved(p.schedule, savedRef.current))
       setOptimal(p)
@@ -69,7 +84,7 @@ export default function Planning() {
       setComputing(false)
     })
     return () => { on = false }
-  }, [season])
+  }, [season, reload])
 
   // 還原成演算法給的最佳排程（捨棄手動調整）。
   // 原本這顆是「重新計算最佳化」：重跑同一套固定的模擬、結果完全一樣，
@@ -318,7 +333,7 @@ export default function Planning() {
               <p className="hint" style={{ marginTop: 4 }}>
                 {plan.planSource !== 'sim'
                   ? (admin
-                      ? `電池充放電：排程組的 ${plan.planSource} 排程（資料集 ${plan.planDate}），照下方存下的可轉移設備時段排的。改了時段按「儲存給排程」，本機會重排兩個展示月，最下方看得到整月的變化`
+                      ? `電池充放電：排程組的 ${plan.planSource} 排程（資料集 ${plan.planDate}），照下方存下的可轉移設備時段排的。只能調整隔日：改了時段按「儲存給排程」，本機從隔日起重排、今天以前不動，最下方看得到整月的變化`
                       : '洗衣機、烘衣機、洗碗機預設不排入，可在下方自行安排時段')
                   : (admin ? `電池充放電：模擬調度（${plan.planNote ?? '這個情境還沒有排程組的排程'}）` : null)}
               </p>
@@ -365,7 +380,13 @@ export default function Planning() {
       </Panel>
 
       {/* 使用者指定的運轉時段：時段本身在下面的甘特圖上拖，這裡顯示摘要並存回雲端 */}
-      <DevicePrefs schedule={schedule} onClear={clearDevice} onLoaded={onPrefsLoaded} />
+      <DevicePrefs
+        schedule={schedule}
+        date={planDay}
+        onClear={clearDevice}
+        onLoaded={onPrefsLoaded}
+        onSaved={(devices) => { savedRef.current = devices }}
+      />
 
       {/* 設備運行時段甘特 */}
       <Panel

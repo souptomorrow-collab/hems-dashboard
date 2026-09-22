@@ -522,7 +522,7 @@ function pack(date, pv, load, price, tier, flows, t) {
 /** 電池調度：有適用的排程組排程就照排程，否則用上面的模擬調度 */
 function runDispatch(date, pv, load, plan) {
   if (plan && planFits(plan, date)) {
-    return { ...dispatchPlan(date, pv, load, plan), planSource: plan.solver ?? 'plan', planDate: plan.date }
+    return { ...dispatchPlan(date, pv, load, plan), planSource: plan.solver ?? 'MILP', planDate: plan.date }
   }
   return {
     ...dispatch(date, pv, load),

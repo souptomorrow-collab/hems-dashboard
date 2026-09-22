@@ -207,6 +207,9 @@ const cache = new Map()
  *  原本失敗就立刻刪掉快取：檔案不存在時，每 5 秒更新一次的即時畫面每次都重抓，console 一直洗出 404 */
 const RETRY_MS = 60000
 
+/** 整月檢視重讀排程後發出的事件（detail＝fetchSchedules 的結果）。用電規劃頁據此知道隔日那份換新了 */
+export const SCHEDULES_REFRESHED = 'hems:schedules-refreshed'
+
 /**
  * 強制重讀一份（整月檢視在本機重算期間輪詢用）。讀成功才換掉快取，
  * 其他元件之後拿到的也是新的；讀失敗就維持原本那份。

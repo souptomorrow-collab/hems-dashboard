@@ -2,21 +2,23 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Panel from './Panel'
 import EChart from './EChart'
 import Tile from './Tile'
-import { cached, refreshCached, fetchSchedules, fetchOperation } from '../api/forecastData'
+import { cached, refreshCached, fetchSchedules, fetchOperation, SCHEDULES_REFRESHED } from '../api/forecastData'
 import { loadPrefs, PREFS_SAVED } from '../api/prefs.js'
-import { useScenario } from '../lib/scenario.js'
+import { useScenario, SEASONS, nextDayOf } from '../lib/scenario.js'
 import { useTheme } from '../lib/theme.js'
 import { DEVICES } from '../lib/constants.js'
 import { baseTooltip, baseLegend, valueYAxis, AXIS_TEXT, SPLIT_LINE } from '../lib/charts.js'
 
 /* 整月排程與實時運轉：兩個展示月（2010-07、2010-01）每一天的日前排程與實時運轉接成一條時間軸。
 
-   使用者在上面的甘特圖改了可轉移設備的時段、按下儲存之後，本機的 watch_prefs.py 會把兩個月
-   從 1 號開始一天一天重算（電量一天接一天，只能依序算），算完一天就寫回資料庫。
-   這裡每 5 秒重讀一次，看得到曲線一天一天換成新設定；灰色是按下儲存之前的樣子，拿來對照。
+   使用者只能調整隔日（展示日的下一天：7/20、1/12）的可轉移設備。按下儲存之後，本機的 watch_prefs.py
+   從隔日起一天一天重算那個月（電量一天接一天，只能依序算），算完一天就寫回資料庫；今天以前的不動。
+   這裡每 5 秒重讀一次，看得到隔日以後的曲線一天一天換成新設定；灰色是按下儲存之前的樣子，拿來對照。
 
    哪一天已經是新設定：排程與實時運轉每天都記著自己是用哪一版設定算的（prefs_stamp），
-   和目前設定的版本（GET /prefs 的 stamp）相同才算。沒有後端 API（只有快照）時不輪詢，也不顯示進度。 */
+   受影響的日子（changed_from 起、同一個月）和目前設定的版本（GET /prefs 的 stamp）相同才算。
+   changed_from 是空的代表原本的設定整個換掉，兩個月每一天都要重算。
+   沒有後端 API（只有快照）時不輪詢，也不顯示進度。 */
 
 const MONTHS = {
   summer: { month: '2010-07', name: '7 月' },
@@ -134,6 +136,9 @@ export default function MonthView() {
 
   const [data, setData] = useState(null) // { sched: {date: 排程}, op: {date: 實時}, via }
   const [stamp, setStamp] = useState(null) // 目前設定的版本
+  const [changedFrom, setChangedFrom] = useState(null) // 最近一次改的是哪天起（null＝整個換掉）
+  const today = (SEASONS.find((s) => s.key === season) ?? SEASONS[0]).dataset
+  const next = nextDayOf(season)
   const [before, setBefore] = useState(null) // 按下儲存前的 data，灰線對照用
   const [watching, setWatching] = useState(false)
   const [stalled, setStalled] = useState(false)
@@ -154,6 +159,7 @@ export default function MonthView() {
       if (!on) return
       setData({ sched: s?.byDate ?? {}, op: o?.byDate ?? {}, via: s?.via ?? o?.via ?? null })
       setStamp(p?.stamp ?? null)
+      setChangedFrom(p?.changedFrom ?? null)
     })
     return () => { on = false }
   }, [])
@@ -164,6 +170,7 @@ export default function MonthView() {
     const onSaved = (e) => {
       setBefore((b) => (b && watchingRef.current ? b : dataRef.current))
       if (e.detail?.stamp) setStamp(e.detail.stamp)
+      setChangedFrom(e.detail?.from ?? null)
       setStalled(false)
       lastChange.current = Date.now()
       setWatching(true)
@@ -175,9 +182,15 @@ export default function MonthView() {
   const days = useMemo(() => monthInfo(cur.month, data, stamp), [cur.month, data, stamp])
   const otherDays = useMemo(() => monthInfo(other.month, data, stamp), [other.month, data, stamp])
   const beforeDays = useMemo(() => monthInfo(cur.month, before, null), [cur.month, before])
-  const fresh = days?.filter((d) => d.fresh).length ?? 0
-  const otherFresh = otherDays?.filter((d) => d.fresh).length ?? 0
-  const allFresh = Boolean(days && otherDays) && fresh === days.length && otherFresh === otherDays.length
+  // 這次改設定影響到哪幾天：changed_from 起、同一個月；沒有 changed_from＝兩個月每一天
+  const affected = (d) => (changedFrom
+    ? d.date.slice(0, 7) === changedFrom.slice(0, 7) && d.date >= changedFrom
+    : true)
+  const curAff = days?.filter(affected) ?? []
+  const otherAff = otherDays?.filter(affected) ?? []
+  const fresh = curAff.filter((d) => d.fresh).length
+  const otherFresh = otherAff.filter((d) => d.fresh).length
+  const allFresh = Boolean(days && otherDays) && fresh === curAff.length && otherFresh === otherAff.length
   const live = data?.via === 'api' && Boolean(stamp)
 
   // 進頁面時就有舊設定的日子（例如別的分頁剛存過、本機正在算）：也開始追蹤
@@ -206,6 +219,7 @@ export default function MonthView() {
       ])
       if (!on || (!s && !o)) return
       setData((d) => ({ sched: s?.byDate ?? d?.sched ?? {}, op: o?.byDate ?? d?.op ?? {}, via: s?.via ?? d?.via }))
+      if (s) window.dispatchEvent(new CustomEvent(SCHEDULES_REFRESHED, { detail: s }))
     }
     tick()
     const id = setInterval(tick, POLL_MS)
@@ -238,11 +252,18 @@ export default function MonthView() {
       lineStyle: { width: 1.5, color, ...lineStyle }, itemStyle: { color }, ...rest,
     })
     const shade = { silent: true, itemStyle: { color: C.weekend }, data: weekendAreas(days) }
+    // 今天和隔日的分界：使用者只能改隔日，這條線左邊（今天以前）改了設定也不會動
+    const nextLine = (label) => ({
+      silent: true, symbol: 'none', lineStyle: { color: AXIS_TEXT, type: 'dashed', width: 1 },
+      label: { show: label, formatter: '隔日', color: AXIS_TEXT, fontSize: 10, position: 'end', distance: 2 },
+      data: [{ xAxis: dayStart(next) }],
+    })
     const series = [
-      line('soc-rt', '實時運轉', L.socRt, C.rt, 0, { z: 3, markArea: shade }),
+      line('soc-rt', '實時運轉', L.socRt, C.rt, 0, { z: 3, markArea: shade, markLine: nextLine(true) }),
       line('soc-plan', '日前排程', L.socPlan, C.plan, 0, { lineStyle: { width: 1.2, type: 'dashed' }, z: 2 }),
       line('dev', '可轉移設備', L.dev, C.dev, 1, {
         step: 'start', lineStyle: { width: 0 }, areaStyle: { color: C.dev, opacity: 0.35 }, z: 0, markArea: shade,
+        markLine: nextLine(false),
       }),
       B && line('soc-before', '改設定前', B.socRt, C.before, 0, { lineStyle: { width: 1 }, z: 1 }),
       B && line('dev-before', '改設定前', B.dev, C.before, 1, { step: 'start', lineStyle: { width: 1, type: 'dashed' }, z: 1 }),
@@ -304,7 +325,7 @@ export default function MonthView() {
       series,
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [days, beforeDays, theme, zoomTick])
+  }, [days, beforeDays, theme, zoomTick, next])
 
   const dailyOption = useMemo(() => {
     if (!days?.some((d) => d.rtCost != null || d.planCost != null)) return {}
@@ -314,8 +335,14 @@ export default function MonthView() {
         name: '實時運轉', type: 'bar', barMaxWidth: 16, barGap: '-100%', z: 2,
         itemStyle: { borderRadius: [3, 3, 0, 0] },
         data: days.map((d) => ({
-          value: round(d.rtCost), itemStyle: { color: !live || d.fresh ? C.rt : pending },
+          value: round(d.rtCost), itemStyle: { color: !live || d.fresh || !affected(d) ? C.rt : pending },
         })),
+        // 今天以前（使用者改不到、也不會重排的日子）淡淡的底色
+        markArea: {
+          silent: true, itemStyle: { color: C.weekend },
+          label: { show: true, position: 'insideTop', formatter: '今天以前不動', color: AXIS_TEXT, fontSize: 10 },
+          data: [[{ xAxis: md(days[0].date) }, { xAxis: md(today) }]],
+        },
       },
       beforeDays && {
         name: '改設定前', type: 'bar', barMaxWidth: 16, barGap: '-100%', z: 3, silent: true,
@@ -344,7 +371,8 @@ export default function MonthView() {
           const b = beforeDays?.[ps[0].dataIndex]
           const row = (label, v, bv) => (v == null ? '' : `<br/>${label}：${v.toFixed(2)} 元`
             + (bv != null && Math.abs(v - bv) >= 0.005 ? `（改設定前 ${bv.toFixed(2)}，${signed(v - bv, '元')}）` : ''))
-          const state = !live ? '' : d.fresh ? '<br/>✓ 已是目前的設定' : '<br/>⏳ 還是舊設定（重算中）'
+          const state = d.date <= today ? '<br/>今天以前：改設定也不重排'
+            : !live || !affected(d) ? '' : d.fresh ? '<br/>✓ 已是目前的設定' : '<br/>⏳ 還是舊設定（重算中）'
           return `${md(d.date)}（${WEEK[weekday(d.date)]}）${row('實時運轉', d.rtCost, b?.rtCost)}`
             + `${row('日前排程', d.planCost, b?.planCost)}${state}<br/><span style="opacity:.7">點一下放大這一天</span>`
         },
@@ -359,7 +387,7 @@ export default function MonthView() {
       series,
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [days, beforeDays, theme, live])
+  }, [days, beforeDays, theme, live, changedFrom, today])
 
   const dailyEvents = useMemo(() => ({
     click: (p) => {
@@ -391,19 +419,28 @@ export default function MonthView() {
 
   let status = null
   if (live && days) {
+    const here = curAff.length > 0
     if (allFresh) {
-      status = <span className="month-status done">✓ 兩個月每一天都是目前的設定</span>
+      status = (
+        <span className="month-status done">
+          {changedFrom && here ? `✓ ${md(changedFrom)} 起已是新設定・${md(today)} 以前不動` : '✓ 已是目前的設定'}
+        </span>
+      )
     } else if (watching) {
       status = (
         <span className="month-status busy" role="status" aria-live="polite">
           <span className="spinner" aria-hidden="true" />
-          重算中：{cur.name} {fresh}/{days.length} 天・{other.name} {otherFresh}/{otherDays.length} 天
+          {!changedFrom
+            ? `重算中：${cur.name} ${fresh}/${curAff.length} 天・${other.name} ${otherFresh}/${otherAff.length} 天`
+            : here
+              ? `重算中：${md(changedFrom)} 起 ${fresh}/${curAff.length} 天（${md(today)} 以前不動）`
+              : `${other.name}重算中（${otherFresh}/${otherAff.length} 天）・${cur.name}沒有變動`}
         </span>
       )
     } else {
       status = (
         <span className="month-status warn" role="status">
-          ⚠ {cur.name}還有 {days.length - fresh} 天是舊設定（本機的 watch_prefs.py 沒有在跑？）
+          ⚠ 還有 {curAff.length - fresh + otherAff.length - otherFresh} 天是舊設定（本機的 watch_prefs.py 沒有在跑？）
           <button className="btn-link" onClick={() => { setStalled(false); lastChange.current = Date.now(); setWatching(true) }}>
             再檢查
           </button>
@@ -423,7 +460,7 @@ export default function MonthView() {
   return (
     <Panel
       title={title}
-      sub={`${days.length} 天、每 15 分鐘一點・藍＝實時運轉、橙虛線＝日前排程${before ? '、灰＝按下儲存之前' : ''}・淡色底為週末`}
+      sub={`${days.length} 天、每 15 分鐘一點・今天 ${md(today)}，只能調整隔日 ${md(next)}・藍＝實時運轉、橙虛線＝日前排程${before ? '、灰＝按下儲存之前' : ''}・淡色底為週末`}
       className="mt-16"
       right={
         <div className="month-ctl">
@@ -453,8 +490,9 @@ export default function MonthView() {
       />
       <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
         日前排程用前一晚的負載與發電量預測排電池；實時運轉每 15 分鐘從實際電量重新規劃、逐秒控制，
-        面對的是實際負載，所以兩者電費不同。電量一天接一天，所以改設定後本機從 1 號開始逐日重算
-        （7 月約 1 分鐘、1 月約 2 分鐘，兩個月同時算），這裡每 5 秒更新一次；還沒算到的日子長條較淡。
+        面對的是實際負載，所以兩者電費不同。使用者只能調整隔日；存下後本機從隔日起逐日重算那個月
+        （電量一天接一天，7 月約 25 秒、1 月約 1 分鐘），今天以前已經排好、跑過的不動。
+        這裡每 5 秒更新一次；還沒算到的日子長條較淡。
         滑鼠滾輪或下方拖曳條可以縮放，點每日長條直接放大那一天。
       </p>
     </Panel>

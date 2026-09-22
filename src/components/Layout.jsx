@@ -7,7 +7,7 @@ import { LOCATION } from '../lib/time.js'
 import { useTheme, toggleTheme } from '../lib/theme.js'
 import DemoBar from './DemoBar.jsx'
 import ErrorBoundary from './ErrorBoundary.jsx'
-import { useScenario, setSeason, SEASONS, scenarioDate, seasonOf } from '../lib/scenario.js'
+import { useScenario, setSeason, SEASONS, scenarioDate, seasonOf, nextDayOf } from '../lib/scenario.js'
 import { getDemo, stopDemo } from '../lib/demoClock.js'
 import { useAuth, logout } from '../lib/auth.js'
 
@@ -213,7 +213,8 @@ export default function Layout() {
           {offSeason && (
             <div className="scenario-note" role="note">
               <span>
-                {`🔁 目前展示${shown.label}情境：負載、太陽能與天氣換成資料集 ${shown.dataset}，`}
+                {`🔁 目前展示${shown.label}情境：負載、太陽能與天氣換成資料集 ${
+                  pathname === '/planning' ? `${nextDayOf(shown.key)}（隔日）` : shown.dataset}，`}
                 {`電價照${shown.label}的尖離峰時段計算；畫面上的日期與時鐘仍是今天。`}
               </span>
               <button className="scenario-back" onClick={() => setSeason(natural.key)}>

@@ -22,6 +22,17 @@ export const SEASONS = [
 
 export const seasonOf = (date) => (isSummer(date) ? 'summer' : 'non_summer')
 
+/**
+ * 某個情境可以調整的那一天（隔日）：展示日（今天）的下一天，資料集日期 'YYYY-MM-DD'。
+ * 使用者只能改隔日的可轉移設備；存下後隔日以後重新排程，今天以前已經排好、跑過的不動。
+ */
+export function nextDayOf(season) {
+  const s = SEASONS.find((x) => x.key === season) ?? SEASONS[0]
+  const [y, m, d] = s.dataset.split('-').map(Number)
+  const t = new Date(y, m - 1, d + 1)
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`
+}
+
 let state = { season: seasonOf(nowTaipei()) }
 const listeners = new Set()
 
