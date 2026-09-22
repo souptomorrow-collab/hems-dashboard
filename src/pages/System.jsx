@@ -189,7 +189,7 @@ export default function System() {
         </Panel>
       </div>
 
-      <Panel title="設備與運轉規則" sub="額定功率與可轉移設備的允許時段・設定在 src/lib/constants.js、src/lib/simulate.js" className="mt-16">
+      <Panel title="設備與運轉規則" sub="額定功率與可轉移設備的建議範圍（沒排的設備不開）・設定在 src/lib/constants.js、src/lib/simulate.js" className="mt-16">
         <div className="table-wrap" tabIndex={0} role="region" aria-label="設備與運轉規則表">
           <table className="history-table compact">
             <thead>
@@ -198,7 +198,7 @@ export default function System() {
                 <th>分類</th>
                 <th className="num">額定功率</th>
                 <th className="num">一次運轉</th>
-                <th>預設範圍（系統自動排）</th>
+                <th>建議範圍（照建議時系統在這裡面排）</th>
               </tr>
             </thead>
             <tbody>

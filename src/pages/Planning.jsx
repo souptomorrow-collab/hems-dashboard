@@ -13,8 +13,8 @@ import { refreshCached, fetchSchedules } from '../api/forecastData.js'
 import { PREFS_SAVED } from '../api/prefs.js'
 import { useDemoEnabled, getDemo, togglePlay } from '../lib/demoClock.js'
 import {
-  SHIFT_IDS, defaultCond, fromPrefs, toPrefs, condKey, estimate, rowsOf, startsFromRows, checkCond,
-  durOf, latestStart, hardOk, inDefault, nameOf, hm,
+  SHIFT_IDS, defaultCond, recommendCond, recCond, followsRec, fromPrefs, toPrefs, condKey, estimate, rowsOf,
+  startsFromRows, checkCond, durOf, latestStart, hardOk, inDefault, nameOf, hm,
 } from '../lib/deviceJobs.js'
 import { tomorrow, fmtDate, pad2 } from '../lib/format.js'
 import { useTheme } from '../lib/theme.js'
@@ -68,9 +68,12 @@ export default function Planning() {
   const { next: planDay } = useScenarioDays()
   const [cond, setCond] = useState(null) // 隔日各設備的條件（lib/deviceJobs.js）
   const [sent, setSent] = useState('') // 已送出（或雲端讀到）的條件，判斷有沒有改過
-  const loaded = useRef(null) // 載入時的 { cond, starts, source, plan }：「復原更改」與電費比較用
+  const loaded = useRef(null) // 載入時的 { cond, starts, source, plan, rec }：「復原更改」與電費比較用
   const [est, setEst] = useState(null) // 各設備預估幾點開（第幾格；不跑是 null）
   const [estSource, setEstSource] = useState('price') // schedule＝日前排程（MILP）、price＝依電價估
+  const [rec, setRec] = useState(null) // 建議時間：三台都照建議時各設備幾點開（第幾格）
+  const [recSource, setRecSource] = useState('price') // schedule＝日前排程另外算的 MILP 解、price＝依電價估
+  const [cmp, setCmp] = useState(null) // { recCost, diffs }：照建議排的電費、指定時間比建議時間多花多少
   const [sending, setSending] = useState(false)
   const [prefsMsg, setPrefsMsg] = useState('')
 
@@ -116,21 +119,28 @@ export default function Planning() {
       planStamp.current = p.planStamp
       let c = defaultCond()
       if (demoOn) {
-        const d = await loadPrefs(planDay) // 那天適用的條件（改過的會沿用到月底）
+        const d = await loadPrefs(planDay) // 那天的條件（只管那一天；沒排過用 devices，展示月的假設）
         if (!on) return
         c = fromPrefs(d.devices)
       }
       // 預估時間：展示模式有日前排程就用排程的（MILP 把設備和電池一起排）；平常模式或沒有排程時依電價估
       const fromPlan = demoOn && p.planSource !== 'sim'
       const starts = fromPlan ? startsFromRows(p.schedule) : estimate(c, p.price)
+      // 建議時間：展示模式用日前排程另外算的（三台都照建議的 MILP 解）；平常模式或沒有時依電價估
+      const recPlan = fromPlan && p.recommended?.start_slot
+      const recStarts = recPlan
+        ? Object.fromEntries(SHIFT_IDS.map((id) => [id, p.recommended.start_slot[id] ?? null]))
+        : estimate(recommendCond(), p.price)
       const rows = { ...p.schedule, ...rowsOf(starts) }
       const cur = fromPlan ? p : await recomputeSchedule(rows, planDay)
       if (!on) return
-      loaded.current = { cond: c, starts, source: fromPlan ? 'schedule' : 'price', plan: cur }
+      loaded.current = { cond: c, starts, source: fromPlan ? 'schedule' : 'price', plan: cur, rec: recStarts }
       setCond(c)
       setSent(condKey(c))
       setEst(starts)
       setEstSource(loaded.current.source)
+      setRec(recStarts)
+      setRecSource(recPlan ? 'schedule' : 'price')
       setSchedule(rows)
       setPlan(cur)
       setComputing(false)
@@ -138,12 +148,18 @@ export default function Planning() {
     return () => { on = false }
   }, [season, reload, planDay, demoOn])
 
-  /** 套用新的條件：條件沒變的設備沿用載入時的預估（展示模式是排程排的），改過的依電價估；再重算電費 */
+  /** 套用新的條件：條件沒變的設備沿用載入時的預估（展示模式是排程排的），照建議的用建議時間，
+      其他依電價估；再重算電費 */
   const apply = (c) => {
     const base = loaded.current
     if (!base || !schedule || !plan) return
     const same = (ids) => ids.every((id) => JSON.stringify(c[id]) === JSON.stringify(base.cond[id]))
     const starts = estimate(c, plan.price)
+    // 洗衣機、烘衣機有先後：兩台都照建議（或另一台不開）才直接用建議時間，否則照上面依電價估的
+    const pair = ['washer', 'dryer'].every((id) => followsRec(c, id) || c[id].mode === 'off')
+    for (const id of SHIFT_IDS) {
+      if (base.rec?.[id] != null && followsRec(c, id) && (id === 'dishwasher' || pair)) starts[id] = base.rec[id]
+    }
     if (same(['dishwasher'])) starts.dishwasher = base.starts.dishwasher
     if (same(['washer', 'dryer'])) Object.assign(starts, { washer: base.starts.washer, dryer: base.starts.dryer })
     const rows = { ...schedule, ...rowsOf(starts) }
@@ -157,13 +173,34 @@ export default function Planning() {
     else recomputeSchedule(rows, planDay).then((p) => p.season === getScenario().season && setPlan(p))
   }
   const change = (id, patch) => apply({ ...cond, [id]: { ...cond[id], ...patch } })
-  const allOff = () => apply(Object.fromEntries(SHIFT_IDS.map((id) => [id, { ...cond[id], mode: 'off' }])))
-  const allDefault = () => apply(defaultCond())
+  const allOff = () => apply(defaultCond())
+  const allRec = () => apply(recommendCond())
+  const follow = (id) => apply({ ...cond, [id]: recCond(id) })
   const undo = () => loaded.current && apply(loaded.current.cond)
   const dirty = Boolean(cond) && condKey(cond) !== sent
-  const problems = useMemo(() => (cond && plan ? checkCond(cond, plan.price) : []), [cond, plan])
+  const problems = useMemo(() => (cond ? checkCond(cond) : []), [cond])
 
-  /** 送出條件：本機排程程式從隔日起重排（今天以前不動），改的條件沿用到月底 */
+  // 照建議排的電費，以及指定時間的設備比建議時間多花多少。都用 recomputeSchedule 算，
+  // 和上面「預估電費」同一套算法（展示模式電池照原排程），比起來才公平
+  useEffect(() => {
+    if (!schedule || !cond || !rec || !planDay) return undefined
+    let on = true
+    const moved = SHIFT_IDS.filter((id) => cond[id].mode === 'fixed' && rec[id] != null && est?.[id] != null && est[id] !== rec[id])
+    ;(async () => {
+      const cur = await recomputeSchedule(schedule, planDay)
+      const all = await recomputeSchedule({ ...schedule, ...rowsOf(rec) }, planDay)
+      const diffs = {}
+      for (const id of moved) {
+        const alt = await recomputeSchedule({ ...schedule, [id]: rowsOf({ [id]: rec[id] })[id] }, planDay)
+        const d = +(cur.summary.optimizedCost - alt.summary.optimizedCost).toFixed(1)
+        diffs[id] = Math.abs(d) < 0.05 ? 0 : d
+      }
+      if (on) setCmp({ recCost: all.summary.optimizedCost, diffs })
+    })().catch(() => on && setCmp(null))
+    return () => { on = false }
+  }, [schedule, cond, rec, est, planDay])
+
+  /** 送出明天的排法：只管那一天；本機從隔日起重排（電量一天接一天，之後幾天也會變），今天以前不動 */
   const submit = async () => {
     if (!cond) return
     setSending(true)
@@ -171,7 +208,7 @@ export default function Planning() {
     setSending(false)
     if (r.saved === 'cloud') {
       setSent(condKey(cond))
-      setPrefsMsg(`已送出。本機排程程式從隔日（${md(planDay)}）起重排、今天以前不動，條件沿用到月底；最下方整月檢視看得到一天一天更新。`)
+      setPrefsMsg(`已送出。只排 ${md(planDay)} 這一天；本機排程程式重排 ${md(planDay)} 以後的日子（電量一天接一天）、今天以前不動，最下方整月檢視看得到一天一天更新。`)
     } else {
       setPrefsMsg(`沒有送出：${r.error ?? '未設定雲端金鑰'}`)
     }
@@ -365,7 +402,7 @@ export default function Planning() {
               ↺ 復原更改
             </button>
             <div className="dim" style={{ fontSize: 11, marginTop: 6 }}>
-              {dirty ? (demoOn ? '條件改過，還沒送出' : '條件改過') : (demoOn ? '目前是已送出的條件' : '目前是預設條件')}
+              {dirty ? (demoOn ? '條件改過，還沒送出' : '條件改過') : (demoOn ? '目前是已送出的條件' : '目前都還沒排')}
             </div>
           </div>
         </div>
@@ -396,6 +433,11 @@ export default function Planning() {
         cond={cond}
         est={est}
         estSource={estSource}
+        rec={rec}
+        recSource={recSource}
+        recCost={cmp?.recCost ?? null}
+        curCost={s?.optimizedCost ?? null}
+        diffs={cmp?.diffs}
         date={planDay}
         cloud={demoOn}
         dirty={dirty}
@@ -403,15 +445,16 @@ export default function Planning() {
         msg={prefsMsg}
         problems={problems}
         onChange={change}
+        onFollow={follow}
         onAllOff={allOff}
-        onAllDefault={allDefault}
+        onAllRec={allRec}
         onSubmit={submit}
       />
 
       {/* 設備運行時段甘特 */}
       <Panel
         title="各設備運行時段"
-        sub="可轉移設備：深藍＝指定時間、淺藍＝系統決定的預估；按住拖曳＝改成指定時間・隔日 24 小時，15 分鐘為單位"
+        sub="可轉移設備：深藍＝指定時間、淺藍＝系統決定的預估、斜線＝建議時間；按住拖曳＝改成指定時間・隔日 24 小時，15 分鐘為單位"
         right={
           <span className={`hint ${notice || dragHint ? 'plan-notice' : ''}`} role="status" aria-live="polite">
             {dragHint || notice || `✏️ 按住設備那一列拖曳＝指定時間（按在原本的運轉段上就整段拖著走）；放開後${
@@ -445,10 +488,10 @@ export default function Planning() {
                           {CATEGORY_LABEL[dev.category]}
                         </span>
                         {SHIFTABLE_RULES[dev.id] && (
-                          <div className="dev-window">預設 {SHIFTABLE_RULES[dev.id].text}</div>
+                          <div className="dev-window">建議 {SHIFTABLE_RULES[dev.id].text}</div>
                         )}
                         {dev.category === 'shiftable' && (() => {
-                          const st = deviceStatus(cond?.[dev.id], est?.[dev.id])
+                          const st = deviceStatus(cond, dev.id, est?.[dev.id])
                           return <div className={`dev-window status-${st.tone}`}>{st.text}</div>
                         })()}
                       </td>
@@ -463,13 +506,17 @@ export default function Planning() {
                         if (peak) cls.push('peak-bg')
                         if (shownOn) cls.push('on', shiftable ? 'shiftable' : 'fixed')
                         if (shownOn && shiftable && !dragging && cond?.[dev.id]?.mode === 'auto') cls.push('est')
+                        const r = shiftable ? rec?.[dev.id] : null
+                        const inRec = r != null && slot >= r && slot < r + durOf(dev.id)
+                        if (inRec && !shownOn) cls.push('rec')
                         if (shiftable) cls.push('editable')
                         if (inDrag) cls.push('painting')
                         if (shiftable && !hardOk(dev.id, slot)) cls.push('blocked')
                         else if (shiftable && !inDefault(dev.id, slot)) cls.push('outside')
                         const note = !shiftable ? ''
                           : !hardOk(dev.id, slot) ? '（22:00 以後不能運轉）'
-                          : !inDefault(dev.id, slot) ? '（預設範圍外，可以指定）'
+                          : !inDefault(dev.id, slot) ? '（建議範圍外，可以指定）'
+                          : inRec ? '（建議時間；按住拖曳＝指定時間）'
                           : '（按住拖曳＝指定時間）'
                         return (
                           <td
@@ -492,7 +539,8 @@ export default function Planning() {
               <span className="item"><span className="swatch est-swatch" /> 可轉移設備（系統決定・預估）</span>
               <span className="item"><span className="swatch" style={{ background: '#a855f7' }} /> 不可轉移設備運轉</span>
               <span className="item"><span className="swatch" style={{ background: 'rgba(239,68,68,0.18)' }} /> 尖峰時段</span>
-              <span className="item"><span className="swatch outside-swatch" /> 預設範圍外（可以指定）</span>
+              <span className="item"><span className="swatch rec-swatch" /> 建議時間（沒排在這裡時）</span>
+              <span className="item"><span className="swatch outside-swatch" /> 建議範圍外（可以指定）</span>
               <span className="item"><span className="swatch blocked-swatch" /> 烘衣機 22:00 後不能運轉</span>
             </div>
           </>

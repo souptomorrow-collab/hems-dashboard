@@ -27,7 +27,7 @@ import { dayRecord } from '../lib/dayRecord.js'
 import { useIsAdmin } from '../lib/auth.js'
 import { SHIFTABLE_RULES } from '../lib/simulate.js'
 
-/** 可轉移設備預設範圍以外的時段（小時區間）：系統自動排時不會用到，使用者可以自己指定 */
+/** 可轉移設備建議範圍以外的時段（小時區間）：照建議時不會用到，使用者可以自己指定 */
 function blockedHours(id) {
   const wins = [...(SHIFTABLE_RULES[id]?.windows ?? [[0, 24]])].sort((x, y) => x[0] - y[0])
   const out = []
@@ -502,7 +502,7 @@ function Timeline({ runs, tier }) {
       </div>
       <div className="tl-legend">
         <span><i className="tl-peak-swatch" />尖峰時段</span>
-        <span><i className="tl-blocked-swatch" />預設範圍外（系統自動排不會用到）</span>
+        <span><i className="tl-blocked-swatch" />建議範圍外（照建議時不會用到）</span>
       </div>
     </div>
   )

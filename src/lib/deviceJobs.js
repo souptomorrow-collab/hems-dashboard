@@ -1,57 +1,71 @@
-/* 可轉移設備的條件（2026-09-23 定案：滾動決定、開機才定案；和 device_plan/scripts/plan_devices.py 同一套規則）
+/* 可轉移設備的條件（2026-09-23 定案：滾動決定、開機才定案；沒排就不開、只排明天；
+   和 device_plan/scripts/plan_devices.py 同一套規則）
 
-   使用者對每台設備設的是條件，不是時間：
-     auto   系統決定：在「最早開始～最晚完成」內由排程挑開機時間；沒改就是預設範圍，可以超出預設範圍
+   使用者只排明天：沒排的設備明天不開，後天要用再排。每台三種：
+     auto   系統決定：在「最早開始～最晚完成」內由排程挑開機時間；範圍沒改＝照建議（建議範圍），
+            可以超出建議範圍
      fixed  指定時間：從指定的時刻開始連續跑完；那一次當一般負載，系統不挪
-     off    不跑：那天不運轉
+     off    不開：沒排就是這個
    硬性限制（指定時間也要守）：烘衣機 22:00 前跑完、要等洗衣機跑完才開。
-   每台一天跑一次，以日曆日為單位；洗碗機預設 19:00～07:00＝同一天的 00:00～07:00 或 19:00～24:00。
+   每台一天跑一次，以日曆日為單位；洗碗機建議 19:00～07:00＝同一天的 00:00～07:00 或 19:00～24:00。
 
-   幾點開：展示模式由日前排程（排程組 MILP，設備和電池一起排）先排出預估時間，
-   當天實時層每 15 分鐘用最新預測重排，排到「現在開」才開機。
-   平常模式、或改了條件還沒送出時，這裡依電價估一個最便宜的時間（不看太陽能與電池）。 */
+   建議時間：三台都照建議時最省的開機時間。展示模式是日前排程另外算的（排程組 MILP，設備和電池一起排），
+   頁面三給使用者參考、一鍵照建議排；平常模式依電價估（不看太陽能與電池）。
+   幾點開：展示模式由日前排程先排出預估時間，當天實時層每 15 分鐘用最新預測重排，排到「現在開」才開機。
+   平常模式、或改了條件還沒送出時，這裡依電價估一個最便宜的時間。 */
 import { DEVICES, SLOTS_PER_DAY } from './constants.js'
 import { SHIFTABLE_RULES } from './simulate.js'
 
 export const SHIFT_IDS = ['washer', 'dryer', 'dishwasher']
 /** 硬性限制：最晚要在第幾格前跑完（烘衣機 22:00）。和資料庫 meta.devices 的 hard_end 相同 */
 export const HARD_END = { dryer: 88 }
-/** 預設範圍（最早開始, 最晚完成）。和 meta.devices 的 window 相同 */
+/** 建議範圍（最早開始, 最晚完成）：照建議時系統在這裡面挑開機時間。和 meta.devices 的 window 相同 */
 export const DEFAULT_RANGE = { washer: ['06:00', '22:00'], dryer: ['06:00', '22:00'], dishwasher: ['19:00', '07:00'] }
 
 export const nameOf = (id) => DEVICES.find((d) => d.id === id)?.name ?? id
 export const durOf = (id) => SHIFTABLE_RULES[id].dur
-const kwOf = (id) => (DEVICES.find((d) => d.id === id)?.ratedW ?? 0) / 1000
 export const slotOf = (hhmm) => Number(hhmm.slice(0, 2)) * 4 + Number(hhmm.slice(3)) / 15
 export const hm = (slot) =>
   `${String(Math.floor(slot / 4)).padStart(2, '0')}:${String((slot % 4) * 15).padStart(2, '0')}`
 
-/** 沒有任何設定＝三台都由系統在預設範圍內決定 */
+/** 一台照建議的條件：系統在建議範圍內決定 */
+const followRec = (id) => ({ mode: 'auto', earliest: DEFAULT_RANGE[id][0], deadline: DEFAULT_RANGE[id][1], start: null })
+
+/** 沒排＝三台都不開（範圍先放建議範圍，改成系統決定時從這裡開始） */
 export function defaultCond() {
-  return Object.fromEntries(SHIFT_IDS.map((id) => [id, {
-    mode: 'auto', earliest: DEFAULT_RANGE[id][0], deadline: DEFAULT_RANGE[id][1], start: null,
-  }]))
+  return Object.fromEntries(SHIFT_IDS.map((id) => [id, { ...followRec(id), mode: 'off' }]))
 }
 
-/** API 的格式（GET /prefs 的 devices）→ 條件 */
+/** 三台都照建議 */
+export const recommendCond = () => Object.fromEntries(SHIFT_IDS.map((id) => [id, followRec(id)]))
+
+/** 這台是不是照建議（系統決定、範圍是建議範圍） */
+export const followsRec = (cond, id) =>
+  cond?.[id]?.mode === 'auto' && cond[id].earliest === DEFAULT_RANGE[id][0] && cond[id].deadline === DEFAULT_RANGE[id][1]
+/** 一台照建議的條件（「照建議」按鈕用） */
+export const recCond = followRec
+
+/** API 的格式（GET /prefs 的 devices）→ 條件。沒列出的設備＝沒排（不開） */
 export function fromPrefs(devices) {
   const c = defaultCond()
   for (const id of SHIFT_IDS) {
     const p = devices?.[id]
-    if (!p) continue
+    if (!p || p.enabled === false) continue
+    c[id].mode = 'auto'
     if (p.earliest) c[id].earliest = p.earliest
     if (p.deadline) c[id].deadline = p.deadline
-    if (p.enabled === false) c[id].mode = 'off'
-    else if (p.slots?.length) Object.assign(c[id], { mode: 'fixed', start: slotOf(p.slots[0][0]) })
+    if (p.slots?.length) Object.assign(c[id], { mode: 'fixed', start: slotOf(p.slots[0][0]) })
   }
   return c
 }
 
-/** 條件 → API 的格式（POST /prefs）。範圍和預設相同就不送；指定時間只送一段 */
+/** 條件 → API 的格式（POST /prefs）。三台都送（不開的送 enabled false，整份都不開也送得出去）；
+    範圍和建議範圍相同就不送；指定時間只送一段 */
 export function toPrefs(cond) {
   return Object.fromEntries(SHIFT_IDS.map((id) => {
     const c = cond[id]
-    const out = { enabled: c.mode !== 'off' }
+    if (c.mode === 'off') return [id, { enabled: false }]
+    const out = { enabled: true }
     if (c.earliest !== DEFAULT_RANGE[id][0]) out.earliest = c.earliest
     if (c.deadline !== DEFAULT_RANGE[id][1]) out.deadline = c.deadline
     if (c.mode === 'fixed') out.slots = [[hm(c.start), hm(c.start + durOf(id))]]
@@ -80,7 +94,7 @@ export function startsOf(id, c) {
   return [...out].sort((a, b) => a - b)
 }
 
-/** 第 slot 格在不在預設範圍內（預設範圍外的格子畫淡一點，仍然可以排） */
+/** 第 slot 格在不在建議範圍內（建議範圍外的格子畫淡一點，仍然可以排） */
 export const inDefault = (id, slot) =>
   rangesOf(...DEFAULT_RANGE[id]).some(([a, b]) => slot >= a && slot < b)
 /** 指定時間最晚可以從第幾格開始（一天內跑完；烘衣機 22:00 前跑完） */
@@ -144,12 +158,11 @@ export function startsFromRows(rows) {
   }))
 }
 
-/** 條件的問題。error 擋送出（這樣跑不起來）；warn 提醒（可能是故意的：超出預設範圍、尖峰電價）
-    price：那天 96 格的電價，算指定在尖峰時多花多少 */
-export function checkCond(cond, price) {
+/** 條件的問題。error 擋送出（這樣跑不起來）；warn 提醒（可能是故意的：超出建議範圍）。
+    指定時間比建議時間多花多少，由頁面三另外算（lib/simulate.js，和預估電費同一套算法） */
+export function checkCond(cond) {
   const out = []
   const add = (devId, level, text) => out.push({ devId, level, text })
-  const minP = price ? Math.min(...price) : 0
   for (const id of SHIFT_IDS) {
     const c = cond[id]
     const n = durOf(id)
@@ -161,19 +174,14 @@ export function checkCond(cond, price) {
         for (let s = a; s < b; s++) if (!inDefault(id, s)) return true
         return false
       })) {
-        add(id, 'warn', `範圍超出預設（${SHIFTABLE_RULES[id].text}），系統可能排在預設範圍外`)
+        add(id, 'warn', `範圍超出建議範圍（${SHIFTABLE_RULES[id].text}），系統可能排在建議範圍外`)
       }
     } else if (c.mode === 'fixed') {
       const s = c.start
       if (s + n > (HARD_END[id] ?? SLOTS_PER_DAY)) add(id, 'error', `要在 ${hm(HARD_END[id])} 前跑完`)
       let outside = false
-      let extra = 0
-      for (let k = 0; k < n; k++) {
-        if (!inDefault(id, s + k)) outside = true
-        if (price) extra += (price[s + k] - minP) * kwOf(id) * 0.25
-      }
-      if (outside) add(id, 'warn', `不在預設範圍（${SHIFTABLE_RULES[id].text}）`)
-      if (extra >= 0.05) add(id, 'warn', `尖峰電價，這次約多花 ${extra.toFixed(1)} 元（和當天最便宜的時段比）`)
+      for (let k = 0; k < n; k++) if (!inDefault(id, s + k)) outside = true
+      if (outside) add(id, 'warn', `不在建議範圍（${SHIFTABLE_RULES[id].text}）`)
     }
   }
   // 先後：烘衣機要等洗衣機跑完

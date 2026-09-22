@@ -10,10 +10,12 @@
    設備代號一律用英文（washer／dryer／dishwasher）：Vercel 轉發 POST 內容時會弄壞 UTF-8，
    中文鍵值傳不過來。中文名稱由 GET /prefs 的 names 欄位提供。
 
-   流程（2026-09-23 定案：滾動決定、開機才定案）：使用者設的是條件，幾點開由排程決定
-     {"washer": {"enabled": true, "deadline": "18:00"}, "dryer": {"enabled": false},
+   流程（2026-09-23 定案：滾動決定、開機才定案；沒排就不開、只排明天）：
+   使用者設的是條件，幾點開由排程決定
+     {"washer": {"enabled": true}, "dryer": {"enabled": false},
       "dishwasher": {"enabled": true, "slots": [["20:00", "21:00"]]}}
-   earliest／deadline＝最早開始、最晚完成（沒給用預設範圍）；slots＝指定時間；enabled false＝那天不跑。
+   enabled true 且沒給範圍＝照建議；earliest／deadline＝最早開始、最晚完成；slots＝指定時間；
+   enabled false 或沒列出＝那天不開。排的只管那一天（by_date.<隔日>），後天要用再排。
    日前排程先排出預估時間，實時層每 15 分鐘重排，排到「現在開」才開機。條件的換算見 lib/deviceJobs.js。 */
 
 const ENV = import.meta.env ?? {}
@@ -23,6 +25,8 @@ const LOCAL = 'hems-device-prefs'
 const TIMEOUT_MS = 8000
 
 export const DEVICE_IDS = ['washer', 'dryer', 'dishwasher']
+/** 讀不到雲端也沒有本機紀錄時（只有展示模式會讀設定）：用展示月的假設「這位客戶每天都照建議排三台」，
+    和資料庫的 devices、快照裡的排程一致。沒列出的設備才是沒排（不開） */
 export const DEFAULT_PREFS = Object.fromEntries(DEVICE_IDS.map((id) => [id, { enabled: true }]))
 
 const hhmm = (slot) => `${String(Math.floor(slot / 4)).padStart(2, '0')}:${String((slot % 4) * 15).padStart(2, '0')}`
@@ -90,9 +94,9 @@ async function call(path, init) {
     整月檢視收到就開始追蹤本機重算的進度 */
 export const PREFS_SAVED = 'hems:prefs-saved'
 
-/** 目前的設定。date 給資料集日期就是那天適用的條件（用電規劃頁給隔日；改過的條件沿用到月底）。
+/** 目前的設定。date 給資料集日期就是那天的條件（用電規劃頁給隔日；只管那一天，那天沒排過就是 devices）。
     回傳 { devices, from, source: 'cloud' | 'local' | 'default', updatedAt, stamp, changedFrom }
-    devices：各設備的條件（沒列出的＝預設）；from：那天的條件是哪天改的（null＝原本的設定）
+    devices：各設備的條件（沒列出的＝不開）；from：那天是使用者排的就是那天（null＝用 devices，展示月的假設）
     stamp 是設定的版本，和排程、實時運轉每天記的 prefs_stamp 同格式；
     changedFrom 是最近一次改的是哪天起（null＝原本的設定整個換掉，兩個月整月重排） */
 export async function loadPrefs(date = null) {
@@ -113,7 +117,7 @@ export async function loadPrefs(date = null) {
   return local ? { ...none, devices: local, source: 'local' } : { ...none, devices: DEFAULT_PREFS, source: 'default' }
 }
 
-/** 儲存設定。from＝從哪天起生效（使用者只能改隔日，給隔日的資料集日期）。
+/** 儲存設定。from＝排哪一天（使用者只能排隔日，給隔日的資料集日期；只管那一天）。
     一律先存這台裝置，再試著寫回雲端。回傳 { saved: 'cloud' | 'local', error, stamp, from } */
 export async function savePrefs(devices, from = null) {
   writeLocal(devices)

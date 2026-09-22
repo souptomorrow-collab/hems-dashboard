@@ -1925,3 +1925,18 @@ body {
 .dev-window.status-auto { color: var(--accent); }
 .dev-window.status-fixed { color: var(--text); font-weight: 600; }
 .dev-window.status-off { color: var(--text-muted); }
+
+/* 建議時間：三台都照建議時最省的開機時間（頁面三的方塊與甘特圖斜線） */
+.rec-box { margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg-panel-2); font-size: 13px; }
+.rec-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.rec-head .dim { font-size: 12px; }
+.rec-list { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 6px; font-variant-numeric: tabular-nums; }
+.rec-cost { margin-top: 6px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.rec-cost b { color: var(--text); }
+.btn.follow-btn { padding: 1px 10px; font-size: 12px; margin-left: 8px; }
+.prefs-rule .btn-link { margin-left: 6px; }
+.gantt .cell.rec, .legend .swatch.rec-swatch {
+  background-image: repeating-linear-gradient(135deg, color-mix(in srgb, #3b82f6 55%, transparent) 0 2px, transparent 2px 5px);
+}
+.legend .swatch.rec-swatch { border: 1px solid color-mix(in srgb, #3b82f6 55%, transparent); }

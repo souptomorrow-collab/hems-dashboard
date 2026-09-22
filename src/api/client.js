@@ -422,6 +422,8 @@ export async function fetchPlanning(day = nextDayOf(getScenario().season)) {
   return {
     ...simulateDay(date, weather ?? simulateWeather(date), fixed, pv, plan, routineFor(date)),
     season, planDay: day, planStamp: plan?.prefs_stamp ?? null,
+    // 建議時間：三台都照建議時 MILP 挑的開機格子與電費（日前排程另外算的；沒有排程就是 null）
+    recommended: plan?.recommended ?? null,
   }
 }
 

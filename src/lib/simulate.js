@@ -104,7 +104,7 @@ function devicePowerWhenOn(dev, slot, weather) {
 
 /* 可轉移設備的運轉條件（和資料庫 meta.devices 相同）
    dur      一次運轉幾格（15 分鐘一格），開了就連續跑完
-   windows  預設範圍 [起, 迄)（小時）：使用者沒設條件時，系統在這裡面挑開機時間；使用者可以設別的範圍或指定時間
+   windows  建議範圍 [起, 迄)（小時）：照建議時，系統在這裡面挑開機時間；使用者可以設別的範圍或指定時間
    after    要等哪一台跑完才能開始
    烘衣機另有硬性限制：22:00 前跑完（lib/deviceJobs.js 的 HARD_END），使用者指定也不能超過。
    洗衣機、烘衣機避開深夜（運轉聲會吵到鄰居），烘衣機得等洗衣機洗完；
@@ -116,7 +116,7 @@ export const SHIFTABLE_RULES = {
   dishwasher: { dur: 4, windows: [[0, 7], [19, 24]], text: '00:00–07:00、19:00–24:00' },
 }
 
-/** 第 slot 格是否在該設備的預設範圍內（沒有規則的設備一律算在內）；平常模式的模擬排程用 */
+/** 第 slot 格是否在該設備的建議範圍內（沒有規則的設備一律算在內）；平常模式的模擬排程用 */
 export function isAllowedSlot(devId, slot) {
   const rule = SHIFTABLE_RULES[devId]
   if (!rule) return true
