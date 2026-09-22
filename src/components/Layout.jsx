@@ -7,7 +7,7 @@ import { LOCATION } from '../lib/time.js'
 import { useTheme, toggleTheme } from '../lib/theme.js'
 import DemoBar from './DemoBar.jsx'
 import ErrorBoundary from './ErrorBoundary.jsx'
-import { useScenario, setSeason, SEASONS, scenarioDate, seasonOf, nextDayOf } from '../lib/scenario.js'
+import { useScenario, setSeason, SEASONS, scenarioNow, seasonOf, nextDayOf, todayOf } from '../lib/scenario.js'
 import { getDemo, stopDemo } from '../lib/demoClock.js'
 import { useAuth, logout } from '../lib/auth.js'
 
@@ -20,7 +20,8 @@ const NAV = [
   { to: '/system', label: '系統資訊', icon: '⚙️', end: false, admin: true },
 ]
 
-const DEMO_PAGES = new Set(['/', '/loads'])
+// 展示模式：主頁面、各負載有加速播放；用電規劃只有開關（隔日規劃不看今天播到哪），開了顯示整月
+const DEMO_PAGES = new Set(['/', '/loads', '/planning'])
 // 夏月／非夏月情境只影響「今天／明天」這幾頁；歷史紀錄照每一天的實際日期
 const SEASON_PAGES = new Set(['/', '/loads', '/planning'])
 
@@ -54,7 +55,7 @@ export default function Layout() {
   // 情境切換與展示模式是給管理員展示用的；住戶一律看今天實際的季節
   const scenarioPage = admin && SEASON_PAGES.has(pathname)
   // 情境頁的電價徽章跟著情境走（非夏月情境下，九月的今天也照非夏月的尖離峰顯示）
-  const tier = getCurrentTier(scenarioPage ? scenarioDate(now, season) : now)
+  const tier = getCurrentTier(scenarioPage ? scenarioNow(now, season) : now)
   const summer = isSummer(now)
   // 展示的情境和今天實際的季節不同時（例如九月切到非夏月），頁首下方說明一下，免得看的人搞混
   const shown = SEASONS.find((s) => s.key === season)
@@ -214,7 +215,7 @@ export default function Layout() {
             <div className="scenario-note" role="note">
               <span>
                 {`🔁 目前展示${shown.label}情境：負載、太陽能與天氣換成資料集 ${
-                  pathname === '/planning' ? `${nextDayOf(shown.key)}（隔日）` : shown.dataset}，`}
+                  pathname === '/planning' ? `${nextDayOf(shown.key)}（隔日）` : todayOf(shown.key)}，`}
                 {`電價照${shown.label}的尖離峰時段計算；畫面上的日期與時鐘仍是今天。`}
               </span>
               <button className="scenario-back" onClick={() => setSeason(natural.key)}>
@@ -222,7 +223,7 @@ export default function Layout() {
               </button>
             </div>
           )}
-          {admin && DEMO_PAGES.has(pathname) && <DemoBar />}
+          {admin && DEMO_PAGES.has(pathname) && <DemoBar monthOnly={pathname === '/planning'} />}
           <ErrorBoundary key={pathname}>
             <Outlet />
           </ErrorBoundary>

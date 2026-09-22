@@ -10,7 +10,9 @@ import DevicePrefs from '../components/DevicePrefs.jsx'
 import MonthView from '../components/MonthView.jsx'
 import { toRow } from '../api/prefs.js'
 import { useScenario, getScenario, SEASONS, nextDayOf } from '../lib/scenario.js'
-import { SCHEDULES_REFRESHED } from '../api/forecastData.js'
+import { refreshCached, fetchSchedules } from '../api/forecastData.js'
+import { PREFS_SAVED } from '../api/prefs.js'
+import { useDemoEnabled } from '../lib/demoClock.js'
 import { tomorrow, fmtDate, pad2 } from '../lib/format.js'
 import { useTheme } from '../lib/theme.js'
 import { useIsAdmin } from '../lib/auth.js'
@@ -37,6 +39,10 @@ const OBJECTIVE = {
   descPlan: '電池在離峰與太陽能充足時充電、尖峰時放電，電費最低',
 }
 const HOURS = Array.from({ length: 24 }, (_, h) => h)
+const parseDay = (s) => {
+  const [y, m, d] = s.split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
 
 export default function Planning() {
   const theme = useTheme() // 主題一換，下面的圖表 option 就會重算
@@ -56,19 +62,33 @@ export default function Planning() {
   }, [notice])
   const planDate = useMemo(() => tomorrow(), [])
   const { season } = useScenario()
-  const planDay = nextDayOf(season) // 資料集的隔日（夏月 2010-07-20、非夏月 2010-01-12）
+  const demoOn = useDemoEnabled() // 展示模式＝展示月（今天是展示日）；沒開＝照真實日期
+  const planDay = nextDayOf(season, demoOn) // 資料集的隔日（展示模式下是 2010-07-20、2010-01-12）
   const [reload, setReload] = useState(0)
   const planStamp = useRef(null)
+  const [awaiting, setAwaiting] = useState(null) // 存下新時段後，等本機把隔日照這一版設定重排
 
-  // 存下新時段後，本機會先重排隔日。整月檢視每 5 秒重讀排程，隔日那份換成新設定就重新載入這頁的規劃
+  // 存下新時段後本機會先重排隔日：每 5 秒重讀排程，隔日那份換成新設定就重新載入這頁的規劃
   useEffect(() => {
-    const onRefresh = (e) => {
-      const s = e.detail?.byDate?.[planDay]?.prefs_stamp ?? null
-      if (s && s !== planStamp.current) setReload((n) => n + 1)
+    const onSaved = (e) => e.detail?.stamp && setAwaiting(e.detail.stamp)
+    window.addEventListener(PREFS_SAVED, onSaved)
+    return () => window.removeEventListener(PREFS_SAVED, onSaved)
+  }, [])
+  useEffect(() => {
+    if (!awaiting) return undefined
+    let on = true
+    const t0 = Date.now()
+    const tick = async () => {
+      if (Date.now() - t0 > 3 * 60 * 1000) { setAwaiting(null); return } // 3 分鐘沒動靜就不等了
+      const s = await refreshCached('schedule', fetchSchedules).catch(() => null)
+      if (!on || s?.byDate?.[planDay]?.prefs_stamp !== awaiting) return
+      setAwaiting(null)
+      setReload((n) => n + 1)
     }
-    window.addEventListener(SCHEDULES_REFRESHED, onRefresh)
-    return () => window.removeEventListener(SCHEDULES_REFRESHED, onRefresh)
-  }, [planDay])
+    const id = setInterval(tick, 5000)
+    tick()
+    return () => { on = false; clearInterval(id) }
+  }, [awaiting, planDay])
 
   // 進頁面即取得隔日的最佳化排程；切換夏月／非夏月情境時重新規劃，手動調整一併清掉
   useEffect(() => {
@@ -84,7 +104,7 @@ export default function Planning() {
       setComputing(false)
     })
     return () => { on = false }
-  }, [season, reload])
+  }, [season, reload, planDay])
 
   // 還原成演算法給的最佳排程（捨棄手動調整）。
   // 原本這顆是「重新計算最佳化」：重跑同一套固定的模擬、結果完全一樣，
@@ -343,7 +363,10 @@ export default function Planning() {
             <div className="muted" style={{ fontSize: 12 }}>
               規劃日（隔日）・{SEASONS.find((x) => x.key === season)?.label}電價
             </div>
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>{fmtDate(planDate)}</div>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>
+              {demoOn ? `${fmtDate(parseDay(planDay))}・展示月` : fmtDate(planDate)}
+            </div>
+            {awaiting && <div className="hint" role="status" style={{ marginBottom: 8 }}>⏳ 本機正在照新設定重排隔日…</div>}
             <button
               className="btn primary"
               onClick={restore}
@@ -383,6 +406,7 @@ export default function Planning() {
       <DevicePrefs
         schedule={schedule}
         date={planDay}
+        monthView={demoOn}
         onClear={clearDevice}
         onLoaded={onPrefsLoaded}
         onSaved={(devices) => { savedRef.current = devices }}
@@ -472,8 +496,8 @@ export default function Planning() {
         )}
       </Panel>
 
-      {/* 兩個展示月整月的日前排程與實時運轉；存下新時段後看得到它一天一天換成新設定 */}
-      <MonthView />
+      {/* 展示模式才顯示整個展示月的日前排程與實時運轉；存下新時段後看得到隔日以後一天一天換成新設定 */}
+      {demoOn && <MonthView />}
     </>
   )
 }

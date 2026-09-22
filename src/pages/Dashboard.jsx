@@ -4,6 +4,7 @@ import StatCard from '../components/StatCard.jsx'
 import EChart from '../components/EChart.jsx'
 import EnergyFlow from '../components/EnergyFlow.jsx'
 import SecondReplay from '../components/SecondReplay.jsx'
+import MonthView from '../components/MonthView.jsx'
 import WeatherStrip from '../components/WeatherStrip.jsx'
 import { fetchLive, fetchToday, fetchShowcase } from '../api/client.js'
 import { COLORS, BATTERY, SLOT_HOURS, slotToTime } from '../lib/constants.js'
@@ -122,7 +123,7 @@ export default function Dashboard() {
     let on = true
     fetchShowcase().then((d) => on && setShow(d))
     return () => { on = false }
-  }, [season])
+  }, [season, demo.enabled])
 
   // ---- 主圖：今日功率總覽 ----
   /* ------------------------------------------------------------
@@ -196,17 +197,17 @@ export default function Dashboard() {
           lineStyle: { width: 2, color: COLORS.solar },
           areaStyle: { color: 'rgba(255,176,32,0.18)' },
           markArea: peakMarkArea(d.tier),
-          // 展示模式下標出「現在播到哪」，一天 96 格的進度一眼可見
-          markLine: showPlayhead && demo.enabled
+          // 標出現在的時刻（展示模式下是播到哪），一天 96 格的進度一眼可見
+          markLine: showPlayhead
             ? {
                 silent: true,
                 symbol: 'none',
                 label: {
-                  formatter: slotToTime(demo.slot),
+                  formatter: `${demo.enabled ? '' : '現在 '}${slotToTime(curSlot)}`,
                   rotate: 0,
                   position: 'end',
                   distance: 4,
-                  align: edgeAlign(demo.slot),
+                  align: edgeAlign(curSlot),
                   color: TEXT_MAIN,
                   fontSize: 11,
                   fontWeight: 700,
@@ -217,7 +218,7 @@ export default function Dashboard() {
                   padding: [3, 6],
                 },
                 lineStyle: { color: COLORS.save, width: 1.5, type: 'solid' },
-                data: [{ xAxis: demo.slot }],
+                data: [{ xAxis: curSlot }],
               }
             : undefined,
         },
@@ -281,7 +282,7 @@ export default function Dashboard() {
   )
   const dayPlanOption = useMemo(
     () => (dayPlan ? dayOption(dayPlan, null, true, planAxis(), true) : {}),
-    [dayPlan, theme, demo.enabled, demo.slot]
+    [dayPlan, theme, demo.enabled, curSlot]
   )
 
   /* ------------------------------------------------------------
@@ -587,6 +588,9 @@ export default function Dashboard() {
       <div className="mt-16">
         <SecondReplay />
       </div>
+
+      {/* 展示模式才顯示整個展示月；平常照真實時間，只看今天 */}
+      {demo.enabled && <MonthView />}
 
       {/* 今日全天計畫：前一晚排好、整天不變；和上面那張刻意分開，避免把「已發生」和「還沒發生」混為一談 */}
       <Panel

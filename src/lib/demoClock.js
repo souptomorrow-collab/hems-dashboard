@@ -120,3 +120,10 @@ function subscribe(fn) {
 export function useDemoClock() {
   return useSyncExternalStore(subscribe, getDemo, getDemo)
 }
+
+const enabledOf = () => state.enabled
+
+/** 只關心展示模式開或關（播放中每前進一格不必重畫整頁） */
+export function useDemoEnabled() {
+  return useSyncExternalStore(subscribe, enabledOf, enabledOf)
+}

@@ -22,7 +22,7 @@ const mins = (t) => (t === '24:00' ? 1440 : Number(t.slice(0, 2)) * 60 + Number(
 
 const md = (date) => (date ? `${+date.slice(5, 7)}/${+date.slice(8, 10)}` : '')
 
-export default function DevicePrefs({ schedule, date, onClear, onLoaded, onSaved }) {
+export default function DevicePrefs({ schedule, date, monthView = false, onClear, onLoaded, onSaved }) {
   const [meta, setMeta] = useState({ source: 'default', updatedAt: null })
   const [state, setState] = useState({ busy: false, msg: '' })
   const [armed, setArmed] = useState(false)      // 有問題時要按第二次才真的存
@@ -68,7 +68,8 @@ export default function DevicePrefs({ schedule, date, onClear, onLoaded, onSaved
     setState({
       busy: false,
       msg: r.saved === 'cloud'
-        ? `已存到雲端。本機排程程式會從隔日（${md(date)}）起重排，今天以前不動；頁面最下方「整月排程與實時運轉」看得到一天一天換成新設定`
+        ? `已存到雲端。本機排程程式會從隔日（${md(date)}）起重排，今天以前不動；`
+          + (monthView ? '頁面最下方「整月排程與實時運轉」看得到一天一天換成新設定' : '隔日重排好後這頁會自動更新')
         : `只存在這台裝置${r.error ? `（雲端寫入失敗：${r.error}）` : '（未設定雲端金鑰）'}`,
     })
     setArmed(false)

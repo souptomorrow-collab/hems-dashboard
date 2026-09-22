@@ -33,7 +33,7 @@ import { nowTaipei } from '../lib/time.js'
 import { simulateWeather, weatherFromEra5 } from '../lib/weather.js'
 import { fetchDayAheadForecast, fetchWeatherData, fetchSchedules, cached, getJson } from './forecastData.js'
 import { isSummer } from '../lib/tou.js'
-import { getScenario, scenarioDate, nextDayOf } from '../lib/scenario.js'
+import { getScenario, nextDayOf, todayOf, scenarioNow, SEASONS } from '../lib/scenario.js'
 import { DEVICES } from '../lib/constants.js'
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms))
@@ -109,6 +109,11 @@ function showcase(season) {
   return cached(`day-ahead-forecast:${season}`, () => fetchDayAheadForecast(season))
 }
 
+/** 資料集某一天的原始資料：展示日讀展示日快照（API 掛掉時也有），其他日子從歷史紀錄組 */
+function dayData(season, day) {
+  return day === SEASONS.find((s) => s.key === season)?.dataset ? showcase(season) : historyDay(day)
+}
+
 /* ------------------------------------------------------------
    天氣：weather.json 以資料集日期為鍵，轉換結果記起來重複用
    ------------------------------------------------------------ */
@@ -168,14 +173,14 @@ async function historyDay(dateStr) {
 
 /**
  * 目前情境的輸入：不可轉移負載（96 格）、太陽能（96 格）、天氣。
- * day 不給是展示日（今天），給資料集日期就是那一天（用電規劃頁的隔日）。
+ * day 不給是今天（todayOf：展示模式＝展示日，沒開＝照真實日期），給資料集日期就是那一天（用電規劃頁的隔日）。
  * 讀不到快照時三者都回 null，各函式自動改用模擬值。
  */
 async function scenarioInputs(atSlot = null, day = null) {
   const season = getScenario().season
   let d
   try {
-    d = day ? await historyDay(day) : await showcase(season)
+    d = await dayData(season, day ?? todayOf(season))
   } catch (e) {
     lastForecastMeta = { source: 'sim', refresh: null, datasetDate: null, error: e.message }
     lastPvMeta = { source: 'sim', datasetDate: null, error: e.message }
@@ -214,7 +219,7 @@ async function scenarioInputs(atSlot = null, day = null) {
 export async function fetchShowcase() {
   const season = getScenario().season
   try {
-    const d = await showcase(season)
+    const d = await dayData(season, todayOf(season))
     return {
       season,
       targetDate: d.targetDate,
@@ -368,8 +373,8 @@ export function pvForecastMeta() {
 }
 
 /* ------------------------------------------------------------
-   今天／明天這幾頁：資料取目前情境（夏月／非夏月）的展示日，
-   電價用 scenarioDate() 換到該季節裡星期幾相同的日期去查。
+   今天／明天這幾頁：資料取目前情境（夏月／非夏月）的今天（todayOf），
+   電價也照那一天查（scenarioNow：日期換成資料集的今天、時分照畫面上的時鐘），和排程用的一致。
    回傳值多帶一個 season，頁面可以判斷拿到的是不是目前情境的資料
    （切換情境的瞬間，舊情境的請求可能晚一步才回來）。
    ------------------------------------------------------------ */
@@ -377,7 +382,7 @@ export function pvForecastMeta() {
 /** 主頁面即時快照（太陽能/電池/負載/電網/SOC/省電費…） */
 export async function fetchLive(now = nowTaipei(), atSlot = null) {
   const { season, fixed, pv, weather, plan } = await scenarioInputs(atSlot)
-  const at = scenarioDate(now, season)
+  const at = scenarioNow(now, season)
   await delay(60)
   return { ...liveSnapshot(at, fixed, pv, weather ?? simulateWeather(at), plan), season }
 }
@@ -385,14 +390,14 @@ export async function fetchLive(now = nowTaipei(), atSlot = null) {
 /** 今日整日（主頁面的 24h 趨勢圖、最佳化結果） */
 export async function fetchToday(now = nowTaipei(), atSlot = null) {
   const { season, fixed, pv, weather, plan } = await scenarioInputs(atSlot)
-  const at = scenarioDate(now, season)
+  const at = scenarioNow(now, season)
   await delay(80)
   return { ...simulateDay(at, weather ?? simulateWeather(at), fixed, pv, plan), season }
 }
 
 /**
  * 隔日預測 + 最佳化排程（頁面三規劃）。
- * 隔日＝資料集展示日的下一天（夏月 2010-07-20、非夏月 2010-01-12），負載、太陽能、天氣、排程都取那一天，
+ * 隔日＝今天的下一天（nextDayOf；展示模式下是 2010-07-20、2010-01-12），負載、太陽能、天氣、排程都取那一天，
  * 電價也照那一天算（和排程用的一樣，週末不會對不上）。planStamp 是那份排程用哪一版設定算的。
  */
 export async function fetchPlanning() {

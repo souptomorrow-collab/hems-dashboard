@@ -18,15 +18,22 @@ import {
   SPEEDS,
 } from '../lib/demoClock.js'
 import { SLOTS_PER_DAY, slotToTime } from '../lib/constants.js'
+import { useScenario, SEASONS } from '../lib/scenario.js'
 
-export default function DemoBar() {
+const md = (date) => `${+date.slice(5, 7)}/${+date.slice(8, 10)}`
+
+/* monthOnly：用電規劃頁只要開關（隔日規劃不看今天播到哪），不顯示播放控制 */
+export default function DemoBar({ monthOnly = false }) {
   const demo = useDemoClock()
   const speed = SPEEDS.find((s) => s.key === demo.speed) ?? SPEEDS[0]
+  const { season } = useScenario()
+  const show = (SEASONS.find((s) => s.key === season) ?? SEASONS[0]).dataset
+  const month = `2010 年 ${+show.slice(5, 7)} 月`
 
   // 展示時用鍵盤操作，口試講解時不必回頭找滑鼠：
   // 空白鍵暫停／繼續、← → 前後一格（按住 Shift 一次一小時）、Home 回到 00:00
   useEffect(() => {
-    if (!demo.enabled) return
+    if (!demo.enabled || monthOnly) return
     const onKey = (e) => {
       if (e.altKey || e.ctrlKey || e.metaKey) return
       const tag = e.target?.tagName
@@ -43,21 +50,26 @@ export default function DemoBar() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [demo.enabled])
+  }, [demo.enabled, monthOnly])
 
   return (
     <div className={`demo-bar ${demo.enabled ? 'on' : ''}`}>
       <button
         className={`demo-power ${demo.enabled ? 'on' : ''}`}
         onClick={toggleDemo}
-        title={demo.enabled ? '關閉展示模式，回到真實時間' : '開啟展示模式：一天壓縮成 96 秒'}
+        title={demo.enabled ? '關閉展示模式，回到真實時間' : `開啟展示模式：展示 ${month}整個月`}
       >
         {demo.enabled ? '⏹ 結束展示' : '▶ 展示模式'}
       </button>
 
       {!demo.enabled ? (
         <span className="hint demo-idle">
-          把一天壓縮播放（15 分鐘 = 1 秒），用來展示排程一整天的運作
+          {`目前照真實時間。開啟後展示 ${month}：今天換成展示日 ${md(show)}、`
+            + (monthOnly ? '頁面最下方顯示整月排程與實時運轉' : '一天壓縮播放（15 分鐘 = 1 秒），頁面最下方顯示整月排程與實時運轉')}
+        </span>
+      ) : monthOnly ? (
+        <span className="hint demo-note">
+          {`展示 ${month}：今天＝展示日 ${md(show)}，只能調整隔日；整月排程與實時運轉在頁面最下方`}
         </span>
       ) : (
         <>
