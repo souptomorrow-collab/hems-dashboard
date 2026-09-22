@@ -33,7 +33,8 @@ import { nowTaipei } from '../lib/time.js'
 import { simulateWeather, weatherFromEra5 } from '../lib/weather.js'
 import { fetchDayAheadForecast, fetchWeatherData, fetchSchedules, cached, getJson } from './forecastData.js'
 import { isSummer } from '../lib/tou.js'
-import { getScenario, nextDayOf, todayOf, scenarioNow, SEASONS } from '../lib/scenario.js'
+import { getScenario, nextDayOf, todayOf, scenarioNow, scenarioDate, SEASONS } from '../lib/scenario.js'
+import { getDemo } from '../lib/demoClock.js'
 import { DEVICES } from '../lib/constants.js'
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms))
@@ -173,11 +174,18 @@ async function historyDay(dateStr) {
 
 /**
  * 目前情境的輸入：不可轉移負載（96 格）、太陽能（96 格）、天氣。
- * day 不給是今天（todayOf：展示模式＝展示日，沒開＝照真實日期），給資料集日期就是那一天（用電規劃頁的隔日）。
+ * day 不給是今天（todayOf：平常＝展示日，展示模式＝播放中的那一天），給資料集日期就是那一天（用電規劃頁的隔日）。
  * 讀不到快照時三者都回 null，各函式自動改用模擬值。
  */
 async function scenarioInputs(atSlot = null, day = null) {
   const season = getScenario().season
+  // 平常（沒開展示模式）一律模擬：負載、太陽能、天氣都不給，各函式自己用模擬值；
+  // 沒有排程組的排程，電池也是模擬調度、可轉移設備照電價自動排
+  if (!getDemo().enabled) {
+    lastForecastMeta = { source: 'sim', refresh: null, datasetDate: null, error: null }
+    lastPvMeta = { source: 'sim', datasetDate: null, error: null }
+    return { season, fixed: null, pv: null, weather: null, plan: null }
+  }
   let d
   try {
     d = await dayData(season, day ?? todayOf(season))
@@ -218,6 +226,7 @@ async function scenarioInputs(atSlot = null, day = null) {
  */
 export async function fetchShowcase() {
   const season = getScenario().season
+  if (!getDemo().enabled) return null // 平常是模擬的，沒有預測與實際的原始資料可以對照
   try {
     const d = await dayData(season, todayOf(season))
     return {
@@ -397,13 +406,14 @@ export async function fetchToday(now = nowTaipei(), atSlot = null) {
 
 /**
  * 隔日預測 + 最佳化排程（頁面三規劃）。
- * 隔日＝今天的下一天（nextDayOf；展示模式下是 2010-07-20、2010-01-12），負載、太陽能、天氣、排程都取那一天，
+ * 隔日＝今天的下一天（nextDayOf；平常是 2010-07-20、2010-01-12，展示模式跟著播放走），負載、太陽能、天氣、排程都取那一天，
  * 電價也照那一天算（和排程用的一樣，週末不會對不上）。planStamp 是那份排程用哪一版設定算的。
  */
-export async function fetchPlanning() {
-  const day = nextDayOf(getScenario().season)
+export async function fetchPlanning(day = nextDayOf(getScenario().season)) {
+  if (!day) return null // 展示模式播到月底，沒有隔日
   const { season, fixed, pv, weather, plan } = await scenarioInputs(null, day)
-  const date = parseYmd(day)
+  // 展示模式：電價照資料集那天（和排程一致）；平常：真實的明天，切到另一季時換到該季同星期幾
+  const date = getDemo().enabled ? parseYmd(day) : scenarioDate(parseYmd(day), season)
   await delay(120)
   return {
     ...simulateDay(date, weather ?? simulateWeather(date), fixed, pv, plan),
@@ -415,10 +425,9 @@ export async function fetchPlanning() {
  * 依使用者手動調整後的排程重新計算電池調度與成本（不重跑 GA）。
  * @param {object} schedule  { deviceId: boolean[96] }
  */
-export async function recomputeSchedule(schedule) {
-  const day = nextDayOf(getScenario().season)
+export async function recomputeSchedule(schedule, day = nextDayOf(getScenario().season)) {
   const { season, fixed, pv, weather, plan } = await scenarioInputs(null, day)
-  const date = parseYmd(day)
+  const date = getDemo().enabled ? parseYmd(day) : scenarioDate(parseYmd(day), season)
   await delay(60)
   return {
     ...simulateWithSchedule(date, schedule, weather ?? simulateWeather(date), fixed, pv, plan),

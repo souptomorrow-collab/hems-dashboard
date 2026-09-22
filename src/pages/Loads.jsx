@@ -5,7 +5,7 @@ import EChart from '../components/EChart.jsx'
 import { fetchLive, fetchToday } from '../api/client.js'
 import { DEVICES, DEVICE_COLORS, DEVICE_GROUPS, CATEGORY_LABEL, COLORS, SLOTS_PER_DAY, slotToTime } from '../lib/constants.js'
 import { useTheme } from '../lib/theme.js'
-import { useDemoEnabled, useDemoSlot, slotToDate } from '../lib/demoClock.js'
+import { useDemoEnabled, useDemoSlot, useDemoDay, slotToDate } from '../lib/demoClock.js'
 import { useScenario } from '../lib/scenario.js'
 import { useSlotClock, useCurrentSlot } from '../hooks/useClock.js'
 import { useMediaQuery } from '../hooks/useMediaQuery.js'
@@ -30,7 +30,7 @@ const membersText = (g) => (g.members.length > 1 ? g.members.map(deviceName).joi
 export default function Loads() {
   const theme = useTheme() // 主題一換，下面的圖表 option 就會重算
   // 展示時鐘每 0.1 秒前進一次；這頁只在開關與換格時重畫
-  const demo = { enabled: useDemoEnabled(), slot: Math.max(0, useDemoSlot()) }
+  const demo = { enabled: useDemoEnabled(), slot: Math.max(0, useDemoSlot()), day: useDemoDay() }
   const now = useSlotClock() // 換格時才變
   const curSlot = useCurrentSlot()
   const { season } = useScenario()
@@ -50,7 +50,7 @@ export default function Loads() {
       on = false
       clearInterval(id)
     }
-  }, [demo.enabled, demo.slot, curSlot, season])
+  }, [demo.enabled, demo.slot, demo.day, curSlot, season])
 
   // 整日各設備用電：和頁面一一樣（過去真實值、未來日前預測），每前進一格重算一次
   useEffect(() => {
@@ -58,7 +58,7 @@ export default function Loads() {
     fetchToday(now, curSlot).then((d) => on && setToday(d))
     return () => { on = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [curSlot, demo.enabled, season])
+  }, [curSlot, demo.enabled, demo.day, season])
 
   const devices = live?.devices ?? []
   const shiftable = devices.filter((d) => d.category === 'shiftable')

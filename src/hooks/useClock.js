@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import { nowTaipei } from '../lib/time.js'
 import { useDemoClock, useDemoEnabled, useDemoSlot, secToDate, slotToDate } from '../lib/demoClock.js'
+import { useScenario, todayOf } from '../lib/scenario.js'
 
 const slotOfDate = (d) => Math.floor((d.getHours() * 60 + d.getMinutes()) / 15)
 
@@ -10,10 +11,12 @@ const slotOfDate = (d) => Math.floor((d.getHours() * 60 + d.getMinutes()) / 15)
  * 展示模式開啟時改回傳虛擬時間（見 lib/demoClock.js，以秒為單位）：整個 UI 的即時畫面
  * 都是由這個時間推導的，所以換掉這裡就等於整頁一起加速，
  * 不需要另外寫一套展示用的畫面邏輯。
- * 展示模式下每 0.1 秒更新一次；頁面只需要知道現在第幾格的，請用 useCurrentSlot／useSlotClock。
+ * 展示模式下每 0.1 秒更新一次，日期是播放中的資料集日期（例如 2010-07-04）；
+ * 頁面只需要知道現在第幾格的，請用 useCurrentSlot／useSlotClock。
  */
 export function useClock(intervalMs = 1000) {
   const demo = useDemoClock()
+  const { season } = useScenario()
   const [now, setNow] = useState(() => nowTaipei())
 
   useEffect(() => {
@@ -21,7 +24,9 @@ export function useClock(intervalMs = 1000) {
     return () => clearInterval(id)
   }, [intervalMs])
 
-  return demo.enabled ? secToDate(demo.sec, now) : now
+  if (!demo.enabled) return now
+  const [y, m, d] = todayOf(season, demo).split('-').map(Number)
+  return secToDate(demo.sec, new Date(y, m - 1, d))
 }
 
 /**

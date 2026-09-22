@@ -9,10 +9,10 @@ import { checkDevice } from '../lib/deviceCheck.js'
 import DevicePrefs from '../components/DevicePrefs.jsx'
 import MonthView from '../components/MonthView.jsx'
 import { toRow } from '../api/prefs.js'
-import { useScenario, getScenario, SEASONS, nextDayOf } from '../lib/scenario.js'
+import { useScenario, getScenario, SEASONS, useScenarioDays } from '../lib/scenario.js'
 import { refreshCached, fetchSchedules } from '../api/forecastData.js'
 import { PREFS_SAVED } from '../api/prefs.js'
-import { useDemoEnabled } from '../lib/demoClock.js'
+import { useDemoEnabled, getDemo, togglePlay } from '../lib/demoClock.js'
 import { tomorrow, fmtDate, pad2 } from '../lib/format.js'
 import { useTheme } from '../lib/theme.js'
 import { useIsAdmin } from '../lib/auth.js'
@@ -39,6 +39,10 @@ const OBJECTIVE = {
   descPlan: '電池在離峰與太陽能充足時充電、尖峰時放電，電費最低',
 }
 const HOURS = Array.from({ length: 24 }, (_, h) => h)
+const parseDay = (s) => {
+  const [y, m, d] = s.split('-').map(Number)
+  return new Date(y, m - 1, d)
+}
 
 export default function Planning() {
   const theme = useTheme() // 主題一換，下面的圖表 option 就會重算
@@ -59,7 +63,13 @@ export default function Planning() {
   const planDate = useMemo(() => tomorrow(), [])
   const { season } = useScenario()
   const demoOn = useDemoEnabled() // 展示模式：最下方多顯示整月排程與實時運轉
-  const planDay = nextDayOf(season) // 資料集的隔日（夏月 2010-07-20、非夏月 2010-01-12）
+  // 資料集的隔日：平常是 2010-07-20、2010-01-12；展示模式跟著播放走，播到月底是 null
+  const { next: planDay } = useScenarioDays()
+
+  // 展示模式播放中進到這頁先暫停：拖甘特圖時隔日不會跟著播放換掉，調整完到上方按 ▶ 繼續
+  useEffect(() => {
+    if (getDemo().enabled && getDemo().playing) togglePlay()
+  }, [])
   const [reload, setReload] = useState(0)
   const planStamp = useRef(null)
   const [awaiting, setAwaiting] = useState(null) // 存下新時段後，等本機把隔日照這一版設定重排
@@ -89,9 +99,10 @@ export default function Planning() {
   // 進頁面即取得隔日的最佳化排程；切換夏月／非夏月情境時重新規劃，手動調整一併清掉
   useEffect(() => {
     let on = true
+    if (!planDay) return undefined // 展示模式播到月底，沒有隔日可以規劃
     setComputing(true)
-    fetchPlanning().then((p) => {
-      if (!on) return
+    fetchPlanning(planDay).then((p) => {
+      if (!on || !p) return
       planStamp.current = p.planStamp
       setPlan(p)
       setSchedule(withSaved(p.schedule, savedRef.current))
@@ -202,7 +213,7 @@ export default function Planning() {
     setSchedule(next)
     setEdits((n) => n + changed)
     // 切換情境的瞬間，舊情境的重算可能晚一步才回來，不能蓋掉新情境的結果
-    recomputeSchedule(next).then((p) => p.season === getScenario().season && setPlan(p))
+    recomputeSchedule(next, planDay).then((p) => p.season === getScenario().season && setPlan(p))
   }
 
   // 這一格在不在使用者要求的範圍內。沒設範圍就一律算在內。
@@ -332,6 +343,17 @@ export default function Planning() {
     ? '和最佳排程相同'
     : `比最佳排程${costDiff > 0 ? '多' : '少'} ${Math.abs(costDiff)} 元`
 
+  if (!planDay) {
+    return (
+      <>
+        <Panel>
+          <p className="hint">展示模式播到月底了，沒有隔日可以調整。到上方展示列換一天，或按 ⟲ 從月初重播。</p>
+        </Panel>
+        {demoOn && <MonthView />}
+      </>
+    )
+  }
+
   return (
     <>
       {/* 控制列 */}
@@ -351,7 +373,11 @@ export default function Planning() {
                   ? (admin
                       ? `電池充放電：排程組的 ${plan.planSource} 排程（資料集 ${plan.planDate}），照下方存下的可轉移設備時段排的。只能調整隔日：改了時段按「儲存給排程」，本機從隔日起重排、今天以前不動，最下方看得到整月的變化`
                       : '洗衣機、烘衣機、洗碗機預設不排入，可在下方自行安排時段')
-                  : (admin ? `電池充放電：模擬調度（${plan.planNote ?? '這個情境還沒有排程組的排程'}）` : null)}
+                  : (admin
+                      ? (demoOn
+                          ? `電池充放電：模擬調度（${plan.planNote ?? '這一天還沒有排程組的排程'}）`
+                          : '平常模式：負載、太陽能、電池與可轉移設備都是模擬的；開啟展示模式才換成專題的實際資料與排程組的排程')
+                      : null)}
               </p>
             )}
           </div>
@@ -360,7 +386,7 @@ export default function Planning() {
               規劃日（隔日）・{SEASONS.find((x) => x.key === season)?.label}電價
             </div>
             <div style={{ fontWeight: 700, marginBottom: 8 }}>
-              {fmtDate(planDate)}
+              {demoOn && planDay ? `${fmtDate(parseDay(planDay))}・展示中` : fmtDate(planDate)}
             </div>
             {awaiting && <div className="hint" role="status" style={{ marginBottom: 8 }}>⏳ 本機正在照新設定重排隔日…</div>}
             <button
@@ -403,6 +429,7 @@ export default function Planning() {
         schedule={schedule}
         date={planDay}
         monthView={demoOn}
+        cloud={demoOn}
         onClear={clearDevice}
         onLoaded={onPrefsLoaded}
         onSaved={(devices) => { savedRef.current = devices }}

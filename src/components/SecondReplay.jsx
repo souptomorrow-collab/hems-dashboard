@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Panel from './Panel'
 import EChart from './EChart'
 import { cached, getJson, fetchSchedules, fetchOperation } from '../api/forecastData'
-import { useScenario, todayOf } from '../lib/scenario.js'
+import { useScenario, useScenarioDays } from '../lib/scenario.js'
 import { useDemoClock, seekDemoSec } from '../lib/demoClock.js'
 import { useTheme } from '../lib/theme.js'
 import { baseTooltip, baseLegend, valueYAxis, AXIS_TEXT, SPLIT_LINE } from '../lib/charts.js'
@@ -42,7 +42,7 @@ export default function SecondReplay() {
   const { season } = useScenario()
   const theme = useTheme() // 主題一換，圖表的座標軸、圖例顏色跟著換
   const range = MONTHS[season] ?? MONTHS.summer
-  const home = todayOf(season) // 預設停在展示日
+  const { today: home } = useScenarioDays() // 平常停在展示日；展示模式下跟著播放的那一天
   const [picked, setDay] = useState(home)
   const [data, setData] = useState(null)
   const [plan, setPlan] = useState(null)

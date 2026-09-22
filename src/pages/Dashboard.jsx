@@ -9,7 +9,7 @@ import WeatherStrip from '../components/WeatherStrip.jsx'
 import { fetchLive, fetchToday, fetchShowcase } from '../api/client.js'
 import { COLORS, BATTERY, SLOT_HOURS, slotToTime } from '../lib/constants.js'
 import { useTheme } from '../lib/theme.js'
-import { useDemoEnabled, useDemoSlot, slotToDate } from '../lib/demoClock.js'
+import { useDemoEnabled, useDemoSlot, useDemoDay, slotToDate } from '../lib/demoClock.js'
 import { useScenario } from '../lib/scenario.js'
 import { useSlotClock, useCurrentSlot } from '../hooks/useClock.js'
 import { useMediaQuery } from '../hooks/useMediaQuery.js'
@@ -65,7 +65,7 @@ const PLAN_SOC_H = 140 // 今日計畫那張的 SOC 小圖高度（SOC 在 15%�
 export default function Dashboard() {
   const theme = useTheme() // 主題一換，下面的圖表 option 就會重算
   // 展示時鐘每 0.1 秒前進一次；這頁只在開關與換格時重畫
-  const demo = { enabled: useDemoEnabled(), slot: Math.max(0, useDemoSlot()) }
+  const demo = { enabled: useDemoEnabled(), slot: Math.max(0, useDemoSlot()), day: useDemoDay() }
   const now = useSlotClock() // 展示模式開著時是虛擬時間；換格時才變
   const curSlot = useCurrentSlot() // 過去（真實值）／未來（日前預測）的分界
   const { season } = useScenario() // 夏月／非夏月情境，一換就整頁重抓
@@ -98,7 +98,7 @@ export default function Dashboard() {
       on = false
       clearInterval(id)
     }
-  }, [demo.enabled, demo.slot, curSlot, season])
+  }, [demo.enabled, demo.slot, demo.day, curSlot, season])
 
   // 今日整日：每前進一格就重算一次。
   // 「未來」那段用前一晚 23:45 的日前預測（一天一次，和排程相同），不隨時間更新；
@@ -109,7 +109,7 @@ export default function Dashboard() {
     fetchToday(now, curSlot).then((d) => on && setToday(d))
     return () => { on = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [curSlot, demo.enabled, season])
+  }, [curSlot, demo.enabled, demo.day, season])
 
   // 今日全天計畫：排程一天只排一次，整天都是同一份（負載、太陽能都用前一晚的日前預測）
   useEffect(() => {
@@ -117,14 +117,14 @@ export default function Dashboard() {
     fetchToday(now).then((d) => on && setDayPlan(d))
     return () => { on = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [demo.enabled, season])
+  }, [demo.enabled, demo.day, season])
 
   // 展示日原始資料：每個情境載入一次，之後只是依目前格數取不同的列
   useEffect(() => {
     let on = true
     fetchShowcase().then((d) => on && setShow(d))
     return () => { on = false }
-  }, [season, demo.enabled])
+  }, [season, demo.enabled, demo.day])
 
   // ---- 主圖：今日功率總覽 ----
   /* ------------------------------------------------------------
@@ -569,6 +569,8 @@ export default function Dashboard() {
         sub={`今日 00:00 ～ ${upTo}・`
              + (!admin
                 ? '太陽能、用電、電網與電池到目前為止的運轉'
+                : !demo.enabled
+                ? '平常模式：負載、太陽能、電池都是模擬的'
                 : today && today.loadSource !== 'rf'
                 ? '不可轉移負載為模擬值（讀不到雲端預測快照）'
                 : '不可轉移負載取當日真實值（隨時間累積）'
@@ -585,10 +587,12 @@ export default function Dashboard() {
         <EChart option={realtimeOption} height={300 + SOC_EXTRA_HEIGHT} label="即時運轉：今天到目前為止的太陽能、負載、電網、電池功率與 SOC" />
       </Panel>
 
-      {/* 秒級重播：資料跟著網站部署，不經過資料庫（秒級一年 3,150 萬筆，雲端放不下） */}
-      <div className="mt-16">
-        <SecondReplay />
-      </div>
+      {/* 秒級重播：資料集的秒級資料（跟著網站部署，不經過資料庫），只在展示模式出現；平常是模擬的 */}
+      {demo.enabled && (
+        <div className="mt-16">
+          <SecondReplay />
+        </div>
+      )}
 
       {/* 展示模式才顯示整個展示月；平常照真實時間，只看今天 */}
       {demo.enabled && <MonthView />}
@@ -598,6 +602,8 @@ export default function Dashboard() {
         title="今日預測與排程"
         sub={!admin
           ? '前一晚排定的全天計畫（用電與發電為預測值），實際運轉見上圖・紅底為尖峰時段'
+          : !demo.enabled
+          ? '平常模式：負載、太陽能、電池都是模擬的（開啟展示模式換成專題的實際資料）・紅底為尖峰時段'
           : (dayPlan && dayPlan.loadSource !== 'rf'
                 ? '負載：模擬值（讀不到雲端預測快照）'
                 : '前一晚排定的全天計畫・負載：前一晚 23:45 發布的 RF 日前預測')
@@ -619,8 +625,9 @@ export default function Dashboard() {
             ) : null
           ) : (
             // 讀不到快照時各函式會自動退回模擬值，畫面照常運作，但要標出來，免得把模擬曲線當成模型結果
-            <span className="badge sim-badge" title="讀不到 public/data 的預測快照，負載或太陽能改用模擬值">
-              🧪 {!admin ? '暫時顯示模擬資料' : dayPlan.loadSource === 'rf' ? '負載為雲端預測・太陽能為模擬' : dayPlan.pvSource === 'lstm' ? '太陽能為雲端預測・負載為模擬' : '讀不到雲端預測，顯示模擬資料'}
+            <span className="badge sim-badge"
+              title={demo.enabled ? '讀不到 public/data 的預測快照，負載或太陽能改用模擬值' : '平常模式全部模擬；開啟展示模式換成專題的實際資料'}>
+              🧪 {!demo.enabled ? '模擬資料' : !admin ? '暫時顯示模擬資料' : dayPlan.loadSource === 'rf' ? '負載為雲端預測・太陽能為模擬' : dayPlan.pvSource === 'lstm' ? '太陽能為雲端預測・負載為模擬' : '讀不到雲端預測，顯示模擬資料'}
             </span>
           )
         }

@@ -14,7 +14,9 @@
    能源流向、KPI 卡、尖離峰標示、設備開關狀態就會全部跟著跑，
    不會有「展示用的假畫面」和「真的畫面」兩套邏輯需要同步。
 
-   日期沿用今天，只換時分秒——電價的夏月/非夏月、平日/假日判斷才不會跑掉。
+   播放整個展示月：從月初 00:00 開始，播到 23:59:59 就進到下一天，播完最後一天就停。
+   day 是月內第幾天（0 起），日期由 scenario.js 的 todayOf() 換成資料集日期；
+   今天跟著播放走，用電規劃能調整的隔日也跟著走。
 
    訂閱：時鐘每 0.1 秒前進一次。只需要「開沒開」或「第幾格」的元件用 useDemoEnabled／useDemoSlot，
    值有變才重畫；要逐秒的（頁首時鐘、秒級重播、控制列）才用 useDemoClock。
@@ -33,10 +35,11 @@ export const SPEEDS = [
   { key: 300, label: '5 分/秒', hint: '5 分鐘 = 1 秒：一格 3 秒、一天約 5 分鐘' },
   { key: 900, label: '15 分/秒', hint: '15 分鐘 = 1 秒：一天 96 秒，看排程一整天的運作' },
   { key: 3600, label: '1 時/秒', hint: '1 小時 = 1 秒：一天 24 秒' },
+  { key: 8640, label: '1 天/10 秒', hint: '一天 10 秒：整個月約 5 分鐘播完' },
 ]
 const DEFAULT_SPEED = 900
 
-let state = { enabled: false, playing: false, sec: 0, slot: 0, speed: DEFAULT_SPEED }
+let state = { enabled: false, playing: false, day: 0, days: 31, sec: 0, slot: 0, speed: DEFAULT_SPEED }
 const listeners = new Set()
 let timer = null
 let carry = 0 // 不足 1 秒的餘數，換速度時不會跳動
@@ -46,9 +49,23 @@ function emit() {
   listeners.forEach((fn) => fn())
 }
 
+/** 設定「從今天 00:00 起的第幾秒」：超過一天就進到下一天、小於 0 就回前一天；播完最後一天就停在月底 */
 function setSec(s) {
-  state.sec = ((Math.floor(s) % DAY_S) + DAY_S) % DAY_S // 播到 23:59:59 就繞回 00:00：展示時通常會一直循環播
-  state.slot = Math.floor(state.sec / SLOT_S)
+  s = Math.floor(s)
+  let day = state.day + Math.floor(s / DAY_S)
+  let sec = ((s % DAY_S) + DAY_S) % DAY_S
+  if (day >= state.days) {
+    day = state.days - 1
+    sec = DAY_S - 1
+    state.playing = false
+    stopTimer()
+  } else if (day < 0) {
+    day = 0
+    sec = 0
+  }
+  state.day = day
+  state.sec = sec
+  state.slot = Math.floor(sec / SLOT_S)
 }
 
 function stopTimer() {
@@ -79,12 +96,14 @@ export function getDemo() {
   return state
 }
 
-/** 開啟展示模式並從 00:00 開始播 */
-export function startDemo() {
+/** 開啟展示模式：從月初（第 day 天）00:00 開始。days＝這個月有幾天；play＝要不要馬上開始播 */
+export function startDemo({ days = 31, day = 0, play = true } = {}) {
   state.enabled = true
-  state.playing = true
+  state.days = days
+  state.day = Math.max(0, Math.min(days - 1, day))
   setSec(0)
-  startTimer()
+  state.playing = play
+  play ? startTimer() : stopTimer()
   emit()
 }
 
@@ -108,10 +127,18 @@ export function togglePlay() {
   emit()
 }
 
-/** 拖進度條直接跳到某一格（該格的開頭） */
+/** 拖進度條直接跳到今天的某一格（該格的開頭） */
 export function seekDemo(slot) {
   if (!state.enabled) return
   setSec(Math.max(0, Math.min(SLOTS_PER_DAY - 1, Math.round(slot))) * SLOT_S)
+  emit()
+}
+
+/** 跳到月內第幾天（0 起）的 00:00 */
+export function seekDemoDay(day) {
+  if (!state.enabled) return
+  state.day = Math.max(0, Math.min(state.days - 1, Math.round(day)))
+  setSec(0)
   emit()
 }
 
@@ -128,8 +155,9 @@ export function setSpeed(speed) {
   emit()
 }
 
-/** 回到 00:00 重播 */
+/** 回到月初 00:00 重播 */
 export function restartDemo() {
+  state.day = 0
   setSec(0)
   if (state.enabled && !state.playing) togglePlay()
   emit()
@@ -164,6 +192,7 @@ export function useDemoClock() {
 
 const enabledOf = () => state.enabled
 const slotOf = () => (state.enabled ? state.slot : -1)
+const dayOf = () => (state.enabled ? state.day : -1)
 
 /** 只關心展示模式開或關（播放中每前進一秒不必重畫整頁） */
 export function useDemoEnabled() {
@@ -173,4 +202,9 @@ export function useDemoEnabled() {
 /** 展示模式下播到第幾格（沒開是 -1）；進到下一格才重畫 */
 export function useDemoSlot() {
   return useSyncExternalStore(subscribe, slotOf, slotOf)
+}
+
+/** 展示模式下播到月內第幾天（0 起，沒開是 -1）；換天才重畫 */
+export function useDemoDay() {
+  return useSyncExternalStore(subscribe, dayOf, dayOf)
 }

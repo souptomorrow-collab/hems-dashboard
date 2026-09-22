@@ -22,7 +22,8 @@ const mins = (t) => (t === '24:00' ? 1440 : Number(t.slice(0, 2)) * 60 + Number(
 
 const md = (date) => (date ? `${+date.slice(5, 7)}/${+date.slice(8, 10)}` : '')
 
-export default function DevicePrefs({ schedule, date, monthView = false, onClear, onLoaded, onSaved }) {
+/* cloud：展示模式才讀寫雲端設定、送去本機排程；平常是模擬的，甘特圖調整後電費即時重算就好 */
+export default function DevicePrefs({ schedule, date, monthView = false, cloud = true, onClear, onLoaded, onSaved }) {
   const [meta, setMeta] = useState({ source: 'default', updatedAt: null })
   const [state, setState] = useState({ busy: false, msg: '' })
   const [armed, setArmed] = useState(false)      // 有問題時要按第二次才真的存
@@ -37,6 +38,10 @@ export default function DevicePrefs({ schedule, date, monthView = false, onClear
   useEffect(() => {
     let on = true
     setState({ busy: false, msg: '' })
+    if (!cloud) {
+      setMeta({ source: 'sim', updatedAt: null })
+      return undefined
+    }
     loadPrefs(date).then((d) => {
       if (!on) return
       setMeta({ source: d.source, updatedAt: d.updatedAt })
@@ -45,7 +50,7 @@ export default function DevicePrefs({ schedule, date, monthView = false, onClear
     })
     return () => { on = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [date])
+  }, [date, cloud])
 
   const save = async () => {
     if (!armed && (errors.length || empty)) {
@@ -78,18 +83,18 @@ export default function DevicePrefs({ schedule, date, monthView = false, onClear
     }
   }
 
-  const where = { cloud: '雲端資料庫', local: '這台裝置', default: '預設值' }[meta.source]
+  const where = { cloud: '雲端資料庫', local: '這台裝置', default: '預設值', sim: '模擬' }[meta.source]
 
   return (
     <Panel
       title={`隔日可轉移設備設定${date ? `（${md(date)}）` : ''}`}
       sub={`只能調整隔日・在下方甘特圖上拖出運轉時段・來自${where}${meta.updatedAt ? `・更新於 ${meta.updatedAt}` : ''}`}
       className="mt-16"
-      right={
+      right={cloud ? (
         <button className={`btn${armed ? ' btn-armed' : ''}`} onClick={save} disabled={state.busy}>
           {state.busy ? '儲存中…' : armed ? '仍要儲存' : '儲存給排程'}
         </button>
-      }
+      ) : null}
     >
       <div className="prefs">
         {SHIFTABLE.map((dev) => {
@@ -129,10 +134,14 @@ export default function DevicePrefs({ schedule, date, monthView = false, onClear
       </div>
       <p className="muted" style={{ fontSize: 12, marginTop: 10 }}>
         在下方甘特圖上按住拖曳就是設定隔日的運轉時段。沒排的設備不會運轉，排程不會替你決定時間。
-        存下後從隔日起重新排程（之後每天沿用，直到下次再改），今天以前已經排好、跑過的不動。
-        {meta.source === 'default' && '目前顯示的是建議時段，還沒有存過——按下儲存才會生效。'}{canSave
-          ? '排好後按「儲存給排程」寫回雲端資料庫，本機的排程程式看到就重算。'
-          : '目前未設定雲端金鑰，設定只會留在這台裝置。'}
+        {cloud ? (
+          <>
+            存下後從隔日起重新排程（之後每天沿用，直到下次再改），今天以前已經排好、跑過的不動。
+            {meta.source === 'default' && '目前顯示的是建議時段，還沒有存過——按下儲存才會生效。'}{canSave
+              ? '排好後按「儲存給排程」寫回雲端資料庫，本機的排程程式看到就重算。'
+              : '目前未設定雲端金鑰，設定只會留在這台裝置。'}
+          </>
+        ) : '平常模式是模擬的：拖完電費即時重算，不會送去排程。要照使用者設定跑真的排程，請開啟展示模式。'}
         {state.msg && <><br /><b>{state.msg}</b></>}
       </p>
     </Panel>

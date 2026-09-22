@@ -4,7 +4,7 @@ import EChart from './EChart'
 import Tile from './Tile'
 import { cached, refreshCached, fetchSchedules, fetchOperation, SCHEDULES_REFRESHED } from '../api/forecastData'
 import { loadPrefs, PREFS_SAVED } from '../api/prefs.js'
-import { useScenario, todayOf, nextDayOf } from '../lib/scenario.js'
+import { useScenario, useScenarioDays } from '../lib/scenario.js'
 import { useTheme } from '../lib/theme.js'
 import { DEVICES } from '../lib/constants.js'
 import { baseTooltip, baseLegend, valueYAxis, AXIS_TEXT, SPLIT_LINE } from '../lib/charts.js'
@@ -137,8 +137,7 @@ export default function MonthView() {
   const [data, setData] = useState(null) // { sched: {date: 排程}, op: {date: 實時}, via }
   const [stamp, setStamp] = useState(null) // 目前設定的版本
   const [changedFrom, setChangedFrom] = useState(null) // 最近一次改的是哪天起（null＝整個換掉）
-  const today = todayOf(season)
-  const next = nextDayOf(season)
+  const { today, next } = useScenarioDays() // 展示模式下跟著播放走；月底沒有隔日（next＝null）
   const [before, setBefore] = useState(null) // 按下儲存前的 data，灰線對照用
   const [watching, setWatching] = useState(false)
   const [stalled, setStalled] = useState(false)
@@ -253,7 +252,7 @@ export default function MonthView() {
     })
     const shade = { silent: true, itemStyle: { color: C.weekend }, data: weekendAreas(days) }
     // 今天和隔日的分界：使用者只能改隔日，這條線左邊（今天以前）改了設定也不會動
-    const nextLine = (label) => ({
+    const nextLine = (label) => next && ({
       silent: true, symbol: 'none', lineStyle: { color: AXIS_TEXT, type: 'dashed', width: 1 },
       label: { show: label, formatter: '隔日', color: AXIS_TEXT, fontSize: 10, position: 'end', distance: 2 },
       data: [{ xAxis: dayStart(next) }],
@@ -460,7 +459,7 @@ export default function MonthView() {
   return (
     <Panel
       title={title}
-      sub={`${days.length} 天、每 15 分鐘一點・今天 ${md(today)}，只能調整隔日 ${md(next)}・藍＝實時運轉、橙虛線＝日前排程${before ? '、灰＝按下儲存之前' : ''}・淡色底為週末`}
+      sub={`${days.length} 天、每 15 分鐘一點・今天 ${md(today)}，${next ? `只能調整隔日 ${md(next)}` : '已到月底，沒有隔日'}・藍＝實時運轉、橙虛線＝日前排程${before ? '、灰＝按下儲存之前' : ''}・淡色底為週末`}
       className="mt-16"
       right={
         <div className="month-ctl">
