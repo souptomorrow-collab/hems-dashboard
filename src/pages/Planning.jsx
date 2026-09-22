@@ -39,10 +39,6 @@ const OBJECTIVE = {
   descPlan: '電池在離峰與太陽能充足時充電、尖峰時放電，電費最低',
 }
 const HOURS = Array.from({ length: 24 }, (_, h) => h)
-const parseDay = (s) => {
-  const [y, m, d] = s.split('-').map(Number)
-  return new Date(y, m - 1, d)
-}
 
 export default function Planning() {
   const theme = useTheme() // 主題一換，下面的圖表 option 就會重算
@@ -62,8 +58,8 @@ export default function Planning() {
   }, [notice])
   const planDate = useMemo(() => tomorrow(), [])
   const { season } = useScenario()
-  const demoOn = useDemoEnabled() // 展示模式＝展示月（今天是展示日）；沒開＝照真實日期
-  const planDay = nextDayOf(season, demoOn) // 資料集的隔日（展示模式下是 2010-07-20、2010-01-12）
+  const demoOn = useDemoEnabled() // 展示模式：最下方多顯示整月排程與實時運轉
+  const planDay = nextDayOf(season) // 資料集的隔日（夏月 2010-07-20、非夏月 2010-01-12）
   const [reload, setReload] = useState(0)
   const planStamp = useRef(null)
   const [awaiting, setAwaiting] = useState(null) // 存下新時段後，等本機把隔日照這一版設定重排
@@ -364,7 +360,7 @@ export default function Planning() {
               規劃日（隔日）・{SEASONS.find((x) => x.key === season)?.label}電價
             </div>
             <div style={{ fontWeight: 700, marginBottom: 8 }}>
-              {demoOn ? `${fmtDate(parseDay(planDay))}・展示月` : fmtDate(planDate)}
+              {fmtDate(planDate)}
             </div>
             {awaiting && <div className="hint" role="status" style={{ marginBottom: 8 }}>⏳ 本機正在照新設定重排隔日…</div>}
             <button

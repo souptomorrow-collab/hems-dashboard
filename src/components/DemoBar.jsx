@@ -57,19 +57,20 @@ export default function DemoBar({ monthOnly = false }) {
       <button
         className={`demo-power ${demo.enabled ? 'on' : ''}`}
         onClick={toggleDemo}
-        title={demo.enabled ? '關閉展示模式，回到真實時間' : `開啟展示模式：展示 ${month}整個月`}
+        title={demo.enabled ? '關閉展示模式，回到真實時間' : `開啟展示模式：顯示 ${month}整月排程與實時運轉`}
       >
         {demo.enabled ? '⏹ 結束展示' : '▶ 展示模式'}
       </button>
 
       {!demo.enabled ? (
         <span className="hint demo-idle">
-          {`目前照真實時間。開啟後展示 ${month}：今天換成展示日 ${md(show)}、`
-            + (monthOnly ? '頁面最下方顯示整月排程與實時運轉' : '一天壓縮播放（15 分鐘 = 1 秒），頁面最下方顯示整月排程與實時運轉')}
+          {`目前照真實時間。開啟後`
+            + (monthOnly ? '' : '一天壓縮播放（15 分鐘 = 1 秒），')
+            + `頁面最下方顯示 ${month}整月排程與實時運轉（今天是展示日 ${md(show)}）`}
         </span>
       ) : monthOnly ? (
         <span className="hint demo-note">
-          {`展示 ${month}：今天＝展示日 ${md(show)}，只能調整隔日；整月排程與實時運轉在頁面最下方`}
+          {`展示模式：${month}整月排程與實時運轉在頁面最下方（今天是展示日 ${md(show)}，只能調整隔日）`}
         </span>
       ) : (
         <>

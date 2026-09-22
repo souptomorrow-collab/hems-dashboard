@@ -5,7 +5,6 @@ import Tile from './Tile'
 import { cached, refreshCached, fetchSchedules, fetchOperation, SCHEDULES_REFRESHED } from '../api/forecastData'
 import { loadPrefs, PREFS_SAVED } from '../api/prefs.js'
 import { useScenario, todayOf, nextDayOf } from '../lib/scenario.js'
-import { useDemoEnabled } from '../lib/demoClock.js'
 import { useTheme } from '../lib/theme.js'
 import { DEVICES } from '../lib/constants.js'
 import { baseTooltip, baseLegend, valueYAxis, AXIS_TEXT, SPLIT_LINE } from '../lib/charts.js'
@@ -138,9 +137,8 @@ export default function MonthView() {
   const [data, setData] = useState(null) // { sched: {date: 排程}, op: {date: 實時}, via }
   const [stamp, setStamp] = useState(null) // 目前設定的版本
   const [changedFrom, setChangedFrom] = useState(null) // 最近一次改的是哪天起（null＝整個換掉）
-  const demoOn = useDemoEnabled()
-  const today = todayOf(season, demoOn)
-  const next = nextDayOf(season, demoOn)
+  const today = todayOf(season)
+  const next = nextDayOf(season)
   const [before, setBefore] = useState(null) // 按下儲存前的 data，灰線對照用
   const [watching, setWatching] = useState(false)
   const [stalled, setStalled] = useState(false)

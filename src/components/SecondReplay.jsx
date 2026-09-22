@@ -3,7 +3,6 @@ import Panel from './Panel'
 import EChart from './EChart'
 import { cached, getJson, fetchSchedules, fetchOperation } from '../api/forecastData'
 import { useScenario, todayOf } from '../lib/scenario.js'
-import { useDemoEnabled } from '../lib/demoClock.js'
 import { DEVICES } from '../lib/constants.js'
 
 /* 秒級重播：把展示日的每秒資料播給實時運轉層看。
@@ -35,9 +34,8 @@ const hhmmss = (s) =>
 
 export default function SecondReplay() {
   const { season } = useScenario()
-  const demoOn = useDemoEnabled()
   const range = MONTHS[season] ?? MONTHS.summer
-  const home = todayOf(season, demoOn) // 預設停在今天（展示模式下是展示日）
+  const home = todayOf(season) // 預設停在展示日
   const [day, setDay] = useState(home)
   const [data, setData] = useState(null)
   const [plan, setPlan] = useState(null)
@@ -48,7 +46,7 @@ export default function SecondReplay() {
   const [playing, setPlaying] = useState(false)
   const carry = useRef(0)                 // 不足 1 秒的餘數，換速度時不會跳動
 
-  // 切換情境、開關展示模式就回到今天
+  // 切換情境就回到那一季的展示日
   useEffect(() => { setDay(home) }, [home])
 
   useEffect(() => {
