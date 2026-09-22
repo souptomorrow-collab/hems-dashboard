@@ -23,7 +23,7 @@ const readJson = (f) => JSON.parse(fs.readFileSync(path.join(ROOT, 'public', 'da
 const { liveSnapshot, simulateDay, dispatchPlan, planFits, SHIFTABLE_RULES, isAllowedSlot } = await lib('simulate.js')
 const { weatherFromEra5 } = await lib('weather.js')
 const { scenarioDate, seasonOf } = await lib('scenario.js')
-const { BATTERY, SLOTS_PER_DAY } = await lib('constants.js')
+const { BATTERY, SLOTS_PER_DAY, DEVICES } = await lib('constants.js')
 
 const snaps = { summer: readJson('forecast_day.json'), non_summer: readJson('forecast_day_non_summer.json') }
 const wx = readJson('weather.json')
@@ -36,8 +36,12 @@ const check = (name, ok, detail = '') => {
   if (!ok) failed++
 }
 
-// 和 api/client.js 相同：未來用前一晚 23:45 的日前預測（有排程時用排程的 load_kw，否則用 history.json 的 day_ahead），過去用真實值
-const dayAhead = (d) => plans[d.target_date]?.load_kw
+// 和 api/client.js 相同：未來用前一晚 23:45 的日前預測（有排程時用排程的 load_kw 扣掉可轉移設備，
+// 否則用 history.json 的 day_ahead），過去用真實值
+const RATED_KW = Object.fromEntries(DEVICES.filter((d) => d.category === 'shiftable').map((d) => [d.id, d.ratedW / 1000]))
+const nonShiftable = (plan) => plan.load_kw.map((v, i) => +Math.max(0, v - Object.entries(plan.devices ?? {})
+  .reduce((a, [id, on]) => a + (on?.[i] ? (RATED_KW[id] ?? 0) : 0), 0)).toFixed(4))
+const dayAhead = (d) => (plans[d.target_date] ? nonShiftable(plans[d.target_date]) : null)
   ?? hist.days.find((x) => x.date === d.target_date)?.day_ahead ?? d.slots
 const assemble = (d, s) => dayAhead(d).map((v, i) => (i <= s ? (d.actual[i] ?? v) : v))
 
@@ -89,9 +93,10 @@ for (const [season, snap] of Object.entries(snaps)) {
 
     // ---- 3. 可轉移設備排程 ----
     if (sim.planSource !== 'sim') {
-      // 套用排程組排程的日子不排可轉移設備，負載要和排程一致
-      const anyOn = Object.keys(SHIFTABLE_RULES).some((id) => sim.schedule[id].some(Boolean))
-      check('套用排程時不排可轉移設備', !anyOn)
+      // 套用排程的日子，可轉移設備照排程用的時段（使用者存下的），負載要和排程一致
+      const same = Object.keys(SHIFTABLE_RULES).every((id) =>
+        sim.schedule[id].every((v, i) => v === Boolean(plan.devices?.[id]?.[i])))
+      check('套用排程時可轉移設備照排程的時段', same)
       const worstLoad = Math.max(...sim.load.map((v, i) => Math.abs(v - plan.load_kw[i])))
       check('總負載等於排程的負載', worstLoad < 0.002, `最大差 ${worstLoad.toFixed(4)} kW`)
       continue

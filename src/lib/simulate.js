@@ -544,7 +544,15 @@ export function simulateDay(
   plan = null
 ) {
   const pv = pvOverride ?? pvForecastKw(date, weather)
-  const schedule = buildSchedule(date, weather, !(plan && planFits(plan, date)))
+  const usePlan = plan && planFits(plan, date)
+  const schedule = buildSchedule(date, weather, !usePlan)
+  // 有排程時，可轉移設備照排程用的時段（使用者存下的那一版）：排程的 load_kw 含設備，
+  // 呼叫端給的 fixedOverride 已經扣掉設備，這裡加回來，總負載才和排程一致
+  if (usePlan && plan.devices) {
+    for (const [id, on] of Object.entries(plan.devices)) {
+      if (Array.isArray(schedule[id]) && on?.length === SLOTS_PER_DAY) schedule[id] = on.map(Boolean)
+    }
+  }
   const { power, total, fixed, shiftable } = powerAndLoadFromSchedule(
     schedule,
     weather,
