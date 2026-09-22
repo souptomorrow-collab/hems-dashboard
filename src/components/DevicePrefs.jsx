@@ -4,6 +4,7 @@ import { DEVICES } from '../lib/constants.js'
 import { SHIFTABLE_RULES } from '../lib/simulate.js'
 import { loadPrefs, savePrefs, canSave, toSegments } from '../api/prefs.js'
 import { checkDevice, checkAll } from '../lib/deviceCheck.js'
+import { SIM_ROUTINE } from '../lib/simRoutine.js'
 
 /* 隔日的可轉移設備要在什麼時候跑。
 
@@ -46,7 +47,9 @@ export default function DevicePrefs({
     let on = true
     setState({ busy: false, msg: '' })
     if (!cloud) {
+      // 平常模式是模擬的：甘特圖與「一～日」照模擬用的作息（lib/simRoutine.js）
       setMeta({ source: 'sim', updatedAt: null })
+      onLoaded?.(SIM_ROUTINE)
       return undefined
     }
     loadPrefs(date).then((d) => {
@@ -91,7 +94,7 @@ export default function DevicePrefs({
     }
   }
 
-  const where = { cloud: '雲端資料庫', local: '這台裝置', default: '預設值', sim: '模擬' }[meta.source]
+  const where = { cloud: '雲端資料庫', local: '這台裝置', default: '預設值', sim: '模擬的作息' }[meta.source]
 
   return (
     <Panel

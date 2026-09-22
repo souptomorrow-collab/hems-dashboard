@@ -541,11 +541,18 @@ export function simulateDay(
   weather = simulateWeather(date),
   fixedOverride = null,
   pvOverride = null,
-  plan = null
+  plan = null,
+  routine = null
 ) {
   const pv = pvOverride ?? pvForecastKw(date, weather)
   const usePlan = plan && planFits(plan, date)
-  const schedule = buildSchedule(date, weather, !usePlan)
+  // routine：可轉移設備照這個作息（{ 設備: boolean[96] }，平常模式的模擬用），不再自己挑最便宜的時段
+  const schedule = buildSchedule(date, weather, !usePlan && !routine)
+  if (!usePlan && routine) {
+    for (const [id, on] of Object.entries(routine)) {
+      if (Array.isArray(schedule[id]) && on?.length === SLOTS_PER_DAY) schedule[id] = on.map(Boolean)
+    }
+  }
   // 有排程時，可轉移設備照排程用的時段（使用者存下的那一版）：排程的 load_kw 含設備，
   // 呼叫端給的 fixedOverride 已經扣掉設備，這裡加回來，總負載才和排程一致
   if (usePlan && plan.devices) {
@@ -608,9 +615,10 @@ export function liveSnapshot(
   fixedOverride = null,
   pvOverride = null,
   weather = simulateWeather(now),
-  plan = null
+  plan = null,
+  routine = null
 ) {
-  const day = simulateDay(now, weather, fixedOverride, pvOverride, plan)
+  const day = simulateDay(now, weather, fixedOverride, pvOverride, plan, routine)
   const slot = Math.min(
     SLOTS_PER_DAY - 1,
     Math.floor((now.getHours() * 60 + now.getMinutes()) / 15)

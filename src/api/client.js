@@ -35,6 +35,10 @@ import { fetchDayAheadForecast, fetchWeatherData, fetchSchedules, cached, getJso
 import { isSummer } from '../lib/tou.js'
 import { getScenario, nextDayOf, todayOf, scenarioNow, scenarioDate, SEASONS } from '../lib/scenario.js'
 import { getDemo } from '../lib/demoClock.js'
+import { routineRows } from '../lib/simRoutine.js'
+
+/** 平常模式：可轉移設備照作息開關（lib/simRoutine.js）；展示模式照資料庫的排程，回傳 null */
+const routineFor = (date) => (getDemo().enabled ? null : routineRows(date))
 import { DEVICES } from '../lib/constants.js'
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms))
@@ -393,7 +397,7 @@ export async function fetchLive(now = nowTaipei(), atSlot = null) {
   const { season, fixed, pv, weather, plan } = await scenarioInputs(atSlot)
   const at = scenarioNow(now, season)
   await delay(60)
-  return { ...liveSnapshot(at, fixed, pv, weather ?? simulateWeather(at), plan), season }
+  return { ...liveSnapshot(at, fixed, pv, weather ?? simulateWeather(at), plan, routineFor(at)), season }
 }
 
 /** 今日整日（主頁面的 24h 趨勢圖、最佳化結果） */
@@ -401,7 +405,7 @@ export async function fetchToday(now = nowTaipei(), atSlot = null) {
   const { season, fixed, pv, weather, plan } = await scenarioInputs(atSlot)
   const at = scenarioNow(now, season)
   await delay(80)
-  return { ...simulateDay(at, weather ?? simulateWeather(at), fixed, pv, plan), season }
+  return { ...simulateDay(at, weather ?? simulateWeather(at), fixed, pv, plan, routineFor(at)), season }
 }
 
 /**
@@ -416,7 +420,7 @@ export async function fetchPlanning(day = nextDayOf(getScenario().season)) {
   const date = getDemo().enabled ? parseYmd(day) : scenarioDate(parseYmd(day), season)
   await delay(120)
   return {
-    ...simulateDay(date, weather ?? simulateWeather(date), fixed, pv, plan),
+    ...simulateDay(date, weather ?? simulateWeather(date), fixed, pv, plan, routineFor(date)),
     season, planDay: day, planStamp: plan?.prefs_stamp ?? null,
   }
 }
