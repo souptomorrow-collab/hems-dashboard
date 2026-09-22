@@ -21,10 +21,12 @@ const NAV = [
   { to: '/system', label: '系統資訊', icon: '⚙️', end: false, admin: true },
 ]
 
-// 展示模式：主頁面、各負載有加速播放；用電規劃只有開關（隔日規劃不看今天播到哪），開了顯示整月
-const DEMO_PAGES = new Set(['/', '/loads', '/planning'])
-// 夏月／非夏月情境只影響「今天／明天」這幾頁；歷史紀錄照每一天的實際日期
-const SEASON_PAGES = new Set(['/', '/loads', '/planning'])
+// 展示模式：主頁面、各負載有加速播放；用電規劃只有開關（隔日規劃不看今天播到哪），開了顯示整月；
+// 歷史紀錄在展示模式下讀展示月的實時運轉紀錄（到展示時鐘的昨天），所以也要能換天
+const DEMO_PAGES = new Set(['/', '/loads', '/planning', '/history'])
+const MONTH_ONLY_PAGES = new Set(['/planning', '/history'])
+// 夏月／非夏月情境只影響「今天／明天」這幾頁；歷史紀錄平常照每一天的實際日期，展示模式下才跟著情境換展示月
+const SEASON_PAGES = new Set(['/', '/loads', '/planning', '/history'])
 
 // 側欄收合狀態記在瀏覽器裡，重新整理或下次開啟都維持上次的樣子。
 // 無痕視窗或封鎖網站資料時讀寫會直接丟例外，當成沒存過即可。
@@ -244,7 +246,7 @@ export default function Layout() {
               </button>
             </div>
           )}
-          {admin && DEMO_PAGES.has(pathname) && <DemoBar monthOnly={pathname === '/planning'} />}
+          {admin && DEMO_PAGES.has(pathname) && <DemoBar monthOnly={MONTH_ONLY_PAGES.has(pathname)} history={pathname === '/history'} />}
           <ErrorBoundary key={pathname}>
             <Outlet />
           </ErrorBoundary>

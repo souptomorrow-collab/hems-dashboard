@@ -7,17 +7,22 @@
    - 區間統計：電費帳單式，選一段日期依日／週／月彙整，可匯出日報／月報
    在區間統計點某一天，會跳到那天的單日紀錄。
 
-   資料來源見 api/client.js 的 fetchDaySim()／fetchDailyUsage()：系統尚未接
-   實際電表，每一天是用同一套模擬引擎依當日電價重跑的紀錄；
-   不可轉移負載、太陽能與天氣採用資料集中同季節、同一個星期幾那天的資料。畫面上會標明。
+   資料來源（畫面上會標明）
+     平常模式  api/client.js 的 fetchDaySim()／fetchDailyUsage()：系統尚未接實際電表，每一天是用
+               同一套模擬引擎依當日電價重跑的紀錄；不可轉移負載、太陽能與天氣採用資料集中
+               同季節、同一個星期幾那天的資料。日期照真實日期，往回最多一年。
+     展示模式  fetchDayActual()／fetchDailyActual()：資料庫的實時運轉紀錄（排程組 MILP 每 15 分鐘重排、
+               逐秒控制的結果），只有兩個展示月；日期是展示月 1 日到展示時鐘的昨天。
    只收已經結束的日子（到昨天為止）——和電費帳單一樣，今天要到 24:00 才結算。
    ============================================================ */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import Panel from '../components/Panel.jsx'
 import EChart from '../components/EChart.jsx'
 import Tile from '../components/Tile.jsx'
 import WeatherStrip from '../components/WeatherStrip.jsx'
-import { fetchDailyUsage, fetchDaySim, ymd, parseYmd, addDays } from '../api/client.js'
+import { fetchDailyUsage, fetchDaySim, fetchDayActual, fetchDailyActual, ymd, parseYmd, addDays } from '../api/client.js'
+import { useDemoEnabled } from '../lib/demoClock.js'
+import { useScenarioDays } from '../lib/scenario.js'
 import { COLORS, DEVICE_COLORS, BATTERY, SLOTS_PER_DAY, slotToTime } from '../lib/constants.js'
 import { TIER_LABEL, isSummer } from '../lib/tou.js'
 import { nowTaipei } from '../lib/time.js'
@@ -69,10 +74,29 @@ function printInLight() {
 }
 
 export default function History() {
-  const yesterday = useMemo(() => addDays(nowTaipei(), -1), [])
-  const minDay = useMemo(() => addDays(yesterday, -364), [yesterday]) // 往回最多一年
+  const demoOn = useDemoEnabled()
+  const { today } = useScenarioDays() // 展示模式下跟著播放走
+  // 平常：真實日期往回一年；展示模式：展示月 1 日到展示時鐘的昨天（讀實時運轉紀錄）
+  const [yesterday, minDay] = useMemo(() => {
+    if (demoOn && today) {
+      const t = parseYmd(today)
+      return [addDays(t, -1), new Date(t.getFullYear(), t.getMonth(), 1)]
+    }
+    const y = addDays(nowTaipei(), -1)
+    return [y, addDays(y, -364)]
+  }, [demoOn, today])
   const [tab, setTab] = useState('day')
   const [day, setDay] = useState(() => ymd(yesterday))
+  // 切換模式、或展示時鐘換天時：原本看的就是「昨天」（沒有自己選別天）就跟著換到新的昨天；
+  // 選的日期超出範圍也拉回昨天；其他情況保留使用者選的那天
+  const prevYesterday = useRef(ymd(yesterday))
+  useEffect(() => {
+    const y = ymd(yesterday)
+    const was = prevYesterday.current
+    prevYesterday.current = y
+    setDay((d) => (d === was || d > y || d < ymd(minDay) ? y : d))
+  }, [yesterday, minDay])
+  const empty = yesterday < minDay // 展示月第一天：還沒有過去的日子
 
   return (
     <div className="history">
@@ -84,10 +108,16 @@ export default function History() {
           📊 區間統計
         </button>
       </div>
-      {tab === 'day' ? (
-        <DayView date={day} setDate={setDay} yesterday={yesterday} minDay={minDay} />
+      {empty ? (
+        <Panel>
+          <p className="hint">展示月第一天（{today}），還沒有過去的日子。到上方展示列按 › 換到隔天，或播放後再來看。</p>
+        </Panel>
+      ) : tab === 'day' ? (
+        <DayView date={day} setDate={setDay} yesterday={yesterday} minDay={minDay} actual={demoOn} />
       ) : (
         <RangeView
+          key={demoOn ? `demo-${ymd(minDay)}` : 'real'}
+          actual={demoOn}
           yesterday={yesterday}
           minDay={minDay}
           onPickDay={(d) => {
@@ -104,7 +134,7 @@ export default function History() {
 /* ================================================================
    單日紀錄
    ================================================================ */
-function DayView({ date, setDate, yesterday, minDay }) {
+function DayView({ date, setDate, yesterday, minDay, actual }) {
   const theme = useTheme()
   const [res, setRes] = useState(null)
   const [loadError, setLoadError] = useState(null)
@@ -115,11 +145,11 @@ function DayView({ date, setDate, yesterday, minDay }) {
     setRes(null)
     setLoadError(null)
     // 讀取或計算失敗時要顯示原因，不能讓畫面一直停在載入中
-    fetchDaySim(date)
+    ;(actual ? fetchDayActual : fetchDaySim)(date)
       .then((r) => on && setRes(r))
       .catch((e) => on && setLoadError(e?.message ?? String(e)))
     return () => { on = false }
-  }, [date])
+  }, [date, actual])
 
   const sim = res?.sim
   const rec = useMemo(() => (sim ? dayRecord(sim) : null), [sim])
@@ -287,7 +317,7 @@ function DayView({ date, setDate, yesterday, minDay }) {
             title="當日即時運轉曲線"
             sub="太陽能・家庭負載・電網購電・電池充放電，SOC 在下方小圖；紅底為尖峰時段"
             className="mt-16"
-            right={<span className="badge">🧪 模擬紀錄</span>}
+            right={<span className="badge">{actual ? '📡 實時運轉紀錄' : '🧪 模擬紀錄'}</span>}
           >
             <WeatherStrip weather={sim.weather} />
             <EChart option={curveOption} height={300 + SOC_EXTRA_HEIGHT} label={`${date} 的運轉曲線：太陽能、負載、電網、電池功率與 SOC`} />
@@ -365,8 +395,10 @@ function DayView({ date, setDate, yesterday, minDay }) {
             {/* 可轉移設備的排程 */}
             <Panel
               title="可轉移設備運轉時段"
-              sub={sim.planSource !== 'sim'
-                ? '這天的排程未包含可轉移設備，沒有排入'
+              sub={sim.planSource === 'actual'
+                ? '實際開機時段：實時運轉每 15 分鐘重排決定，開機後連續跑完'
+                : sim.planSource !== 'sim'
+                ? '排程組日前排程排定的時段'
                 : '排程把這些設備安排在哪幾點運轉'}
             >
               <Timeline runs={rec.runs} tier={sim.tier} />
@@ -401,7 +433,14 @@ function DayView({ date, setDate, yesterday, minDay }) {
             </div>
           </Panel>
 
-          {admin && (
+          {admin && actual && (
+            <p className="hint prose mt-16">
+              {'📡 以上是資料庫中的實時運轉紀錄：排程組的 MILP 每 15 分鐘依最新預測與實際電量重排、實時運轉層每秒控制電池，'}
+              {'每 15 分鐘取平均存成一筆。負載與太陽能是資料集當天的值（負載每分鐘平均為實測、分鐘內合成，太陽能由 ERA5 日射量換算），'}
+              {`天氣是${res.weatherFrom === 'era5' ? '同一天台北的 ERA5 再分析資料' : '模擬天氣（讀不到 ERA5 資料）'}。不可轉移負載沒有分項，設備排行中計為「未分項」。`}
+            </p>
+          )}
+          {admin && !actual && (
             <p className="hint prose mt-16">
               {'🧪 系統尚未接上實際電表，以上是依台電簡易二段式電價模擬的運轉紀錄。'}
               {`不可轉移負載、太陽能與天氣都取資料集中同季節、同為週${weekdayOf(date)}的那一天${res.profileFrom ? `（${res.profileFrom}）` : ''}：`}
@@ -554,7 +593,7 @@ function groupRows(rows, unit) {
 }
 const total = (rows) => Object.fromEntries(FIELDS.map((f) => [f, rows.reduce((a, r) => a + r[f], 0)]))
 
-function RangeView({ yesterday, minDay, onPickDay }) {
+function RangeView({ yesterday, minDay, onPickDay, actual }) {
   const theme = useTheme()
   const [from, setFrom] = useState(() => {
     // 預設「昨天所在的那個月，從 1 號到昨天」。
@@ -571,7 +610,7 @@ function RangeView({ yesterday, minDay, onPickDay }) {
     let on = true
     const [a, b] = from <= to ? [from, to] : [to, from] // 起訖選反了就自動對調
     setLoadError(null)
-    fetchDailyUsage(a, b)
+    ;(actual ? fetchDailyActual : fetchDailyUsage)(a, b)
       .then((d) => on && setData(d))
       .catch((e) => on && setLoadError(e?.message ?? String(e)))
     return () => { on = false }
@@ -744,7 +783,7 @@ function RangeView({ yesterday, minDay, onPickDay }) {
           </div>
 
           <div className="grid cols-2 mt-16">
-            <Panel title={`用電、發電與購電（依${unitLabel}）`} sub={`${a} ～ ${b}・單位 kWh`} right={<span className="badge">🧪 模擬紀錄</span>}>
+            <Panel title={`用電、發電與購電（依${unitLabel}）`} sub={`${a} ～ ${b}・單位 kWh`} right={<span className="badge">{actual ? '📡 實時運轉紀錄' : '🧪 模擬紀錄'}</span>}>
               <EChart option={energyOption} height={300} label={`${a} 到 ${b} 的用電、發電與購電長條圖`} />
             </Panel>
             <Panel title={`電費（依${unitLabel}）`} sub="長條總高＝不裝 HEMS 的電費，下段是實際付的、上段是省下的・單位 元">
@@ -811,9 +850,10 @@ function RangeView({ yesterday, minDay, onPickDay }) {
             </div>
             {(admin || unit === 'day') && (
               <p className="hint prose mt-16">
-                {admin && '🧪 系統尚未接上實際電表，以上是依台電簡易二段式電價（夏月／非夏月、平日／假日）'}
-                {admin && '逐日模擬的運轉紀錄；不可轉移負載、太陽能與天氣採用資料集中同季節、同一個星期幾那天的資料，'}
-                {admin && '因此同一季裡同一個星期幾的用電量每週相同。電池在有排程組排程的日子（目前為夏月週一）照排程充放電，其餘為模擬調度。'}
+                {admin && actual && '📡 以上是資料庫中展示月的實時運轉紀錄（排程組 MILP 每 15 分鐘重排、逐秒控制），逐日加總；整月加總即為成果報告之展示月電費。'}
+                {admin && !actual && '🧪 系統尚未接上實際電表，以上是依台電簡易二段式電價（夏月／非夏月、平日／假日）'}
+                {admin && !actual && '逐日模擬的運轉紀錄；不可轉移負載、太陽能與天氣採用資料集中同季節、同一個星期幾那天的資料，'}
+                {admin && !actual && '因此同一季裡同一個星期幾的用電量每週相同。電池在有排程組排程的日子照排程充放電，其餘為模擬調度。'}
                 {unit === 'day' && '週末列以底色標示：週末全天離峰、沒有尖離峰價差，電池能省的錢明顯較少。'}
               </p>
             )}

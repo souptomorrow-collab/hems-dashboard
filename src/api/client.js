@@ -28,18 +28,18 @@
 
    所有函式都回傳 Promise。
    ============================================================ */
-import { liveSnapshot, simulateDay, simulateWithSchedule } from '../lib/simulate.js'
+import { liveSnapshot, simulateDay, simulateWithSchedule, pack } from '../lib/simulate.js'
 import { nowTaipei } from '../lib/time.js'
 import { simulateWeather, weatherFromEra5 } from '../lib/weather.js'
-import { fetchDayAheadForecast, fetchWeatherData, fetchSchedules, cached, getJson } from './forecastData.js'
-import { isSummer } from '../lib/tou.js'
+import { fetchDayAheadForecast, fetchWeatherData, fetchSchedules, fetchOperation, cached, getJson } from './forecastData.js'
+import { isSummer, getPriceSlots, getTierSlots } from '../lib/tou.js'
 import { getScenario, nextDayOf, todayOf, scenarioNow, scenarioDate, SEASONS } from '../lib/scenario.js'
 import { getDemo } from '../lib/demoClock.js'
 
 /* 可轉移設備：展示模式照資料庫的排程（使用者確認的時段）；平常模式是模擬的，
    由模擬在允許時段內挑最便宜的時段當建議時段，並假設使用者照建議確認（三台每天都跑） */
 const routineFor = () => null
-import { DEVICES } from '../lib/constants.js'
+import { DEVICES, UNASSIGNED, SLOTS_PER_DAY, SLOT_HOURS } from '../lib/constants.js'
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms))
 
@@ -367,6 +367,103 @@ export async function fetchDailyUsage(fromStr, toStr) {
   const dates = (g) => Object.fromEntries(Object.entries(g).map(([w, d]) => [w, d.date]))
   const profileDates = { summer: dates(profiles.summer), other: dates(profiles.other) }
   return { rows, profileDates }
+}
+
+/* ------------------------------------------------------------
+   展示模式的歷史紀錄：資料庫的實時運轉結果（兩個展示月）
+   /operation 每天 96 筆（每 15 分鐘，逐秒控制 900 次的平均）：負載（含設備）、太陽能、
+   電池（正＝充電）、購電、棄光、SOC，以及每格在跑的可轉移設備。這裡拆成和模擬引擎相同的
+   六條能量流，交給同一支 pack() 組出單日結構，歷史頁的圖表與數字就不必分兩套寫。
+   拆法：太陽能扣掉棄光先供負載；充電時剩下的太陽能先充、不夠由電網充；放電時電池先供負載，
+   其餘由電網補——這樣算出的購電就是紀錄裡的購電。
+   ------------------------------------------------------------ */
+const actualCache = new Map() // 'YYYY-MM-DD' → { stamp, res }；使用者改設定、本機重算後 prefs_stamp 會變
+
+async function operationDays() {
+  return (await cached('operation', fetchOperation))?.byDate ?? {}
+}
+
+function actualOn(dateStr, day, wx) {
+  const hit = actualCache.get(dateStr)
+  if (hit && hit.stamp === day.prefs_stamp) return hit.res
+  const t = parseYmd(dateStr)
+  const price = getPriceSlots(t)
+  const tier = getTierSlots(t)
+  const flows = { pvToLoad: [], pvToBatt: [], pvToGrid: [], battToLoad: [], gridToLoad: [], gridToBatt: [], socPct: [] }
+  const tot = { tPv: 0, tLoad: 0, tGridImport: 0, tCharge: 0, tDischarge: 0, tReverse: 0, optCost: 0, baseCost: 0 }
+  const r3 = (v) => +v.toFixed(3)
+  for (let s = 0; s < SLOTS_PER_DAY; s++) {
+    const L = day.load_kw[s]
+    const PV = day.pv_kw[s]
+    const B = day.batt_kw[s]
+    const C = day.curtail_kw[s]
+    const used = Math.max(0, PV - C)
+    let p2l
+    let p2b = 0
+    let b2l = 0
+    let g2b = 0
+    if (B >= 0) {
+      p2l = Math.min(used, L)
+      p2b = Math.min(used - p2l, B)
+      g2b = B - p2b
+    } else {
+      b2l = -B
+      p2l = Math.min(used, Math.max(0, L - b2l))
+    }
+    const g2l = Math.max(0, L - p2l - b2l)
+    flows.pvToLoad.push(r3(p2l)); flows.pvToBatt.push(r3(p2b)); flows.pvToGrid.push(r3(C))
+    flows.battToLoad.push(r3(b2l)); flows.gridToLoad.push(r3(g2l)); flows.gridToBatt.push(r3(g2b))
+    flows.socPct.push(day.soc_pct[s])
+    const buy = (g2l + g2b) * SLOT_HOURS
+    tot.tPv += PV * SLOT_HOURS; tot.tLoad += L * SLOT_HOURS; tot.tGridImport += buy
+    tot.tCharge += Math.max(0, B) * SLOT_HOURS; tot.tDischarge += b2l * SLOT_HOURS; tot.tReverse += C * SLOT_HOURS
+    tot.optCost += buy * price[s]; tot.baseCost += L * SLOT_HOURS * price[s]
+  }
+  const sim = pack(t, day.pv_kw, day.load_kw, price, tier, flows, tot)
+  // 設備：可轉移設備照每格在跑的紀錄乘額定功率；不可轉移負載沒有分項，整筆算「未分項」
+  const on = (id) => (day.devices?.[id] ?? []).slice(0, SLOTS_PER_DAY).map(Boolean)
+  const shift = DEVICES.filter((d) => d.category === 'shiftable')
+  const devicePower = {}
+  for (const d of shift) devicePower[d.id] = on(d.id).map((x) => (x ? d.ratedW / 1000 : 0))
+  devicePower[UNASSIGNED.id] = day.load_kw.map((v, s) =>
+    r3(Math.max(0, v - shift.reduce((a, d) => a + devicePower[d.id][s], 0))))
+  const era5 = era5For(wx, dateStr)
+  Object.assign(sim, {
+    devicePower,
+    schedule: Object.fromEntries(DEVICES.map((d) =>
+      [d.id, d.category === 'shiftable' ? on(d.id) : new Array(SLOTS_PER_DAY).fill(false)])),
+    weather: era5 ?? simulateWeather(t),
+    planSource: 'actual',
+    planDate: dateStr,
+  })
+  const res = { sim, profileFrom: dateStr, weatherFrom: era5 ? 'era5' : 'sim', actual: true }
+  actualCache.set(dateStr, { stamp: day.prefs_stamp, res })
+  return res
+}
+
+/** 展示月某一天的實時運轉紀錄（格式同 fetchDaySim）。資料庫沒有那天就丟錯，頁面會顯示原因 */
+export async function fetchDayActual(dateStr) {
+  const [days, wx] = await Promise.all([operationDays(), weatherData()])
+  const day = days[dateStr]
+  if (!day) throw new Error(`資料庫沒有 ${dateStr} 的實時運轉紀錄`)
+  return actualOn(dateStr, day, wx)
+}
+
+/** 展示月區間內每天一筆的實時運轉紀錄（格式同 fetchDailyUsage；沒有紀錄的日子略過） */
+export async function fetchDailyActual(fromStr, toStr) {
+  const [days, wx] = await Promise.all([operationDays(), weatherData()])
+  const rows = []
+  for (let t = parseYmd(fromStr), end = parseYmd(toStr); t <= end; t = addDays(t, 1)) {
+    const key = ymd(t)
+    if (!days[key]) continue
+    const sum = actualOn(key, days[key], wx).sim.summary
+    rows.push({
+      date: key, weekday: t.getDay(), loadKwh: sum.loadKwh, pvKwh: sum.pvKwh, gridKwh: sum.gridImportKwh,
+      dischargeKwh: sum.dischargeKwh, cost: sum.optimizedCost, baseline: sum.baselineCost,
+      savings: sum.savings, selfUse: sum.selfUseRate, profileFrom: key,
+    })
+  }
+  return { rows, profileDates: null }
 }
 
 /**

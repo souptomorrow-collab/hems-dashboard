@@ -42,7 +42,7 @@ const WATCH_URL = 'hems-watch://start'
 
 /* monthOnly：用電規劃頁不需要時段的進度條與速度（隔日規劃不看今天播到幾點），
    只留日期、暫停／繼續；進到那頁時播放會先暫停，拖甘特圖時隔日才不會跟著換掉 */
-export default function DemoBar({ monthOnly = false }) {
+export default function DemoBar({ monthOnly = false, history = false }) {
   const demo = useDemoClock()
   const speed = SPEEDS.find((s) => s.key === demo.speed) ?? SPEEDS[0]
   const { season } = useScenario()
@@ -169,8 +169,10 @@ export default function DemoBar({ monthOnly = false }) {
           {playBtn}
           {dayPicker}
           <span className="hint demo-note">
-            {next ? `今天 ${md(today)}，只能調整隔日 ${md(next)}` : '播到月底了，沒有隔日可以調整'}
-            ・進到這頁會先暫停，調整完按 ▶ 繼續
+            {history
+              ? `今天 ${md(today)}，歷史紀錄是展示月到昨天為止的實時運轉結果・按 ‹ › 換天`
+              : <>{next ? `今天 ${md(today)}，只能調整隔日 ${md(next)}` : '播到月底了，沒有隔日可以調整'}
+                ・進到這頁會先暫停，調整完按 ▶ 繼續</>}
           </span>
         </>
       ) : (

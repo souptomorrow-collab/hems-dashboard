@@ -487,7 +487,7 @@ export function dispatchPlan(date, pv, load, plan) {
 }
 
 /** 兩種調度共用：由逐格能量流組出 UI 要的欄位與當日摘要 */
-function pack(date, pv, load, price, tier, flows, t) {
+export function pack(date, pv, load, price, tier, flows, t) {
   const { pvToLoad, pvToBatt, pvToGrid, battToLoad, gridToLoad, gridToBatt, socPct } = flows
   const { tPv, tLoad, tGridImport, tCharge, tDischarge, tReverse, optCost, baseCost } = t
   const chargeKw = pvToBatt.map((v, i) => +(v + gridToBatt[i]).toFixed(3))
