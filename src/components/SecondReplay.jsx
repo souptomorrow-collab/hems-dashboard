@@ -3,6 +3,9 @@ import Panel from './Panel'
 import EChart from './EChart'
 import { cached, getJson, fetchSchedules, fetchOperation } from '../api/forecastData'
 import { useScenario, todayOf } from '../lib/scenario.js'
+import { useDemoClock, seekDemoSec } from '../lib/demoClock.js'
+import { useTheme } from '../lib/theme.js'
+import { baseTooltip, baseLegend, valueYAxis, AXIS_TEXT, SPLIT_LINE } from '../lib/charts.js'
 import { DEVICES } from '../lib/constants.js'
 
 /* 秒級重播：把展示日的每秒資料播給實時運轉層看。
@@ -14,6 +17,9 @@ import { DEVICES } from '../lib/constants.js'
    夏月情境可選 2010-07，非夏月可選 2010-01；換月份就重跑 scripts/make_realtime_snapshot.py。
    15 分鐘的計畫值仍然來自資料庫（排程），兩者在畫面上疊在一起看——
    看得到實時層在兩次排程之間怎麼跟著實際負載走。
+
+   展示模式開著時，重播跟著展示時鐘走（日期固定在展示日、時刻就是展示時鐘的時刻），
+   速度在上方的展示列調：1 分鐘＝1 秒時一格要 15 秒，看得到實時層逐秒怎麼跟著實際負載修正。
 
    ★ 分鐘級以上是實測，分鐘之內是合成；太陽能連 15 分鐘平均都是日射量換算，不是實測出力。 */
 
@@ -34,14 +40,20 @@ const hhmmss = (s) =>
 
 export default function SecondReplay() {
   const { season } = useScenario()
+  const theme = useTheme() // 主題一換，圖表的座標軸、圖例顏色跟著換
   const range = MONTHS[season] ?? MONTHS.summer
   const home = todayOf(season) // 預設停在展示日
-  const [day, setDay] = useState(home)
+  const [picked, setDay] = useState(home)
   const [data, setData] = useState(null)
   const [plan, setPlan] = useState(null)
   const [op, setOp] = useState(null)        // 實時層實際做了什麼（actual_operation）
   const [err, setErr] = useState(null)
-  const [sec, setSec] = useState(0)
+  const [ownSec, setSec] = useState(0)
+  // 展示模式：跟著展示時鐘（展示日、展示時鐘的時刻），自己的播放鈕與日期都停用
+  const demo = useDemoClock()
+  const locked = demo.enabled
+  const day = locked ? home : picked
+  const sec = locked ? demo.sec : ownSec
   const [speed, setSpeed] = useState(60)
   const [playing, setPlaying] = useState(false)
   const carry = useRef(0)                 // 不足 1 秒的餘數，換速度時不會跳動
@@ -70,7 +82,7 @@ export default function SecondReplay() {
   }, [day])
 
   useEffect(() => {
-    if (!playing || !data) return undefined
+    if (!playing || !data || locked) return undefined
     const id = setInterval(() => {
       carry.current += (speed * TICK_MS) / 1000
       const step = Math.floor(carry.current)
@@ -135,15 +147,19 @@ export default function SecondReplay() {
       s.push(flat(planRow.pv_kw, '太陽能（本格計畫）', '#b8860b'))
     }
     return {
-      grid: { left: 46, right: 12, top: 28, bottom: 28 },
-      tooltip: { trigger: 'axis' },
-      legend: { top: 0, itemWidth: 18, itemHeight: 8, textStyle: { fontSize: 11 } },
-      xAxis: { type: 'category', data: view.x, axisLabel: { interval: 179, fontSize: 11 } },
-      yAxis: { type: 'value', name: 'kW', min: 0, axisLabel: { fontSize: 11 } },
+      grid: { left: 46, right: 12, top: 44, bottom: 28 },
+      tooltip: { ...baseTooltip },
+      legend: { ...baseLegend, textStyle: { ...baseLegend.textStyle, fontSize: 11 } },
+      xAxis: {
+        type: 'category', data: view.x,
+        axisLine: { lineStyle: { color: SPLIT_LINE } }, axisTick: { show: false },
+        axisLabel: { interval: 179, fontSize: 11, color: AXIS_TEXT },
+      },
+      yAxis: valueYAxis('kW', { min: 0 }),
       series: s,
       animation: false,
     }
-  }, [view, planRow])
+  }, [view, planRow, theme])
 
   const picker = (
     <label className="replay-day">
@@ -155,6 +171,8 @@ export default function SecondReplay() {
         min={`${range.month}-01`}
         max={`${range.month}-${String(range.days).padStart(2, '0')}`}
         onChange={(e) => e.target.value && setDay(e.target.value)}
+        disabled={locked}
+        title={locked ? '展示模式下固定在展示日' : undefined}
       />
     </label>
   )
@@ -168,18 +186,24 @@ export default function SecondReplay() {
       right={
         <div className="replay-ctl">
           {picker}
-          <button className="btn" onClick={() => setPlaying((p) => !p)}>
-            {playing ? '暫停' : '播放'}
-          </button>
-          {SPEEDS.map((v) => (
-            <button
-              key={v}
-              className={`btn ${v === speed ? 'on' : ''}`}
-              onClick={() => setSpeed(v)}
-            >
-              {v}×
-            </button>
-          ))}
+          {locked ? (
+            <span className="hint">跟著展示時鐘・速度在上方展示列調</span>
+          ) : (
+            <>
+              <button className="btn" onClick={() => setPlaying((p) => !p)}>
+                {playing ? '暫停' : '播放'}
+              </button>
+              {SPEEDS.map((v) => (
+                <button
+                  key={v}
+                  className={`btn ${v === speed ? 'on' : ''}`}
+                  onClick={() => setSpeed(v)}
+                >
+                  {v}×
+                </button>
+              ))}
+            </>
+          )}
         </div>
       }
     >
@@ -210,7 +234,7 @@ export default function SecondReplay() {
         min={0}
         max={data.n - 1}
         value={sec}
-        onChange={(e) => setSec(Number(e.target.value))}
+        onChange={(e) => (locked ? seekDemoSec(Number(e.target.value)) : setSec(Number(e.target.value)))}
         style={{ width: '100%' }}
         aria-label="重播進度"
       />

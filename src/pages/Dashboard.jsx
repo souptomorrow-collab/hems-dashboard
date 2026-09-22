@@ -9,9 +9,9 @@ import WeatherStrip from '../components/WeatherStrip.jsx'
 import { fetchLive, fetchToday, fetchShowcase } from '../api/client.js'
 import { COLORS, BATTERY, SLOT_HOURS, slotToTime } from '../lib/constants.js'
 import { useTheme } from '../lib/theme.js'
-import { useDemoClock, slotToDate } from '../lib/demoClock.js'
+import { useDemoEnabled, useDemoSlot, slotToDate } from '../lib/demoClock.js'
 import { useScenario } from '../lib/scenario.js'
-import { useClock, useCurrentSlot } from '../hooks/useClock.js'
+import { useSlotClock, useCurrentSlot } from '../hooks/useClock.js'
 import { useMediaQuery } from '../hooks/useMediaQuery.js'
 import { useIsAdmin } from '../lib/auth.js'
 import {
@@ -64,8 +64,9 @@ const PLAN_SOC_H = 140 // 今日計畫那張的 SOC 小圖高度（SOC 在 15%�
 
 export default function Dashboard() {
   const theme = useTheme() // 主題一換，下面的圖表 option 就會重算
-  const demo = useDemoClock()
-  const now = useClock() // 展示模式開著時，這個已經是虛擬時間
+  // 展示時鐘每 0.1 秒前進一次；這頁只在開關與換格時重畫
+  const demo = { enabled: useDemoEnabled(), slot: Math.max(0, useDemoSlot()) }
+  const now = useSlotClock() // 展示模式開著時是虛擬時間；換格時才變
   const curSlot = useCurrentSlot() // 過去（真實值）／未來（日前預測）的分界
   const { season } = useScenario() // 夏月／非夏月情境，一換就整頁重抓
   const narrow = useMediaQuery('(max-width: 760px)')

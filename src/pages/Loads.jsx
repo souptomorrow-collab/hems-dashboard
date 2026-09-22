@@ -5,9 +5,9 @@ import EChart from '../components/EChart.jsx'
 import { fetchLive, fetchToday } from '../api/client.js'
 import { DEVICES, DEVICE_COLORS, DEVICE_GROUPS, CATEGORY_LABEL, COLORS, SLOTS_PER_DAY, slotToTime } from '../lib/constants.js'
 import { useTheme } from '../lib/theme.js'
-import { useDemoClock, slotToDate } from '../lib/demoClock.js'
+import { useDemoEnabled, useDemoSlot, slotToDate } from '../lib/demoClock.js'
 import { useScenario } from '../lib/scenario.js'
-import { useClock, useCurrentSlot } from '../hooks/useClock.js'
+import { useSlotClock, useCurrentSlot } from '../hooks/useClock.js'
 import { useMediaQuery } from '../hooks/useMediaQuery.js'
 import {
   slotXAxis,
@@ -29,8 +29,9 @@ const membersText = (g) => (g.members.length > 1 ? g.members.map(deviceName).joi
 
 export default function Loads() {
   const theme = useTheme() // 主題一換，下面的圖表 option 就會重算
-  const demo = useDemoClock()
-  const now = useClock()
+  // 展示時鐘每 0.1 秒前進一次；這頁只在開關與換格時重畫
+  const demo = { enabled: useDemoEnabled(), slot: Math.max(0, useDemoSlot()) }
+  const now = useSlotClock() // 換格時才變
   const curSlot = useCurrentSlot()
   const { season } = useScenario()
   const narrow = useMediaQuery('(max-width: 760px)') // 手機上圓餅圖的圖例改放下方

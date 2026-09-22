@@ -21,6 +21,8 @@ import { SLOTS_PER_DAY, slotToTime } from '../lib/constants.js'
 import { useScenario, SEASONS } from '../lib/scenario.js'
 
 const md = (date) => `${+date.slice(5, 7)}/${+date.slice(8, 10)}`
+const p2 = (n) => String(n).padStart(2, '0')
+const hms = (s) => `${p2(Math.floor(s / 3600))}:${p2(Math.floor(s / 60) % 60)}:${p2(s % 60)}`
 
 /* monthOnly：用電規劃頁只要開關（隔日規劃不看今天播到哪），不顯示播放控制 */
 export default function DemoBar({ monthOnly = false }) {
@@ -65,7 +67,7 @@ export default function DemoBar({ monthOnly = false }) {
       {!demo.enabled ? (
         <span className="hint demo-idle">
           {`目前照真實時間。開啟後`
-            + (monthOnly ? '' : '一天壓縮播放（15 分鐘 = 1 秒），')
+            + (monthOnly ? '' : '加速播放（預設 15 分鐘 = 1 秒；要講實時層切到 1 分鐘 = 1 秒），')
             + `頁面最下方顯示 ${month}整月排程與實時運轉（今天是展示日 ${md(show)}）`}
         </span>
       ) : monthOnly ? (
@@ -82,7 +84,7 @@ export default function DemoBar({ monthOnly = false }) {
           </button>
 
           <div className="demo-time">
-            <strong>{slotToTime(demo.slot)}</strong>
+            <strong>{demo.speed <= 300 ? hms(demo.sec) : slotToTime(demo.slot)}</strong>
             <span className="muted">
               第 {demo.slot + 1} / {SLOTS_PER_DAY} 格
             </span>
