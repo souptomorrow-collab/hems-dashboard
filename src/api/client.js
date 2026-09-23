@@ -96,6 +96,33 @@ function nonShiftable(plan) {
 }
 
 /**
+ * 展示模式站在第 atSlot 格時，可轉移設備每格的開關。日前排程的設備時間只是前一晚的預估，
+ * 實際幾點開由實時運轉層每 15 分鐘重排決定：
+ *   已經開機的設備  照實時運轉紀錄（op.devices，開了就連續跑完）
+ *   還沒開機的設備  照實時運轉層在這一格重排的預計開機格（op.planned），時長同它的運轉格數
+ * 這樣頁面二的即時功率、頁面一的曲線才和實時運轉（歷史紀錄）一致，不會出現實際是洗衣機在跑、畫面卻是烘衣機。
+ */
+function devicesAt(plan, op, atSlot) {
+  const s = Math.max(0, Math.min(SLOTS_PER_DAY - 1, atSlot))
+  const out = {}
+  for (const id of new Set([...Object.keys(plan?.devices ?? {}), ...Object.keys(op.devices ?? {})])) {
+    const act = op.devices?.[id] ?? []
+    const est = plan?.devices?.[id] ?? []
+    const on = new Array(SLOTS_PER_DAY).fill(0)
+    const started = act.findIndex(Boolean)
+    const len = act.filter(Boolean).length || est.filter(Boolean).length
+    if (started >= 0 && started <= s) {
+      act.forEach((v, i) => { on[i] = v ? 1 : 0 })
+    } else {
+      const k = op.planned?.[id]?.[s]
+      if (Number.isInteger(k)) for (let i = k; i < Math.min(SLOTS_PER_DAY, k + len); i++) on[i] = 1
+    }
+    out[id] = on
+  }
+  return out
+}
+
+/**
  * 展示日的日前負載預測（前一晚 23:45 發布、一天一次）。
  * 那天有排程組的排程時，用排程裡的 load_kw（扣掉可轉移設備）：電池功率是針對這條負載排的，
  * 資料庫的預測之後若重算過（2026-09-17 改為一整年 walk-forward），兩者會不同，
@@ -199,10 +226,13 @@ async function scenarioInputs(atSlot = null, day = null) {
     if (import.meta.env.DEV) console.warn('[HEMS] 取雲端預測快照失敗，改用模擬值：', e.message)
     return { season, fixed: null, pv: null, weather: null, plan: null }
   }
-  const plan = await planFor(d.targetDate)
+  const dayPlan = await planFor(d.targetDate)
   // 快照的 slots 是當天 00:00 發布那筆（第 0 格還換成真實值），和排程組的輸入最多差 0.25 kW，
   // 所以預測一律改用前一晚 23:45 的日前預測
-  const dayAhead = await dayAheadLoad(d.targetDate, plan)
+  const dayAhead = await dayAheadLoad(d.targetDate, dayPlan)
+  // 站在某一格看（主頁面即時、各負載）：可轉移設備照實時運轉層真正的開機時間；整日計畫（atSlot 為 null）維持日前排程
+  const op = atSlot == null || !dayPlan ? null : (await operationDays().catch(() => ({})))[d.targetDate]
+  const plan = op?.devices ? { ...dayPlan, devices: devicesAt(dayPlan, op, atSlot) } : dayPlan
   lastForecastMeta = {
     source: 'rf',
     refresh: dayAhead ? '前一晚 23:45 發布（一天一次）' : '當天 00:00 發布',
