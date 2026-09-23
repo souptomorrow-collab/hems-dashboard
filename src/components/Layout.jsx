@@ -11,6 +11,14 @@ import { useScenario, setSeason, SEASONS, scenarioNow, seasonOf, nextDayOf, toda
 import { getDemo, stopDemo, useDemoEnabled } from '../lib/demoClock.js'
 import { useAuth, logout } from '../lib/auth.js'
 import { pingDemo } from '../api/prefs.js'
+import {
+  cached, refreshCached, fetchSchedules, fetchOperation, fetchWatcherStatus, SCHEDULES_REFRESHED, DATA_REFRESHED,
+} from '../api/forecastData.js'
+
+/** 每一天是用哪一版設定算的；和上次比有變，就是本機又寫回了新的日子 */
+const stampsOf = (s, o) => [s, o]
+  .map((x) => Object.entries(x?.byDate ?? {}).map(([d, v]) => `${d}:${v.prefs_stamp ?? ''}`).join())
+  .join('|')
 
 // admin：只有管理員看得到的頁面
 const NAV = [
@@ -76,6 +84,35 @@ export default function Layout() {
     pingDemo()
     const id = setInterval(pingDemo, 60000)
     return () => clearInterval(id)
+  }, [demoOn, admin])
+
+  // 使用者改了隔日設定，本機從隔日起逐日重算，算完一天就寫回資料庫一天。
+  // 用電規劃頁的整月檢視自己每 5 秒重讀；其他頁（主頁面、歷史紀錄）靠這裡：本機在重算時每 10 秒重讀
+  // 排程與實時運轉，有新寫回的日子就通知各頁重抓——算好的日子馬上看得到，不必等整個月算完或重新整理
+  useEffect(() => {
+    if (!demoOn || !admin) return undefined
+    let on = true
+    let wasComputing = false
+    const tick = async () => {
+      const w = await fetchWatcherStatus().catch(() => null)
+      const computing = Boolean(w?.running && w.state === 'computing')
+      if (!computing && !wasComputing) return
+      wasComputing = computing // 剛算完那次再讀一次，最後一天也接得到
+      const [s0, o0] = await Promise.all([
+        cached('schedule', fetchSchedules).catch(() => null),
+        cached('operation', fetchOperation).catch(() => null),
+      ])
+      const [s, o] = await Promise.all([
+        refreshCached('schedule', fetchSchedules).catch(() => null),
+        refreshCached('operation', fetchOperation).catch(() => null),
+      ])
+      if (!on || !s || !o || stampsOf(s, o) === stampsOf(s0, o0)) return
+      window.dispatchEvent(new CustomEvent(SCHEDULES_REFRESHED, { detail: s }))
+      window.dispatchEvent(new CustomEvent(DATA_REFRESHED))
+    }
+    tick()
+    const id = setInterval(tick, 10000)
+    return () => { on = false; clearInterval(id) }
   }, [demoOn, admin])
 
   // 關掉展示模式就回到今天實際的季節（平常沒有切換鈕，不能停在另一季）

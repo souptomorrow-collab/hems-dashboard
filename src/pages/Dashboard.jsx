@@ -7,6 +7,7 @@ import SecondReplay from '../components/SecondReplay.jsx'
 import MonthView from '../components/MonthView.jsx'
 import WeatherStrip from '../components/WeatherStrip.jsx'
 import { fetchLive, fetchToday, fetchShowcase, fetchRolling } from '../api/client.js'
+import { useDataRevision } from '../hooks/useDataRevision.js'
 import { COLORS, BATTERY, SLOT_HOURS, slotToTime } from '../lib/constants.js'
 import { useTheme } from '../lib/theme.js'
 import { useDemoEnabled, useDemoSlot, useDemoDay, slotToDate } from '../lib/demoClock.js'
@@ -81,6 +82,7 @@ export default function Dashboard() {
   const now = useSlotClock() // 展示模式開著時是虛擬時間；換格時才變
   const curSlot = useCurrentSlot() // 過去（真實值）／未來（日前預測）的分界
   const { season } = useScenario() // 夏月／非夏月情境，一換就整頁重抓
+  const rev = useDataRevision() // 本機重算時每寫回一天就加一：今天那份換新了要重抓
   const narrow = useMediaQuery('(max-width: 760px)')
   // 住戶看不到預測模型相關的圖與資料來源標示，說明文字也改成一般用語
   const admin = useIsAdmin()
@@ -131,7 +133,7 @@ export default function Dashboard() {
     fetchToday(now, curSlot).then((d) => on && setToday(d))
     return () => { on = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [curSlot, demo.enabled, demo.day, season])
+  }, [curSlot, demo.enabled, demo.day, season, rev])
 
   // 今日全天計畫：排程一天只排一次，整天都是同一份（負載、太陽能都用前一晚的日前預測）
   useEffect(() => {
@@ -139,7 +141,7 @@ export default function Dashboard() {
     fetchToday(now).then((d) => on && setDayPlan(d))
     return () => { on = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [demo.enabled, demo.day, season])
+  }, [demo.enabled, demo.day, season, rev])
 
   // 未來 24 小時：每前進一格換一份（展示模式是實時運轉層在這一格重排的計畫；平常是今天接明天的模擬）
   useEffect(() => {
@@ -148,7 +150,7 @@ export default function Dashboard() {
     fetchRolling(curSlot, now).then((d) => on && setRolling(d)).catch(() => on && setRolling(null))
     return () => { on = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [curSlot, demo.enabled, demo.day, season, planView])
+  }, [curSlot, demo.enabled, demo.day, season, planView, rev])
 
   // 展示日原始資料：每個情境載入一次，之後只是依目前格數取不同的列
   useEffect(() => {

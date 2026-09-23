@@ -21,6 +21,7 @@ import EChart from '../components/EChart.jsx'
 import Tile from '../components/Tile.jsx'
 import WeatherStrip from '../components/WeatherStrip.jsx'
 import { fetchDailyUsage, fetchDaySim, fetchDayActual, fetchDailyActual, fetchPlanVsActual, ymd, parseYmd, addDays } from '../api/client.js'
+import { useDataRevision } from '../hooks/useDataRevision.js'
 import { useDemoEnabled } from '../lib/demoClock.js'
 import { useScenarioDays } from '../lib/scenario.js'
 import { COLORS, DEVICE_COLORS, BATTERY, SLOTS_PER_DAY, slotToTime } from '../lib/constants.js'
@@ -144,26 +145,28 @@ function DayView({ date, setDate, yesterday, minDay, actual }) {
   const [res, setRes] = useState(null)
   const [loadError, setLoadError] = useState(null)
   const admin = useIsAdmin() // 資料集與模擬方式的說明只給管理員看
+  // 本機重算時每寫回一天就加一：同一天換成新結果時直接換掉，不先清成載入中（畫面不閃）
+  const rev = useDataRevision()
+  const shown = useRef(null)
+  // 展示模式：同一天的日前計畫（前一晚 23:45 的排程）與實際運轉對照
+  const [cmp, setCmp] = useState(null)
 
   useEffect(() => {
     let on = true
-    setRes(null)
-    setLoadError(null)
+    const key = `${date}|${actual}`
+    if (shown.current !== key) {
+      setRes(null)
+      setLoadError(null)
+      setCmp(null)
+      shown.current = key
+    }
     // 讀取或計算失敗時要顯示原因，不能讓畫面一直停在載入中
     ;(actual ? fetchDayActual : fetchDaySim)(date)
       .then((r) => on && setRes(r))
       .catch((e) => on && setLoadError(e?.message ?? String(e)))
-    return () => { on = false }
-  }, [date, actual])
-
-  // 展示模式：同一天的日前計畫（前一晚 23:45 的排程）與實際運轉對照
-  const [cmp, setCmp] = useState(null)
-  useEffect(() => {
-    let on = true
-    setCmp(null)
     if (actual) fetchPlanVsActual(date).then((r) => on && setCmp(r)).catch(() => on && setCmp(null))
     return () => { on = false }
-  }, [date, actual])
+  }, [date, actual, rev])
 
   const sim = res?.sim
   const rec = useMemo(() => (sim ? dayRecord(sim) : null), [sim])
@@ -709,6 +712,7 @@ function RangeView({ yesterday, minDay, onPickDay, actual }) {
   const [data, setData] = useState(null)
   const [loadError, setLoadError] = useState(null)
   const admin = useIsAdmin()
+  const rev = useDataRevision() // 本機重算時每寫回一天就加一，區間統計跟著換成新結果
 
   useEffect(() => {
     let on = true
@@ -718,7 +722,7 @@ function RangeView({ yesterday, minDay, onPickDay, actual }) {
       .then((d) => on && setData(d))
       .catch((e) => on && setLoadError(e?.message ?? String(e)))
     return () => { on = false }
-  }, [from, to])
+  }, [from, to, rev]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const rows = data?.rows ?? []
   const groups = useMemo(() => groupRows(rows, unit), [rows, unit])
