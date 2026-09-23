@@ -4,6 +4,7 @@
    單位：元 / 度(kWh)
    ============================================================ */
 import { SLOTS_PER_DAY, slotToHour } from './constants.js'
+import { TW_HOLIDAYS } from './holidays.js'
 
 export const PRICE = {
   summer: { peak: 5.16, offpeak: 2.06 },
@@ -16,10 +17,17 @@ export function isSummer(date) {
   return m >= 6 && m <= 9
 }
 
-/** 是否為週六、週日（簡化：不含國定離峰日） */
+/** 是否為週六、週日 */
 export function isWeekend(date) {
   const d = date.getDay() // 0 = 週日, 6 = 週六
   return d === 0 || d === 6
+}
+
+const pad = (n) => String(n).padStart(2, '0')
+
+/** 是否為國定假日（資料集年份的假日表，見 holidays.js） */
+export function isHoliday(date) {
+  return TW_HOLIDAYS.has(`${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`)
 }
 
 /**
@@ -30,8 +38,8 @@ export function getTierByHour(date, hour) {
   const summer = isSummer(date)
   const rate = summer ? PRICE.summer : PRICE.nonSummer
 
-  // 週六日及離峰日：全日離峰
-  if (isWeekend(date)) {
+  // 週六日及離峰日（國定假日）：全日離峰
+  if (isWeekend(date) || isHoliday(date)) {
     return { tier: 'offpeak', price: rate.offpeak }
   }
 
