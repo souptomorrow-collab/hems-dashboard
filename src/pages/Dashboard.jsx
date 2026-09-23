@@ -308,10 +308,30 @@ export default function Dashboard() {
     }
   }
 
-  const realtimeOption = useMemo(
-    () => (today ? dayOption(today, curSlot, false, realtimeAxis()) : {}),
-    [today, show, theme, curSlot]
-  )
+  // 即時運轉：曲線一路長到現在，在尖端直接標名稱與目前的數值（只靠上方圖例，
+  // 負載、購電、太陽能幾條線擠在一起時分不出誰是誰）；右邊多留一點空間給標籤
+  const TIP = { '太陽能發電': ['太陽能', COLORS.solar], '家庭負載': ['負載', COLORS.load], '電網購電': ['購電', COLORS.grid], SOC: ['SOC', COLORS.battery] }
+  const realtimeOption = useMemo(() => {
+    if (!today) return {}
+    const o = dayOption(today, curSlot, false, realtimeAxis())
+    const right = narrow ? 58 : 76
+    o.grid = o.grid.map((g) => ({ ...g, right }))
+    o.series = o.series.map((x) => {
+      const t = TIP[x.name]
+      if (!t) return x
+      const [text, color] = t
+      return {
+        ...x,
+        endLabel: {
+          show: true, color, fontSize: 11, fontWeight: 700, distance: 6,
+          formatter: (p) => (x.name === 'SOC' ? `${text} ${Math.round(p.value)}%` : `${text} ${(+p.value).toFixed(1)}`),
+        },
+        labelLayout: { moveOverlap: 'shiftY' },
+      }
+    })
+    return o
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [today, show, theme, curSlot, narrow])
   const dayPlanOption = useMemo(
     () => (dayPlan ? dayOption(dayPlan, null, true, planAxis(), true) : {}),
     [dayPlan, theme, demo.enabled, curSlot]

@@ -5,7 +5,8 @@ import { cached, getJson, fetchSchedules, fetchOperation } from '../api/forecast
 import { useScenario, useScenarioDays } from '../lib/scenario.js'
 import { useDemoClock, seekDemoSec } from '../lib/demoClock.js'
 import { useTheme } from '../lib/theme.js'
-import { baseTooltip, baseLegend, valueYAxis, AXIS_TEXT, SPLIT_LINE } from '../lib/charts.js'
+import { baseTooltip, valueYAxis, AXIS_TEXT, SPLIT_LINE } from '../lib/charts.js'
+import { useMediaQuery } from '../hooks/useMediaQuery.js'
 import { DEVICES } from '../lib/constants.js'
 
 /* 秒級重播：把展示日的每秒資料播給實時運轉層看。
@@ -131,35 +132,55 @@ export default function SecondReplay() {
     : null
   const now = data ? { load: data.load_kw[sec] + devKw[slot], pv: data.pv_kw[sec], dev: devKw[slot] } : null
 
+  // 曲線直接在右端標名稱（實線＝實際每秒、虛線＝排程對這一格的計畫）。原本靠上方圖例，
+  // 四條線兩兩同色系分不出來，手機上圖例還被分成三頁、看不到虛線是什麼
+  const narrow = useMediaQuery('(max-width: 760px)')
   const option = useMemo(() => {
     if (!view) return {}
-    const series = (name, arr, color) => ({
-      name, type: 'line', data: arr, showSymbol: false, smooth: false,
-      lineStyle: { width: 1.6, color }, itemStyle: { color },
+    const tag = (text, color) => ({
+      show: true, color, fontSize: 11, fontWeight: 700, distance: 6,
+      formatter: (p) => (narrow ? text : `${text} ${(+p.value).toFixed(2)}`),
     })
-    const s = [series('負載（每秒，含可轉移設備）', view.load, '#ef6c4d'), series('太陽能（每秒）', view.pv, '#f2b705')]
+    const series = (name, text, arr, color, extra = {}) => ({
+      name, type: 'line', data: arr, symbol: 'none', smooth: false,
+      lineStyle: { width: 1.8, color }, itemStyle: { color },
+      endLabel: tag(text, color), labelLayout: { moveOverlap: 'shiftY' }, ...extra,
+    })
+    // 實際與計畫的尾端很接近（例如夜裡太陽能兩條都是 0）時，兩個標籤會疊在一起：只留一個、不分實際計畫
+    const last = (a) => a[a.length - 1]
+    const top = Math.max(1, ...view.load, ...view.pv, planRow?.load_kw ?? 0, planRow?.pv_kw ?? 0)
+    const close = (a, v) => planRow && Math.abs(last(a) - v) < top * 0.06
+    const both = { load: close(view.load, planRow?.load_kw), pv: close(view.pv, planRow?.pv_kw) }
+    const s = [
+      series('負載・實際（每秒，含可轉移設備）', both.load ? '負載' : '負載實際', view.load, '#ef6c4d'),
+      series('太陽能・實際（每秒）', both.pv ? '太陽能' : '太陽能實際', view.pv, '#e0a100'),
+    ]
     if (planRow) {
-      const flat = (v, name, color) => ({
-        name, type: 'line', data: view.x.map(() => v), showSymbol: false,
-        lineStyle: { width: 1.4, type: 'dashed', color }, itemStyle: { color },
+      const flat = (v, name, text, color, hide) => series(name, text, view.x.map(() => v), color, {
+        lineStyle: { width: 1.6, type: [6, 4], color },
+        ...(hide ? { endLabel: { show: false } } : {}),
       })
-      s.push(flat(planRow.load_kw, '負載（本格計畫）', '#b34a30'))
-      s.push(flat(planRow.pv_kw, '太陽能（本格計畫）', '#b8860b'))
+      s.push(flat(planRow.load_kw, '負載・本格計畫', '負載計畫', '#c0502e', both.load))
+      s.push(flat(planRow.pv_kw, '太陽能・本格計畫', '太陽能計畫', '#a98200', both.pv))
     }
     return {
-      grid: { left: 46, right: 12, top: 44, bottom: 28 },
+      grid: { left: 46, right: narrow ? 74 : 118, top: 24, bottom: 28 },
       tooltip: { ...baseTooltip },
-      legend: { ...baseLegend, textStyle: { ...baseLegend.textStyle, fontSize: 11 } },
       xAxis: {
         type: 'category', data: view.x,
         axisLine: { lineStyle: { color: SPLIT_LINE } }, axisTick: { show: false },
-        axisLabel: { interval: 179, fontSize: 11, color: AXIS_TEXT },
+        // 只在整分鐘標 HH:MM（桌機每 3 分鐘、手機每 5 分鐘），原本標「10:18:01」手機上會擠成一串
+        axisLabel: {
+          fontSize: 11, color: AXIS_TEXT,
+          interval: (_i, v) => v.endsWith(':00') && +v.slice(3, 5) % (narrow ? 5 : 3) === 0,
+          formatter: (v) => v.slice(0, 5),
+        },
       },
       yAxis: valueYAxis('kW', { min: 0 }),
       series: s,
       animation: false,
     }
-  }, [view, planRow, theme])
+  }, [view, planRow, theme, narrow])
 
   const picker = (
     <label className="replay-day">
@@ -240,7 +261,7 @@ export default function SecondReplay() {
       />
       <EChart option={option} height={260} label={`秒級重播：${data.date} 最近 15 分鐘的負載與太陽能`} />
       <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-        秒級資料跟著網站一起部署（0.9 MB），不經過資料庫；虛線為排程對這一格的計畫值，來自資料庫。
+        實線為實際（每秒），虛線為排程對這一格的計畫值（來自資料庫）；秒級資料跟著網站一起部署（0.9 MB），不經過資料庫。
         可轉移設備照使用者存下的時段、以額定功率加進負載。
         負載每分鐘的平均為實測、分鐘內為合成；太陽能的 15 分鐘平均由實測日射量換算，秒級起伏為合成。
       </p>
