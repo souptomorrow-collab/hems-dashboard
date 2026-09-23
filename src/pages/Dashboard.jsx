@@ -605,10 +605,8 @@ export default function Dashboard() {
     ? '從現在起 24 小時的預測與排程，每 15 分鐘依最新預測重排・紅底為尖峰時段'
     : `實時運轉層在 ${slotToTime(rolling.startSlot)} 重排的計畫（每 15 分鐘一次，只執行第一格）`
       + '・負載：這一格發布的 RF 滾動預測（含可轉移設備）'
-      + (rolling.midnight == null
-          ? '・太陽能：LSTM 日前預測'
-          : '・太陽能：LSTM 日前預測，過了午夜為明日預測'
-            + (rolling.startSlot < 95 ? '（實際於今晚 23:45 發布）' : ''))
+      + '・太陽能：前一晚 23:45 發布的 LSTM 48 小時預測'
+      + (rolling.midnight == null ? '' : '（過了午夜仍是同一份，只用已發布的預測）')
       + '・電池：MILP 排程・紅底為尖峰時段'
   const planBadge = planView !== 'next24' || !hasRolling
     ? todayBadge
