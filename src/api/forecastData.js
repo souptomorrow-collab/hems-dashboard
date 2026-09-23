@@ -50,6 +50,13 @@ const API_PATHS = {
   'operation.json': '/operation',
 }
 
+/** 快照檔名 → API 路徑；每天一份的實時運轉計畫 plans/2010-07-19.json → /plans?date=2010-07-19 */
+function apiPath(file) {
+  if (API_PATHS[file]) return API_PATHS[file]
+  const m = /^plans\/(\d{4}-\d{2}-\d{2})\.json$/.exec(file)
+  return m ? `/plans?date=${m[1]}` : null
+}
+
 /** 兩個情境各一份展示日快照（API 的 /forecast/day?season=summer、non_summer） */
 const SHOWCASE_FILES = {
   summer: 'forecast_day.json',
@@ -78,7 +85,7 @@ async function fetchJson(url, ms) {
  * @param {string} file 快照檔名
  */
 export async function getJson(file) {
-  const path = API_BASE && API_PATHS[file]
+  const path = API_BASE && apiPath(file)
   if (path) {
     try {
       return { ...(await fetchJson(API_BASE + path, API_TIMEOUT_MS)), via: 'api' }
@@ -182,6 +189,24 @@ export async function fetchOperation() {
     if (typeof x?.date === 'string' && Array.isArray(x.soc_pct) && x.soc_pct.length === 96) byDate[x.date] = x
   }
   return { via: d.via, byDate }
+}
+
+/**
+ * 實時運轉層每 15 分鐘重排的計畫（hems.schedule 的 tag=rolling；API 的 /plans?date=，快照 plans/日期.json）。
+ * 一天 96 份，bySlot[s] 是第 s 格重排出來、往後 96 格（24 小時）的計畫：load_kw（含可轉移設備）、pv_kw
+ * （過了午夜是隔天的日前預測）、grid_buy_kw、batt_kw（正＝充電）、soc_pct（該格結束時）、price；
+ * devices 為各設備的運轉區間 [開始, 結束)（相對這份計畫的第 1 格）。欄位不齊的那份當作沒有。
+ */
+export async function fetchPlans(date) {
+  const d = await getJson(`plans/${date}.json`)
+  const bySlot = new Array(96).fill(null)
+  const nums = (a) => Array.isArray(a) && a.length === 96 && a.every(Number.isFinite)
+  for (const p of Array.isArray(d.plans) ? d.plans : []) {
+    const m = typeof p?.start_time === 'string' ? /(\d{2}):(\d{2})$/.exec(p.start_time) : null
+    if (!m || !['load_kw', 'pv_kw', 'grid_buy_kw', 'batt_kw', 'soc_pct', 'price'].every((k) => nums(p[k]))) continue
+    bySlot[+m[1] * 4 + +m[2] / 15] = p
+  }
+  return { via: d.via, prefsStamp: d.prefs_stamp ?? null, bySlot }
 }
 
 /**

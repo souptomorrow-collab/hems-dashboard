@@ -1190,6 +1190,21 @@ body {
 .seg button:hover { color: var(--text); }
 .seg button.active { background: var(--accent-solid); color: #fff; }
 
+/* 主頁面計畫那張：右上角「未來 24 小時／今日全天」切換與資料來源徽章；窄螢幕換到標題下方 */
+.plan-head-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.plan-head-right .seg button { white-space: nowrap; }
+@media (max-width: 760px) {
+  .panel-head:has(.plan-head-right) { flex-wrap: wrap; }
+  .plan-head-right { justify-content: flex-start; }
+}
+
 .quick-ranges {
   display: flex;
   flex-wrap: wrap;

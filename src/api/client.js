@@ -31,7 +31,7 @@
 import { liveSnapshot, simulateDay, simulateWithSchedule, pack } from '../lib/simulate.js'
 import { nowTaipei } from '../lib/time.js'
 import { simulateWeather, weatherFromEra5 } from '../lib/weather.js'
-import { fetchDayAheadForecast, fetchWeatherData, fetchSchedules, fetchOperation, cached, getJson } from './forecastData.js'
+import { fetchDayAheadForecast, fetchWeatherData, fetchSchedules, fetchOperation, fetchPlans, cached, refreshCached, getJson } from './forecastData.js'
 import { isSummer, getPriceSlots, getTierSlots } from '../lib/tou.js'
 import { getScenario, nextDayOf, todayOf, scenarioNow, scenarioDate, SEASONS } from '../lib/scenario.js'
 import { getDemo } from '../lib/demoClock.js'
@@ -39,7 +39,7 @@ import { getDemo } from '../lib/demoClock.js'
 /* 可轉移設備：展示模式照資料庫的排程（使用者確認的時段）；平常模式是模擬的，
    由模擬在允許時段內挑最便宜的時段當建議時段，並假設使用者照建議確認（三台每天都跑） */
 const routineFor = () => null
-import { DEVICES, UNASSIGNED, SLOTS_PER_DAY, SLOT_HOURS } from '../lib/constants.js'
+import { DEVICES, UNASSIGNED, SLOTS_PER_DAY, SLOT_HOURS, slotToTime } from '../lib/constants.js'
 
 const delay = (ms) => new Promise((res) => setTimeout(res, ms))
 
@@ -503,6 +503,65 @@ export async function fetchToday(now = nowTaipei(), atSlot = null) {
   const at = scenarioNow(now, season)
   await delay(80)
   return { ...simulateDay(at, weather ?? simulateWeather(at), fixed, pv, plan, routineFor(at)), season }
+}
+
+/* ------------------------------------------------------------
+   主頁面「未來 24 小時預測與排程」：從現在這一格起往後 96 格，過了午夜就接到明天
+     展示模式  實時運轉層在這一格重排出來的計畫（/plans）：負載是這一格發布的 RF 滾動預測（含可轉移設備），
+               太陽能是 LSTM 日前預測（過了午夜是明天的），電池與電量是 MILP 的計畫——每 15 分鐘換一份
+     平常模式  今天與明天各模擬一天再接起來
+   回傳和 simulateDay 相同的欄位（pv、load、gridKw、chargeKw、dischargeKw、socPct、tier），另加
+   labels（每格的時刻，明天的前面加「明天 」）與 midnight（明天 00:00 是第幾格；從 00:00 起算時是 null）。
+   展示模式讀不到那一格的計畫就回 source 'none'，頁面改畫今日全天。
+   ------------------------------------------------------------ */
+const plansAt = new Map() // 'YYYY-MM-DD' → 上次重讀的時間（毫秒）
+
+/** 某一天的 96 份計畫。使用者改了設定、本機重算後，那天實時運轉紀錄的 prefs_stamp 會先變，
+    計畫的還是舊的就重讀一次（最多每 10 秒一次，播放中不會一直重抓） */
+async function plansFor(date) {
+  const key = `plans:${date}`
+  let p = await cached(key, () => fetchPlans(date))
+  const op = (await operationDays().catch(() => ({})))[date]
+  const last = plansAt.get(date) ?? 0
+  if (op?.prefs_stamp && p.prefsStamp !== op.prefs_stamp && Date.now() - last > 10000) {
+    plansAt.set(date, Date.now())
+    p = await refreshCached(key, () => fetchPlans(date)).catch(() => p)
+  }
+  return p
+}
+
+export async function fetchRolling(atSlot, now = nowTaipei()) {
+  const s = Math.max(0, Math.min(SLOTS_PER_DAY - 1, atSlot ?? 0))
+  const season = getScenario().season
+  const labels = Array.from({ length: SLOTS_PER_DAY }, (_, i) =>
+    `${s + i >= SLOTS_PER_DAY ? '明天 ' : ''}${slotToTime((s + i) % SLOTS_PER_DAY)}`)
+  const midnight = s === 0 ? null : SLOTS_PER_DAY - s
+  const span = (a, b) => a.slice(s).concat(b.slice(0, s)) // 今天從現在起、接明天到同一時刻為止
+  if (getDemo().enabled) {
+    const day = todayOf(season)
+    let got = null
+    try {
+      got = day ? await plansFor(day) : null
+    } catch (e) {
+      if (import.meta.env.DEV) console.warn('[HEMS] 讀不到實時運轉層的計畫：', e.message)
+    }
+    const p = got?.bySlot?.[s]
+    if (!p) return { season, source: 'none', startSlot: s }
+    const t0 = parseYmd(day)
+    return {
+      season, source: 'rolling', planDate: day, startSlot: s, labels, midnight, via: got.via,
+      tier: span(getTierSlots(t0), getTierSlots(addDays(t0, 1))),
+      pv: p.pv_kw, load: p.load_kw, gridKw: p.grid_buy_kw, socPct: p.soc_pct,
+      chargeKw: p.batt_kw.map((v) => Math.max(0, v)),
+      dischargeKw: p.batt_kw.map((v) => Math.max(0, -v)),
+      devices: p.devices ?? {},
+    }
+  }
+  const [a, b] = await Promise.all([fetchToday(now), fetchPlanning()])
+  if (!b) return { season, source: 'none', startSlot: s }
+  const out = { season, source: 'sim', startSlot: s, labels, midnight }
+  for (const k of ['pv', 'load', 'gridKw', 'chargeKw', 'dischargeKw', 'socPct', 'tier']) out[k] = span(a[k], b[k])
+  return out
 }
 
 /**

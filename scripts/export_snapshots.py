@@ -6,6 +6,8 @@
   forecast_day_non_summer.json    非夏月展示日 2010-01-11（/forecast/day?season=non_summer）
   history.json                    歷史紀錄（/history，一整年）
   schedule.json                   排程組的排程（/schedules，tag=main）
+  operation.json                  實時運轉每 15 分鐘的紀錄（/operation）
+  plans/YYYY-MM-DD.json           實時運轉層每 15 分鐘重排的計畫，一天一檔（/plans?date=，tag=rolling）
 
 快照是 API 連不上時的備援，內容和 API 回傳相同。資料庫更新後重跑這支再 push，備援才會跟著更新。
 資料庫格式改成 hems_db 第 2 版（2026-09-17）後，負載預測共用 repo 的 04_export_web.py 讀不懂新格式，
@@ -68,8 +70,9 @@ def check(name, d):
         assert d["schedules"], "沒有排程"
 
 
+got = {}
 for name, path, indent in FILES:
-    d = get(path)
+    d = got[name] = get(path)
     check(name, d)
     with open(os.path.join(DATA, name), "w", encoding="utf-8") as f:
         if indent:
@@ -86,4 +89,21 @@ for name, path, indent in FILES:
     else:
         extra = f"　{len(d['schedules'])} 份"
     print(f"{name:30s} {os.path.getsize(os.path.join(DATA, name)) / 1024:7.0f} KB{extra}")
+
+# 實時運轉層每 15 分鐘重排的計畫：有實時運轉紀錄的每一天各一檔（主頁面「未來 24 小時」讀）
+PLANS = os.path.join(DATA, "plans")
+os.makedirs(PLANS, exist_ok=True)
+days = [x["date"] for x in got["operation.json"]["days"]]
+total = 0
+for date in days:
+    d = get(f"/plans?date={date}")
+    assert len(d["plans"]) == 96 and all(p["n"] == 96 for p in d["plans"]), f"{date} 的計畫不完整"
+    path = os.path.join(PLANS, f"{date}.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(d, f, ensure_ascii=False, separators=(",", ":"))
+    total += os.path.getsize(path)
+for old in os.listdir(PLANS):                     # 資料庫已經沒有的日子（例如換了展示月）
+    if old.endswith(".json") and old[:-5] not in days:
+        os.remove(os.path.join(PLANS, old))
+print(f"{'plans/YYYY-MM-DD.json':30s} {total / 1024:7.0f} KB　{len(days)} 天")
 print("完成。push 之後網站的備援快照才會更新。")

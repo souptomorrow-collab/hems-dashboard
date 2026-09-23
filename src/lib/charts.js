@@ -193,15 +193,15 @@ export function socYAxis({ interval = 50 } = {}) {
   }
 }
 
-/** 把 tier 陣列轉成「尖峰時段」的 markArea 資料（淡紅底色） */
-export function peakMarkArea(tier) {
+/** 把 tier 陣列轉成「尖峰時段」的 markArea 資料（淡紅底色）。labels 是 x 軸的類別（未來 24 小時那張不是從 00:00 起） */
+export function peakMarkArea(tier, labels = slotLabels) {
   const areas = []
   let start = null
   for (let i = 0; i < tier.length; i++) {
     if (tier[i] === 'peak' && start === null) start = i
     if ((tier[i] !== 'peak' || i === tier.length - 1) && start !== null) {
       const end = tier[i] === 'peak' ? i : i - 1
-      areas.push([{ xAxis: slotLabels[start] }, { xAxis: slotLabels[end] }])
+      areas.push([{ xAxis: labels[start] }, { xAxis: labels[end] }])
       start = null
     }
   }

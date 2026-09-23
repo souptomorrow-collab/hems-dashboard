@@ -6,7 +6,7 @@ import EnergyFlow from '../components/EnergyFlow.jsx'
 import SecondReplay from '../components/SecondReplay.jsx'
 import MonthView from '../components/MonthView.jsx'
 import WeatherStrip from '../components/WeatherStrip.jsx'
-import { fetchLive, fetchToday, fetchShowcase } from '../api/client.js'
+import { fetchLive, fetchToday, fetchShowcase, fetchRolling } from '../api/client.js'
 import { COLORS, BATTERY, SLOT_HOURS, slotToTime } from '../lib/constants.js'
 import { useTheme } from '../lib/theme.js'
 import { useDemoEnabled, useDemoSlot, useDemoDay, slotToDate } from '../lib/demoClock.js'
@@ -62,6 +62,18 @@ function nowLine(s) {
 
 const PLAN_SOC_H = 140 // 今日計畫那張的 SOC 小圖高度（SOC 在 15%～90% 之間變化，太矮會看起來是一條平線）
 
+/* 計畫那張圖看哪一段：next24＝從現在起 24 小時（每 15 分鐘隨實時運轉層重排更新，預設）、today＝今日全天（前一晚的日前計畫）。
+   記在瀏覽器裡，只是個人偏好；讀寫失敗（無痕、封鎖儲存）就用預設 */
+const VIEW_KEY = 'hems:plan-view'
+const PLAN_VIEWS = [{ key: 'next24', label: '未來 24 小時' }, { key: 'today', label: '今日全天' }]
+function loadView() {
+  try {
+    return localStorage.getItem(VIEW_KEY) === 'today' ? 'today' : 'next24'
+  } catch {
+    return 'next24'
+  }
+}
+
 export default function Dashboard() {
   const theme = useTheme() // 主題一換，下面的圖表 option 就會重算
   // 展示時鐘每 0.1 秒前進一次；這頁只在開關與換格時重畫
@@ -80,7 +92,17 @@ export default function Dashboard() {
   const kwRange = useRef({})
   const [live, setLive] = useState(null)
   const [today, setToday] = useState(null) // 過去真實值＋未來日前預測（即時運轉用）
-  const [dayPlan, setDayPlan] = useState(null) // 前一晚排定的全天計畫（今日預測與排程用）
+  const [dayPlan, setDayPlan] = useState(null) // 前一晚排定的全天計畫（今日全天用）
+  const [rolling, setRolling] = useState(null) // 從現在起 24 小時的計畫（未來 24 小時用）
+  const [planView, setPlanView] = useState(loadView)
+  const pickView = (v) => {
+    setPlanView(v)
+    try {
+      localStorage.setItem(VIEW_KEY, v)
+    } catch {
+      /* 存不了就只在這次有效 */
+    }
+  }
   const [show, setShow] = useState(null) // 展示日的原始陣列（負載與太陽能的日前預測、實際值）
 
   // 即時快照。
@@ -118,6 +140,15 @@ export default function Dashboard() {
     return () => { on = false }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [demo.enabled, demo.day, season])
+
+  // 未來 24 小時：每前進一格換一份（展示模式是實時運轉層在這一格重排的計畫；平常是今天接明天的模擬）
+  useEffect(() => {
+    if (planView !== 'next24') return undefined
+    let on = true
+    fetchRolling(curSlot, now).then((d) => on && setRolling(d)).catch(() => on && setRolling(null))
+    return () => { on = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [curSlot, demo.enabled, demo.day, season, planView])
 
   // 展示日原始資料：每個情境載入一次，之後只是依目前格數取不同的列
   useEffect(() => {
@@ -285,6 +316,52 @@ export default function Dashboard() {
     () => (dayPlan ? dayOption(dayPlan, null, true, planAxis(), true) : {}),
     [dayPlan, theme, demo.enabled, curSlot]
   )
+
+  // 未來 24 小時：同一個 option 產生器，x 軸換成從現在起的 96 格（跨午夜的標「明天 」，軸上只寫時刻），
+  // 最左邊是現在，明天 00:00 畫一條虛線
+  const hasRolling = planView === 'next24' && rolling && rolling.source !== 'none' && rolling.season === season
+  const rollingOption = useMemo(() => {
+    if (!hasRolling) return {}
+    const vals = allKw(rolling)
+    const o = dayOption(rolling, null, false, niceAxis(Math.min(0, ...vals), Math.max(0, ...vals), 10), true)
+    const labels = rolling.labels
+    const even = (_i, v) => /(^|\s)([01]\d|2[0-3]):00$/.test(v) && +v.slice(-5, -3) % 2 === 0
+    o.xAxis = o.xAxis.map((ax) => ({
+      ...ax,
+      data: labels,
+      axisLabel: { ...ax.axisLabel, interval: even, formatter: (v) => v.replace('明天 ', '') },
+    }))
+    // 「現在」固定在最左邊，kW 軸名改成靠軸線左側，兩個標籤才不會疊在一起
+    o.yAxis = o.yAxis.map((ax, i) => (i ? ax : { ...ax, nameTextStyle: { ...ax.nameTextStyle, align: 'right' } }))
+    const shade = peakMarkArea(rolling.tier, labels)
+    const tag = (text, align, extra = {}) => ({
+      formatter: text, rotate: 0, position: 'end', distance: 4, align,
+      color: TEXT_MAIN, fontSize: 11, fontWeight: 700, ...extra,
+    })
+    const lines = [{
+      xAxis: 0,
+      label: tag(`現在 ${slotToTime(rolling.startSlot)}`, 'left', {
+        backgroundColor: 'rgba(20,184,166,0.16)', borderColor: COLORS.save, borderWidth: 1, borderRadius: 4, padding: [3, 6],
+      }),
+      lineStyle: { color: COLORS.save, width: 1.5, type: 'solid' },
+    }]
+    if (rolling.midnight != null) {
+      // 午夜離「現在」太近（深夜）時只畫線、不寫字，免得壓在「現在」的標籤上
+      const near = rolling.midnight < 12
+      lines.push({
+        xAxis: rolling.midnight,
+        label: near ? { show: false }
+          : tag('明天', rolling.midnight > 84 ? 'right' : 'left', { color: AXIS_TEXT, fontWeight: 600, padding: [0, 0, 0, 4] }),
+        lineStyle: { color: AXIS_TEXT, width: 1, type: 'dashed' },
+      })
+    }
+    o.series = o.series.map((x) => (x.name === '太陽能發電'
+      ? { ...x, markArea: shade, markLine: { silent: true, symbol: 'none', data: lines } }
+      : x.name === 'SOC' ? { ...x, markArea: shade } : x))
+    return o
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rolling, hasRolling, theme])
+  const planOption = planView === 'next24' && hasRolling ? rollingOption : dayPlanOption
 
   /* ------------------------------------------------------------
      太陽能：LSTM 日前預測 vs 實際
@@ -465,6 +542,60 @@ export default function Dashboard() {
   const soFar = (kw) => ((kw ?? []).slice(0, curSlot + 1).reduce((a, v) => a + v, 0) * SLOT_HOURS).toFixed(1)
   const upTo = slotToTime(curSlot)
 
+  // 今日全天（前一晚的日前計畫）的說明與徽章，原本那張圖的文字
+  const todaySub = !admin
+    ? '前一晚排定的全天計畫（用電與發電為預測值），實際運轉見上圖・紅底為尖峰時段'
+    : !demo.enabled
+    ? '平常模式：負載、太陽能、電池都是模擬的（開啟展示模式換成專題的實際資料）・紅底為尖峰時段'
+    : (dayPlan && dayPlan.loadSource !== 'rf'
+          ? '負載：模擬值（讀不到雲端預測快照）'
+          : '前一晚排定的全天計畫・負載：前一晚 23:45 發布的 RF 日前預測')
+       + (dayPlan?.pvSource === 'lstm'
+          ? '・太陽能：前一晚 23:45 發布的 LSTM 預測（兩者都一天一次）'
+          : '')
+       + (!dayPlan
+          ? ''
+          : dayPlan.planSource !== 'sim'
+          ? `・電池：排程組的 ${dayPlan.planSource} 排程（資料集 ${dayPlan.planDate}）`
+          : `・電池：模擬調度（${dayPlan.planNote ?? '這個情境還沒有排程組的排程'}）`)
+       + '・紅底為尖峰時段'
+  const todayBadge = !dayPlan ? null : dayPlan.loadSource === 'rf' && dayPlan.pvSource === 'lstm' ? (
+    admin ? (
+      <span className="badge">
+        RF + LSTM 雲端預測{dayPlan.planSource !== 'sim' ? ` + ${dayPlan.planSource} 排程` : ''}
+      </span>
+    ) : null
+  ) : (
+    // 讀不到快照時各函式會自動退回模擬值，畫面照常運作，但要標出來，免得把模擬曲線當成模型結果
+    <span className="badge sim-badge"
+      title={demo.enabled ? '讀不到 public/data 的預測快照，負載或太陽能改用模擬值' : '平常模式全部模擬；開啟展示模式換成專題的實際資料'}>
+      🧪 {!demo.enabled ? '模擬資料' : !admin ? '暫時顯示模擬資料' : dayPlan.loadSource === 'rf' ? '負載為雲端預測・太陽能為模擬' : dayPlan.pvSource === 'lstm' ? '太陽能為雲端預測・負載為模擬' : '讀不到雲端預測，顯示模擬資料'}
+    </span>
+  )
+  // 未來 24 小時：展示模式是實時運轉層在這一格重排的計畫；讀不到就退回今日全天並說明
+  const next24Sub = !hasRolling
+    ? (rolling?.source === 'none' && demo.enabled
+        ? '這一格沒有實時運轉層的計畫，暫時顯示今日全天（前一晚的日前計畫）・紅底為尖峰時段'
+        : todaySub)
+    : rolling.source === 'sim'
+    ? (admin
+        ? '平常模式：今天與明天兩天的模擬接起來（開啟展示模式換成實時運轉層每 15 分鐘重排的計畫）・紅底為尖峰時段'
+        : '從現在起 24 小時的預測與排程・紅底為尖峰時段')
+    : !admin
+    ? '從現在起 24 小時的預測與排程，每 15 分鐘依最新預測重排・紅底為尖峰時段'
+    : `實時運轉層在 ${slotToTime(rolling.startSlot)} 重排的計畫（每 15 分鐘一次，只執行第一格）`
+      + '・負載：這一格發布的 RF 滾動預測（含可轉移設備）'
+      + (rolling.midnight == null
+          ? '・太陽能：LSTM 日前預測'
+          : '・太陽能：LSTM 日前預測，過了午夜為明日預測'
+            + (rolling.startSlot < 95 ? '（實際於今晚 23:45 發布）' : ''))
+      + '・電池：MILP 排程・紅底為尖峰時段'
+  const planBadge = planView !== 'next24' || !hasRolling
+    ? todayBadge
+    : rolling.source === 'sim'
+    ? <span className="badge sim-badge" title="平常模式全部模擬；開啟展示模式換成專題的實際資料">🧪 模擬資料</span>
+    : admin ? <span className="badge">RF + LSTM + MILP 滾動排程</span> : null
+
   return (
     <>
       {/* KPI 列 */}
@@ -597,45 +728,32 @@ export default function Dashboard() {
       {/* 展示模式才顯示整個展示月；平常照真實時間，只看今天 */}
       {demo.enabled && <MonthView />}
 
-      {/* 今日全天計畫：前一晚排好、整天不變；和上面那張刻意分開，避免把「已發生」和「還沒發生」混為一談 */}
+      {/* 計畫：預設看「從現在起 24 小時」（展示模式是實時運轉層每 15 分鐘重排的計畫），可切回今日全天（前一晚的日前計畫）；
+          和上面那張刻意分開，避免把「已發生」和「還沒發生」混為一談 */}
       <Panel
-        title="今日預測與排程"
-        sub={!admin
-          ? '前一晚排定的全天計畫（用電與發電為預測值），實際運轉見上圖・紅底為尖峰時段'
-          : !demo.enabled
-          ? '平常模式：負載、太陽能、電池都是模擬的（開啟展示模式換成專題的實際資料）・紅底為尖峰時段'
-          : (dayPlan && dayPlan.loadSource !== 'rf'
-                ? '負載：模擬值（讀不到雲端預測快照）'
-                : '前一晚排定的全天計畫・負載：前一晚 23:45 發布的 RF 日前預測')
-             + (dayPlan?.pvSource === 'lstm'
-                ? '・太陽能：前一晚 23:45 發布的 LSTM 預測（兩者都一天一次）'
-                : '')
-             + (!dayPlan
-                ? ''
-                : dayPlan.planSource !== 'sim'
-                ? `・電池：排程組的 ${dayPlan.planSource} 排程（資料集 ${dayPlan.planDate}）`
-                : `・電池：模擬調度（${dayPlan.planNote ?? '這個情境還沒有排程組的排程'}）`)
-             + '・紅底為尖峰時段'}
+        title={planView === 'next24' ? '未來 24 小時預測與排程' : '今日預測與排程'}
+        sub={planView === 'next24' ? next24Sub : todaySub}
         right={
-          !dayPlan ? null : dayPlan.loadSource === 'rf' && dayPlan.pvSource === 'lstm' ? (
-            admin ? (
-              <span className="badge">
-                RF + LSTM 雲端預測{dayPlan.planSource !== 'sim' ? ` + ${dayPlan.planSource} 排程` : ''}
-              </span>
-            ) : null
-          ) : (
-            // 讀不到快照時各函式會自動退回模擬值，畫面照常運作，但要標出來，免得把模擬曲線當成模型結果
-            <span className="badge sim-badge"
-              title={demo.enabled ? '讀不到 public/data 的預測快照，負載或太陽能改用模擬值' : '平常模式全部模擬；開啟展示模式換成專題的實際資料'}>
-              🧪 {!demo.enabled ? '模擬資料' : !admin ? '暫時顯示模擬資料' : dayPlan.loadSource === 'rf' ? '負載為雲端預測・太陽能為模擬' : dayPlan.pvSource === 'lstm' ? '太陽能為雲端預測・負載為模擬' : '讀不到雲端預測，顯示模擬資料'}
-            </span>
-          )
+          <div className="plan-head-right">
+            <div className="seg" role="group" aria-label="計畫的時間範圍">
+              {PLAN_VIEWS.map((v) => (
+                <button key={v.key} className={planView === v.key ? 'active' : ''} aria-pressed={planView === v.key}
+                  onClick={() => pickView(v.key)}>
+                  {v.label}
+                </button>
+              ))}
+            </div>
+            {planBadge}
+          </div>
         }
         className="mt-16"
       >
-        {/* 住戶看不到下面的「太陽能預測與實際」，天氣條改放在這張圖上方 */}
-        {!admin && show?.weather && <WeatherStrip weather={show.weather} />}
-        <EChart option={dayPlanOption} height={380 + socExtraHeight(PLAN_SOC_H)} label="今日預測與排程：整天的太陽能、負載、電網、電池功率與 SOC" />
+        {/* 住戶看不到下面的「太陽能預測與實際」，天氣條改放在這張圖上方（天氣條是今天 00:00～24:00，只配今日全天） */}
+        {!admin && show?.weather && !(planView === 'next24' && hasRolling) && <WeatherStrip weather={show.weather} />}
+        <EChart option={planOption} height={380 + socExtraHeight(PLAN_SOC_H)}
+          label={planView === 'next24' && hasRolling
+            ? '未來 24 小時預測與排程：從現在起 24 小時的太陽能、負載、電網、電池功率與 SOC'
+            : '今日預測與排程：整天的太陽能、負載、電網、電池功率與 SOC'} />
       </Panel>
 
       {/* 太陽能：預測與實際，上方是同一天台北的實際天氣 */}
