@@ -194,7 +194,7 @@ export async function fetchOperation() {
 /**
  * 實時運轉層每 15 分鐘重排的計畫（hems.schedule 的 tag=rolling；API 的 /plans?date=，快照 plans/日期.json）。
  * 一天 96 份，bySlot[s] 是第 s 格重排出來、往後 96 格（24 小時）的計畫：load_kw（含可轉移設備）、pv_kw
- * （過了午夜是隔天的日前預測）、grid_buy_kw、batt_kw（正＝充電）、soc_pct（該格結束時）、price；
+ * （前一晚 23:45 發布的 48 小時預測，過了午夜仍是同一份）、grid_buy_kw、batt_kw（正＝充電）、soc_pct（該格結束時）、price；
  * devices 為各設備的運轉區間 [開始, 結束)（相對這份計畫的第 1 格）。欄位不齊的那份當作沒有。
  */
 export async function fetchPlans(date) {
