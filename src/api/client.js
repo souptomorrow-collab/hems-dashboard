@@ -466,6 +466,36 @@ export async function fetchDailyActual(fromStr, toStr) {
   return { rows, profileDates: null }
 }
 
+/* ------------------------------------------------------------
+   展示模式的歷史紀錄：日前計畫與實際運轉對照
+   計畫＝前一晚 23:45 的日前排程（/schedules，tag=main）：負載與太陽能是那時的預測、電池與購電是 MILP 的計畫；
+   實際＝實時運轉紀錄（/operation）。兩者的負載都含可轉移設備（計畫照預估的開機時間、實際照真的開機時間）。
+   回傳兩邊各 96 格，以及總量（度）與電費；尖峰時段另外加總，說明差距集中在哪裡。
+   ------------------------------------------------------------ */
+export async function fetchPlanVsActual(dateStr) {
+  const [plan, days] = await Promise.all([planFor(dateStr), operationDays()])
+  const op = days[dateStr]
+  if (!plan || !op) throw new Error(`${dateStr} 沒有${plan ? '實時運轉紀錄' : '日前排程'}`)
+  const t = parseYmd(dateStr)
+  const price = getPriceSlots(t)
+  const tier = getTierSlots(t)
+  const kwh = (a, only) => a.reduce((x, v, i) => x + (only && tier[i] !== only ? 0 : v * SLOT_HOURS), 0)
+  const cost = (g) => g.reduce((x, v, i) => x + v * SLOT_HOURS * price[i], 0)
+  const side = (load, pv, grid, batt, soc) => ({
+    load, pv, grid, batt, soc,
+    charge: batt.map((v) => Math.max(0, v)), discharge: batt.map((v) => Math.max(0, -v)),
+    total: {
+      load: kwh(load), loadPeak: kwh(load, 'peak'), pv: kwh(pv), grid: kwh(grid), gridPeak: kwh(grid, 'peak'),
+      discharge: kwh(batt.map((v) => Math.max(0, -v))), cost: cost(grid),
+    },
+  })
+  return {
+    date: dateStr, tier,
+    plan: side(plan.load_kw, plan.pv_kw, plan.grid_buy_kw, plan.batt_kw, plan.soc_pct),
+    actual: side(op.load_kw, op.pv_kw, op.grid_kw, op.batt_kw, op.soc_pct),
+  }
+}
+
 /**
  * 目前負載資料的來源（UI 標示用）。
  * @returns {{source:'rf'|'sim', refresh:string|null, datasetDate:string|null, error:string|null}}

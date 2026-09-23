@@ -20,7 +20,7 @@ import Panel from '../components/Panel.jsx'
 import EChart from '../components/EChart.jsx'
 import Tile from '../components/Tile.jsx'
 import WeatherStrip from '../components/WeatherStrip.jsx'
-import { fetchDailyUsage, fetchDaySim, fetchDayActual, fetchDailyActual, ymd, parseYmd, addDays } from '../api/client.js'
+import { fetchDailyUsage, fetchDaySim, fetchDayActual, fetchDailyActual, fetchPlanVsActual, ymd, parseYmd, addDays } from '../api/client.js'
 import { useDemoEnabled } from '../lib/demoClock.js'
 import { useScenarioDays } from '../lib/scenario.js'
 import { COLORS, DEVICE_COLORS, BATTERY, SLOTS_PER_DAY, slotToTime } from '../lib/constants.js'
@@ -54,12 +54,17 @@ import {
   powerSocFormatter,
   socYAxis,
   SOC_EXTRA_HEIGHT,
+  socExtraHeight,
   AXIS_TEXT,
   SPLIT_LINE,
   TRACK_LINE,
 } from '../lib/charts.js'
 
 const WEEK = ['日', '一', '二', '三', '四', '五', '六']
+const CMP_SOC_H = 110 // 計畫與實際那張的 SOC 小圖：兩條 SOC 要看得出差距，比一般的高一點
+/** 差值的說法：多／少 x（差不到最小位數的一半就說「差不多」） */
+const diffText = (d, unit, digits = 1) =>
+  Math.abs(d) < 0.5 * 10 ** -digits ? '差不多' : `${d > 0 ? '多' : '少'} ${Math.abs(d).toFixed(digits)} ${unit}`
 /** 千分位＋固定小數位（區間統計一年份會到上萬度，沒有千分位很難讀） */
 const fmt = (v, d) => v.toLocaleString('zh-TW', { minimumFractionDigits: d, maximumFractionDigits: d })
 const weekdayOf = (s) => WEEK[parseYmd(s).getDay()]
@@ -151,6 +156,15 @@ function DayView({ date, setDate, yesterday, minDay, actual }) {
     return () => { on = false }
   }, [date, actual])
 
+  // 展示模式：同一天的日前計畫（前一晚 23:45 的排程）與實際運轉對照
+  const [cmp, setCmp] = useState(null)
+  useEffect(() => {
+    let on = true
+    setCmp(null)
+    if (actual) fetchPlanVsActual(date).then((r) => on && setCmp(r)).catch(() => on && setCmp(null))
+    return () => { on = false }
+  }, [date, actual])
+
   const sim = res?.sim
   const rec = useMemo(() => (sim ? dayRecord(sim) : null), [sim])
   const s = rec?.summary
@@ -207,6 +221,72 @@ function DayView({ date, setDate, yesterday, minDay, actual }) {
       ],
     }
   }, [sim, theme])
+
+  /* ---- 日前計畫與實際運轉：和主頁面同一種圖，實線＝實際、虛線＝計畫，同一種量同一個顏色 ---- */
+  const compareOption = useMemo(() => {
+    if (!cmp) return {}
+    const { plan: p, actual: a, tier } = cmp
+    const line = { type: 'line', smooth: true, symbol: 'none' }
+    const act = (id, name, data, color, extra = {}) =>
+      ({ ...line, id, name, data, lineStyle: { width: 2.2, color }, itemStyle: { color }, ...extra })
+    const pln = (id, name, data, color, extra = {}) =>
+      ({ ...line, id, name, data, lineStyle: { width: 1.6, color, type: [6, 4] }, itemStyle: { color }, z: 3, ...extra })
+    const soc = { xAxisIndex: 1, yAxisIndex: 1 }
+    // 提示框：同一時刻每一項都列「實際｜計畫」，不必滑到那條線上
+    const dot = (c) => `<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${c};margin-right:5px"></span>`
+    const n = (v, d = 2) => (Number.isFinite(v) ? v.toFixed(d) : '—')
+    const formatter = (ps) => {
+      const i = ps[0]?.dataIndex
+      if (i == null) return ''
+      const row = (c, name, x, y, u, lab = '計畫', d = 2) => `${dot(c)}${name}：實際 ${n(x, d)}${u}｜${lab} ${n(y, d)}${u}`
+      return [
+        ps[0].axisValueLabel,
+        row(COLORS.solar, '太陽能', a.pv[i], p.pv[i], ' kW', '預測'),
+        row(COLORS.load, '負載', a.load[i], p.load[i], ' kW', '預測'),
+        row(COLORS.grid, '購電', a.grid[i], p.grid[i], ' kW'),
+        row('rgba(34,197,94,0.8)', '電池（正＝充電）', a.batt[i], p.batt[i], ' kW'),
+        row(COLORS.battery, 'SOC', a.soc[i], p.soc[i], '%', '計畫', 0),
+      ].join('<br/>')
+    }
+    return {
+      tooltip: { ...baseTooltip, formatter },
+      legend: { ...baseLegend, data: ['太陽能發電', '家庭負載', '電網購電', '電池充電', '電池放電', 'SOC'] },
+      ...powerSocLayout({ boundaryGap: true, socH: CMP_SOC_H }),
+      yAxis: [valueYAxis('kW'), socYAxis({ interval: 25 })],
+      series: [
+        act('pv-a', '太陽能發電', a.pv, COLORS.solar, { areaStyle: { color: 'rgba(255,176,32,0.14)' }, markArea: peakMarkArea(tier) }),
+        pln('pv-p', '太陽能發電', p.pv, COLORS.solar),
+        act('load-a', '家庭負載', a.load, COLORS.load),
+        pln('load-p', '家庭負載', p.load, COLORS.load),
+        act('grid-a', '電網購電', a.grid, COLORS.grid),
+        pln('grid-p', '電網購電', p.grid, COLORS.grid),
+        { type: 'bar', id: 'chg', stack: 'b', name: '電池充電', data: a.charge, itemStyle: { color: 'rgba(34,197,94,0.45)' } },
+        { type: 'bar', id: 'dis', stack: 'b', name: '電池放電', data: a.discharge.map((v) => -v), itemStyle: { color: 'rgba(249,115,22,0.5)' } },
+        act('soc-a', 'SOC', a.soc, COLORS.battery, {
+          ...soc,
+          markArea: peakMarkArea(tier),
+          markLine: {
+            silent: true, symbol: 'none', lineStyle: { color: TRACK_LINE, type: 'dashed' },
+            label: { color: AXIS_TEXT, fontSize: 10, formatter: '{c}%' },
+            data: [{ yAxis: Math.round(BATTERY.socMax * 100) }, { yAxis: Math.round(BATTERY.socMin * 100) }],
+          },
+        }),
+        pln('soc-p', 'SOC', p.soc, COLORS.battery, soc),
+      ],
+    }
+  }, [cmp, theme])
+
+  // 差距集中在哪裡：用電、尖峰用電、太陽能、電池放電、購電、電費各自的計畫與實際
+  const cmpText = useMemo(() => {
+    if (!cmp) return ''
+    const p = cmp.plan.total
+    const a = cmp.actual.total
+    const pct = p.load > 0 ? `（${a.load >= p.load ? '+' : '−'}${Math.abs((a.load / p.load - 1) * 100).toFixed(0)}%）` : ''
+    return `實際用電比日前預測${diffText(a.load - p.load, '度')}${pct}，其中尖峰時段${diffText(a.loadPeak - p.loadPeak, '度')}；`
+      + `太陽能${diffText(a.pv - p.pv, '度')}。電池由實時運轉層每 15 分鐘依最新預測重排（實際放電 ${a.discharge.toFixed(1)} 度、`
+      + `日前計畫 ${p.discharge.toFixed(1)} 度），其餘差額由電網補足：購電${diffText(a.grid - p.grid, '度')}、`
+      + `電費${diffText(a.cost - p.cost, '元')}。`
+  }, [cmp])
 
   /* ---- 各設備用電排行 ---- */
   const deviceOption = useMemo(() => {
@@ -322,6 +402,30 @@ function DayView({ date, setDate, yesterday, minDay, actual }) {
             <WeatherStrip weather={sim.weather} />
             <EChart option={curveOption} height={300 + SOC_EXTRA_HEIGHT} label={`${date} 的運轉曲線：太陽能、負載、電網、電池功率與 SOC`} />
           </Panel>
+
+          {/* 日前計畫與實際運轉（展示模式才有：計畫來自排程、實際來自實時運轉紀錄） */}
+          {actual && cmp && (
+            <Panel
+              title="日前計畫與實際運轉"
+              sub="實線為實際運轉；虛線為前一晚 23:45 的日前計畫（負載與太陽能是當時的預測）・紅底為尖峰時段"
+              className="mt-16 cmp-panel"
+              right={<span className="badge">📡 排程與實時運轉</span>}
+            >
+              <div className="grid cols-4">
+                <Tile label="實際電費" value={cmp.actual.total.cost.toFixed(1)} unit="元"
+                  sub={`日前計畫 ${cmp.plan.total.cost.toFixed(1)} 元，${diffText(cmp.actual.total.cost - cmp.plan.total.cost, '元')}`} color={COLORS.save} />
+                <Tile label="實際購電" value={cmp.actual.total.grid.toFixed(1)} unit="度"
+                  sub={`日前計畫 ${cmp.plan.total.grid.toFixed(1)} 度，${diffText(cmp.actual.total.grid - cmp.plan.total.grid, '度')}`} color={COLORS.grid} />
+                <Tile label="實際用電" value={cmp.actual.total.load.toFixed(1)} unit="度"
+                  sub={`日前預測 ${cmp.plan.total.load.toFixed(1)} 度，${diffText(cmp.actual.total.load - cmp.plan.total.load, '度')}`} color={COLORS.load} />
+                <Tile label="實際太陽能" value={cmp.actual.total.pv.toFixed(1)} unit="度"
+                  sub={`日前預測 ${cmp.plan.total.pv.toFixed(1)} 度，${diffText(cmp.actual.total.pv - cmp.plan.total.pv, '度')}`} color={COLORS.solar} />
+              </div>
+              <p className="hint prose mt-16">{cmpText}</p>
+              <EChart option={compareOption} height={300 + socExtraHeight(CMP_SOC_H)}
+                label={`${date} 的日前計畫與實際運轉：太陽能、負載、購電與 SOC 的計畫（虛線）和實際（實線）`} />
+            </Panel>
+          )}
 
           <div className="grid cols-2 mt-16">
             {/* 電費拆解 */}
