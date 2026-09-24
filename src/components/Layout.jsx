@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { useClock } from '../hooks/useClock.js'
+import { useClock, useCurrentSlot } from '../hooks/useClock.js'
+import { PLAN_CUTOFF_SLOT } from '../lib/deviceJobs.js'
 import { fmtClock, fmtDate } from '../lib/format.js'
 import { getCurrentTier, isSummer, TIER_LABEL } from '../lib/tou.js'
 import { LOCATION } from '../lib/time.js'
@@ -81,13 +82,14 @@ export default function Layout() {
 
   // 網頁開著就每分鐘告訴本機的待命程式「有人在用」，它就會叫起、留著排程監看（在哪台電腦開網頁都一樣）。
   // 平常模式和展示模式看的是同一份資料：住戶在用電規劃按「重排」也要有人重算，所以網頁開著就一直通知。
-  // 一併告訴它現在的隔日（換天就馬上送）：隔日還是舊設定算的，它就只補算那一天
+  // 一併告訴它現在的隔日、隔日的規劃截止了沒（換天、到 23:45 就馬上送）：截止時它照最後一份設定排定隔日
   const { next: nextDay } = useScenarioDays()
+  const cutoff = useCurrentSlot() >= PLAN_CUTOFF_SLOT
   useEffect(() => {
-    pingDemo(nextDay)
-    const id = setInterval(() => pingDemo(nextDay), 60000)
+    pingDemo(nextDay, cutoff)
+    const id = setInterval(() => pingDemo(nextDay, cutoff), 60000)
     return () => clearInterval(id)
-  }, [nextDay])
+  }, [nextDay, cutoff])
 
   // 使用者改了隔日設定，本機從隔日起逐日重算，算完一天就寫回資料庫一天。
   // 各頁（主頁面、用電規劃、歷史紀錄）都靠這裡：本機在重算時每 10 秒重讀

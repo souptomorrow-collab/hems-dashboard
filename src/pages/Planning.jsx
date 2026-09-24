@@ -8,7 +8,6 @@ import DevicePrefs from '../components/DevicePrefs.jsx'
 import { loadPrefs, savePrefs } from '../api/prefs.js'
 import { useScenario, getScenario, useScenarioDays } from '../lib/scenario.js'
 import { cached, fetchSchedules, SCHEDULES_REFRESHED } from '../api/forecastData.js'
-import { PREFS_SAVED } from '../api/prefs.js'
 import { useDemoEnabled, useDemoDay, getDemo, togglePlay } from '../lib/demoClock.js'
 import { useCurrentSlot } from '../hooks/useClock.js'
 import { useDataRevision } from '../hooks/useDataRevision.js'
@@ -84,11 +83,9 @@ export default function Planning() {
   const waitHere = Boolean(awaiting && planDay
     && (!awaiting.day || (planDay.slice(0, 7) === awaiting.day.slice(0, 7) && planDay >= awaiting.day)))
 
-  useEffect(() => {
-    const onSaved = (e) => e.detail?.stamp && setAwaiting({ stamp: e.detail.stamp, day: e.detail.from ?? null })
-    window.addEventListener(PREFS_SAVED, onSaved)
-    return () => window.removeEventListener(PREFS_SAVED, onSaved)
-  }, [])
+  // 隔日的排程還不是目前這一版設定算的（送出後、或常駐排程之後的日子剛輪到當隔日）：存目前設定的版本。
+  // 23:45 以前本來就還沒排（畫面用網頁依條件估的）；23:45 截止時本機照最後一份設定排定，這頁等它排好再重新載入
+  const [planStale, setPlanStale] = useState(null)
   // 不自己輪詢：版面（Layout）在本機重算時每 10 秒重讀排程，有新寫回的日子就發
   // SCHEDULES_REFRESHED；隔日那份換成新設定就重新載入這頁的規劃。3 分鐘都沒有任何一天換新就不等了
   useEffect(() => {
@@ -145,12 +142,15 @@ export default function Planning() {
         ? Object.fromEntries(SHIFT_IDS.map((id) => [id, p.recommended.start_slot[id] ?? null]))
         : estimate(recommendCond(), p.price)
       const recCost = recPlan && Number.isFinite(p.recommended.cost) ? +p.recommended.cost.toFixed(1) : null
-      // 預估時間：有日前排程就用排程的（MILP 把設備和電池一起排）；沒有排程時，照建議的用建議時間、其他依電價估
-      const starts = fromPlan ? startsFromRows(p.schedule) : estimateWithRec(c, p.price, recStarts)
+      // 預估時間：日前排程是用目前這一版設定排的，就用排程的（MILP 把設備和電池一起排）；
+      // 還沒照這一版排（23:45 才排定）或沒有排程時，照建議的用建議時間、其他依電價估
+      const stale = fromPlan && d.stamp && p.planStamp && p.planStamp !== d.stamp ? d.stamp : null
+      const usePlan = fromPlan && !stale
+      const starts = usePlan ? startsFromRows(p.schedule) : estimateWithRec(c, p.price, recStarts)
       const rows = { ...p.schedule, ...rowsOf(starts) }
-      const cur = fromPlan ? p : await recomputeSchedule(rows, planDay)
+      const cur = usePlan ? p : await recomputeSchedule(rows, planDay)
       if (!on) return
-      loaded.current = { cond: c, mode: d.mode, starts, source: fromPlan ? 'schedule' : 'price', plan: cur, rec: recStarts, recCost }
+      loaded.current = { cond: c, mode: d.mode, starts, source: usePlan ? 'schedule' : 'price', plan: cur, rec: recStarts, recCost }
       setCond(c)
       setSent(condKey(c))
       setMode(d.mode)
@@ -160,9 +160,7 @@ export default function Planning() {
       setSchedule(rows)
       setPlan(cur)
       setComputing(false)
-      // 隔日的排程還不是目前這一版設定算的（例如常駐排程之後的日子剛輪到當隔日）：本機會只補算這一天，
-      // 和送出後一樣等它算好再重新載入
-      if (fromPlan && d.stamp && p.planStamp && p.planStamp !== d.stamp) setAwaiting({ stamp: d.stamp, day: planDay })
+      setPlanStale(stale)
     })()
     return () => { on = false }
   }, [season, reload, planDay])
@@ -214,6 +212,10 @@ export default function Planning() {
   const dirty = Boolean(cond) && (condKey(cond) !== sent || mode !== sentMode)
   // 23:45 起隔日的日前排程已排定：條件鎖住到午夜，午夜後換成規劃下一天
   const closed = curSlot >= PLAN_CUTOFF_SLOT
+  // 截止了、隔日還不是最後一份設定排的：本機正在排定，等它排好再重新載入
+  useEffect(() => {
+    if (closed && planStale && planDay) setAwaiting({ stamp: planStale, day: planDay })
+  }, [closed, planStale, planDay])
   // 條件的問題（⛔ 擋送出、⚠️ 提醒），加上照建議的設備為什麼預估時間不是建議時間
   const problems = useMemo(() => (cond
     ? [...checkCond(cond), ...Object.entries(recClash(cond, rec)).map(([devId, text]) => ({ devId, level: 'warn', text }))]
@@ -241,7 +243,7 @@ export default function Planning() {
     return () => { on = false }
   }, [schedule, cond, rec, est, planDay])
 
-  /** 重排：送出條件，本機只重排隔日那一天（和每天 23:45 只排隔日一樣），今天以前、隔日以後都不動。
+  /** 重排：儲存條件（覆寫之前送出的）。23:45 以前可以一直改；23:45 截止時本機照最後一份設定排定隔日那一天。
       常駐排程＝隔日起每天都照這個排；明日排程＝只管隔日，後天照常駐排程 */
   const submit = async () => {
     if (!cond || closed) return
@@ -258,9 +260,10 @@ export default function Planning() {
       if (loaded.current) {
         loaded.current = { ...loaded.current, cond: c, mode: m, starts, source: 'price', plan: planRef.current ?? loaded.current.plan }
       }
+      setPlanStale(r.stamp ?? null)
       setPrefsMsg(m === 'standing'
-        ? `已送出常駐排程：${md(planDay)} 起每天照這個排，算好後這頁會自動更新。`
-        : `已送出明日排程：只排 ${md(planDay)}，算好後這頁會自動更新。`)
+        ? `已儲存常駐排程：${md(planDay)} 起每天照這個排。今日 23:45 截止時排定，之前都可以再改。`
+        : `已儲存明日排程：只排 ${md(planDay)}。今日 23:45 截止時排定，之前都可以再改。`)
     } else {
       setPrefsMsg(`沒有送出：${r.error ?? '未設定雲端金鑰'}`)
     }

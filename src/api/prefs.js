@@ -142,15 +142,15 @@ export async function savePrefs(devices, from = null, mode = 'day') {
 
 /** 網頁開著：告訴本機的待命程式（device_plan/scripts/demo_agent.py）有人在用，它會叫起排程監看；
     網頁每分鐘送一次，停了 30 分鐘它就把監看程式關掉。不管在哪一台電腦打開網頁都有效（這台電腦要開著、有跑待命程式）。
-    nextDay＝網頁現在的隔日：隔日還是舊設定算的，排程監看就只補算那一天（實務上每天只排隔日；月底沒有隔日給 null）。
-    回傳有沒有送成功 */
-export async function pingDemo(nextDay = null) {
+    nextDay＝網頁現在的隔日（月底沒有隔日給 null）；closed＝隔日的規劃已過 23:45 截止（展示模式看展示時鐘）：
+    排程監看在截止時照最後一份設定排定隔日（實務上每天只排隔日）。回傳有沒有送成功 */
+export async function pingDemo(nextDay = null, closed = false) {
   if (!canSave) return false
   try {
     await call('/wake', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Api-Key': KEY },
-      body: JSON.stringify(nextDay ? { next_day: nextDay } : {}),
+      body: JSON.stringify(nextDay ? { next_day: nextDay, closed: Boolean(closed) } : {}),
     })
     return true
   } catch (e) {
