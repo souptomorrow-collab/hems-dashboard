@@ -96,6 +96,10 @@ export default function Planning() {
   // 隔日的排程還不是目前這一版設定算的（送出後、或常駐排程之後的日子剛輪到當隔日）：存目前設定的版本。
   // 23:45 以前本來就還沒排（畫面用網頁依條件估的）；23:45 截止時本機照最後一份設定排定，這頁等它排好再重新載入
   const [planStale, setPlanStale] = useState(null)
+  // 目前排程＝資料庫裡隔日那份日前排程（上一次排定的）：{ plan, starts }。畫面上的規劃和它不同時，
+  // 面板列出哪幾台設備從幾點改到幾點、電費差多少，圖上的虛線就是它——送出後也一直看得到排程要怎麼變
+  const [sched, setSched] = useState(null)
+  const [scheduledDay, setScheduledDay] = useState(null) // 23:45 照最後一份規劃排定好的那一天（顯示已排定）
   // 不自己輪詢：版面（Layout）在本機重算時每 10 秒重讀排程，有新寫回的日子就發
   // SCHEDULES_REFRESHED；隔日那份換成新設定就重新載入這頁的規劃。3 分鐘都沒有任何一天換新就不等了
   useEffect(() => {
@@ -112,6 +116,7 @@ export default function Planning() {
       if (!on) return
       if (done(e.detail)) {
         setAwaiting(null)
+        setScheduledDay(planDay)
         setReload((n) => n + 1)
         return
       }
@@ -155,12 +160,16 @@ export default function Planning() {
       // 預估時間：日前排程是用目前這一版設定排的，就用排程的（MILP 把設備和電池一起排）；
       // 還沒照這一版排（23:45 才排定）或沒有排程時，照建議的用建議時間、其他依電價估
       const stale = fromPlan && d.stamp && p.planStamp && p.planStamp !== d.stamp ? d.stamp : null
-      const usePlan = fromPlan && !stale
-      const starts = usePlan ? startsFromRows(p.schedule) : estimateWithRec(c, p.price, recStarts)
+      const schedStarts = fromPlan ? startsFromRows(p.schedule) : null
+      let starts = fromPlan && !stale ? schedStarts : estimateWithRec(c, p.price, recStarts)
+      // 還沒照這一版排，但設備時間和目前排程一樣：就用目前排程本身（電池也是 MILP 排的），不必用網頁估
+      const usePlan = fromPlan && SHIFT_IDS.every((id) => (starts[id] ?? null) === (schedStarts[id] ?? null))
+      if (usePlan) starts = schedStarts
       const rows = { ...p.schedule, ...rowsOf(starts) }
       const cur = usePlan ? p : await recomputeSchedule(rows, planDay)
       if (!on) return
       loaded.current = { cond: c, mode: d.mode, starts, source: usePlan ? 'schedule' : 'price', plan: cur, rec: recStarts, recCost }
+      setSched(fromPlan ? { plan: p, starts: schedStarts } : null)
       setCond(c)
       setSent(condKey(c))
       setMode(d.mode)
@@ -203,6 +212,8 @@ export default function Planning() {
     setEst(starts)
     setSchedule(rows)
     if (all) setPlan(base.plan)
+    // 設備時間又和目前排程一樣：就是排程本身
+    else if (sched && SHIFT_IDS.every((id) => (starts[id] ?? null) === (sched.starts[id] ?? null))) setPlan(sched.plan)
     // 切換情境的瞬間，舊情境的重算晚一步回來時不能蓋掉新的
     else recomputeSchedule(rows, planDay).then((p) => p.season === getScenario().season && setPlan(p))
   }
@@ -342,17 +353,17 @@ export default function Planning() {
   }
 
   // ---- 電力供需與電池調度（隔日） ----
-  // 調整前＝載入時（或上次送出）的那一份；條件改過才疊上去比
-  const base = loaded.current?.plan ?? null
-  const changed = Boolean(plan && base && plan !== base && cond && loaded.current
-    && condKey(cond) !== condKey(loaded.current.cond))
+  // 和目前排程比：設備時間不一樣的那幾台；有才把目前排程疊上去（虛線）
+  const devChanges = sched && est ? SHIFT_IDS.filter((id) => (est[id] ?? null) !== (sched.starts[id] ?? null)) : []
+  const changed = Boolean(plan && sched && plan !== sched.plan && devChanges.length)
+  const base = changed ? sched.plan : null
   const supplyOption = useMemo(() => {
     if (!plan) return {}
     const ghost = changed
       ? [
-          { name: '調整前負載', type: 'line', symbol: 'none', smooth: true, z: 1,
+          { name: '目前排程負載', type: 'line', symbol: 'none', smooth: true, z: 1,
             lineStyle: { width: 1.5, color: AXIS_TEXT, type: 'dotted' }, itemStyle: { color: AXIS_TEXT }, data: base.load },
-          { name: '調整前 SOC', type: 'line', xAxisIndex: 1, yAxisIndex: 1, symbol: 'none', smooth: true,
+          { name: '目前排程 SOC', type: 'line', xAxisIndex: 1, yAxisIndex: 1, symbol: 'none', smooth: true,
             lineStyle: { width: 1.5, color: AXIS_TEXT, type: 'dotted' }, itemStyle: { color: AXIS_TEXT }, data: base.socPct },
         ]
       : []
@@ -409,14 +420,19 @@ export default function Planning() {
     )
   }
 
-  // 摘要和調整前比：電費、購電差多少（條件改過才列）
+  // 摘要和目前排程比：哪幾台設備改了時間、電費與購電差多少，加上現在的狀態
   const bs = changed ? base?.summary : null
+  const startText = (x) => (x == null ? '不開' : hm(x))
   const delta = (a, b, unit) => {
     const d = Math.round((+a - +b) * 10) / 10
     return d === 0 ? '不變' : `${d > 0 ? '多' : '少'} ${Math.abs(d).toFixed(1)} ${unit}`
   }
+  const status = dirty ? '還沒儲存，按「重排」儲存'
+    : closed ? (waitHere ? '已截止，正在照這份規劃排定' : '已截止')
+    : `已儲存，今日 ${hm(PLAN_CUTOFF_SLOT)} 排定`
   const deltaText = bs && s
-    ? `和調整前比：電費${delta(s.optimizedCost, bs.optimizedCost, '元')}、向電網購電${delta(s.gridImportKwh, bs.gridImportKwh, '度')}（圖上的虛線是調整前）`
+    ? `📝 和目前排程比：${devChanges.map((id) => `${nameOf(id)} ${startText(sched.starts[id])} → ${startText(est[id])}`).join('、')}；`
+      + `電費${delta(s.optimizedCost, bs.optimizedCost, '元')}、向電網購電${delta(s.gridImportKwh, bs.gridImportKwh, '度')}`
     : null
 
   return (
@@ -464,7 +480,16 @@ export default function Planning() {
           <Tile label="太陽能充電" value={s ? s.pvToBattKwh : '—'} unit="度" color={COLORS.battery} />
           <Tile label="電池放電量" value={s ? s.dischargeKwh : '—'} unit="度" color={COLORS.discharge} />
         </div>
-        {deltaText && <p className="plan-delta" role="status">{deltaText}</p>}
+        {deltaText && (
+          <p className="plan-delta" role="status">
+            {deltaText}
+            <span className={`plan-status ${dirty ? 'unsaved' : 'saved'}`}>{status}</span>
+            <span className="plan-delta-note">虛線是目前排程</span>
+          </p>
+        )}
+        {!deltaText && scheduledDay === planDay && (
+          <p className="plan-delta done" role="status">✅ {md(planDay)} 已照你的規劃排定</p>
+        )}
         <div className="mt-16">
           <EChart option={supplyOption} height={300 + SOC_EXTRA_HEIGHT}
             label={`隔日電力供需：太陽能、電池、電網供電堆疊與${socName}`} />
