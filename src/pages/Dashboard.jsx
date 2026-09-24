@@ -22,6 +22,8 @@ import {
   baseGrid,
   touMarkArea,
   bgSeries,
+  socLabel,
+  withSocLabel,
   SOC_EXTRA_HEIGHT,
   socExtraHeight,
   AXIS_TEXT,
@@ -168,7 +170,8 @@ export default function Dashboard() {
     return niceAxis(r.min, r.max)
   }
   // 曲線的右端就是現在：直接在尖端標名稱與目前的數值（幾條線擠在一起時只靠圖例分不出誰是誰）
-  const TIP = { '太陽能發電': ['太陽能', COLORS.solar], '家庭負載': ['負載', COLORS.load], '電網購電': ['購電', COLORS.grid], SOC: ['SOC', COLORS.battery] }
+  const socName = socLabel(admin) // 住戶看不懂 SOC，寫「電量」
+  const TIP = { '太陽能發電': ['太陽能', COLORS.solar], '家庭負載': ['負載', COLORS.load], '電網購電': ['購電', COLORS.grid], SOC: [socName, COLORS.battery] }
   const realtimeOption = useMemo(() => {
     if (!past || past.source === 'none') return {}
     const o = past.labels
@@ -195,21 +198,22 @@ export default function Dashboard() {
         labelLayout: { moveOverlap: 'shiftY' },
       }
     })
-    return o
+    return withSocLabel(o, socName)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [past, theme, narrow, demo.enabled])
+  }, [past, theme, narrow, demo.enabled, socName])
 
   // ---- 計畫：今日全天（前一晚的日前計畫，標出現在）或未來 24 小時（實時運轉層在這一格重排的計畫） ----
   const dayPlanOption = useMemo(() => {
     if (!dayPlan) return {}
     const vals = allKw(dayPlan)
-    return powerSocOption(dayPlan, {
+    return withSocLabel(powerSocOption(dayPlan, {
       playhead: curSlot, playheadLabel: `${demo.enabled ? '' : '現在 '}${slotToTime(curSlot)}`,
       kwAxis: niceAxis(Math.min(0, ...vals), Math.max(0, ...vals), 10), detail: true, animation: !demo.enabled,
-    })
-  }, [dayPlan, theme, demo.enabled, curSlot])
+    }), socName)
+  }, [dayPlan, theme, demo.enabled, curSlot, socName])
   const hasRolling = planView === 'next24' && rolling && rolling.source !== 'none' && rolling.season === season
-  const next24Option = useMemo(() => (hasRolling ? rollingOption(rolling) : {}), [rolling, hasRolling, theme])
+  const next24Option = useMemo(() => (hasRolling ? withSocLabel(rollingOption(rolling), socName) : {}),
+    [rolling, hasRolling, theme, socName])
   const planOption = hasRolling ? next24Option : dayPlanOption
 
   // 預測與實際那兩張的背景電價（展示日那天）
@@ -429,8 +433,8 @@ export default function Dashboard() {
       <Panel title={admin ? '即時運轉（過去 24 小時）' : '即時運轉（今日）'} className="mt-16">
         <EChart option={realtimeOption} height={300 + SOC_EXTRA_HEIGHT}
           label={admin
-            ? '即時運轉：過去 24 小時的太陽能、負載、電網、電池功率與 SOC'
-            : '即時運轉：今天 00:00 到現在的太陽能、負載、電網、電池功率與 SOC'} />
+            ? `即時運轉：過去 24 小時的太陽能、負載、電網、電池功率與${socName}`
+            : `即時運轉：今天 00:00 到現在的太陽能、負載、電網、電池功率與${socName}`} />
       </Panel>
 
       {/* 秒級重播（管理員）：資料集的秒級資料（跟著網站部署，不經過資料庫）；一般模式跟著真實時間、展示模式跟著展示時鐘 */}
@@ -459,8 +463,8 @@ export default function Dashboard() {
         {!admin && show?.weather && !hasRolling && <WeatherStrip weather={show.weather} />}
         <EChart option={planOption} height={380 + socExtraHeight(PLAN_SOC_H)}
           label={hasRolling
-            ? '未來 24 小時預測與排程：從現在起 24 小時的太陽能、負載、電網、電池功率與 SOC'
-            : '今日預測與排程：整天的太陽能、負載、電網、電池功率與 SOC'} />
+            ? `未來 24 小時預測與排程：從現在起 24 小時的太陽能、負載、電網、電池功率與${socName}`
+            : `今日預測與排程：整天的太陽能、負載、電網、電池功率與${socName}`} />
       </Panel>
 
       {/* 太陽能：預測與實際，上方是同一天台北的實際天氣 */}

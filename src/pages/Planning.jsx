@@ -10,6 +10,7 @@ import { useScenario, getScenario, useScenarioDays } from '../lib/scenario.js'
 import { cached, fetchSchedules, SCHEDULES_REFRESHED } from '../api/forecastData.js'
 import { useDemoEnabled, useDemoDay, getDemo, togglePlay } from '../lib/demoClock.js'
 import { useCurrentSlot } from '../hooks/useClock.js'
+import { useIsAdmin } from '../lib/auth.js'
 import { useDataRevision } from '../hooks/useDataRevision.js'
 import {
   SHIFT_IDS, defaultCond, recommendCond, recCond, followsRec, fromPrefs, toPrefs, condKey, estimate, estimateWithRec,
@@ -23,6 +24,8 @@ import {
   baseLegend,
   touMarkArea,
   bgSeries,
+  socLabel,
+  withSocLabel,
   powerSocLayout,
   powerSocFormatter,
   socYAxis,
@@ -53,6 +56,7 @@ export default function Planning() {
   const demoOn = useDemoEnabled()
   const demoDay = useDemoDay()
   const curSlot = useCurrentSlot()
+  const socName = socLabel(useIsAdmin()) // 住戶看不懂 SOC，圖上寫「電量」
   const rev = useDataRevision() // 本機重算時每寫回一天就加一：未來 24 小時那份換新了要重抓
   // 資料集的隔日（展示月的日子）；今天是月底時是 null
   const { next: planDay } = useScenarioDays()
@@ -335,7 +339,7 @@ export default function Planning() {
   // ---- 電力供需與電池調度（隔日） ----
   const supplyOption = useMemo(() => {
     if (!plan) return {}
-    return {
+    return withSocLabel({
       tooltip: { ...baseTooltip, formatter: powerSocFormatter },
       color: ['#ffb020', '#f97316', '#3b82f6', TEXT_MAIN, COLORS.battery],
       // 三個供電來源畫成面積（線寬 0），圖例預設只剩一個小圓點，指定成方塊才和面積對得上
@@ -366,12 +370,13 @@ export default function Planning() {
         bgSeries({ markArea: touMarkArea(plan.tier, plan.price) }),
         bgSeries({ markArea: touMarkArea(plan.tier, plan.price, undefined, { label: false }), soc: true }),
       ],
-    }
-  }, [plan, theme])
+    }, socName)
+  }, [plan, theme, socName])
 
   // ---- 未來 24 小時預測與排程（和主頁面同一張） ----
   const hasRolling = Boolean(rolling && rolling.source !== 'none' && rolling.season === season)
-  const next24Option = useMemo(() => (hasRolling ? rollingOption(rolling) : {}), [rolling, hasRolling, theme])
+  const next24Option = useMemo(() => (hasRolling ? withSocLabel(rollingOption(rolling), socName) : {}),
+    [rolling, hasRolling, theme, socName])
 
   const s = plan?.summary
   const milpRec = loaded.current?.recCost ?? null
@@ -405,7 +410,7 @@ export default function Planning() {
       <Panel title="未來 24 小時預測與排程" className="mt-16">
         {hasRolling
           ? <EChart option={next24Option} height={380 + socExtraHeight(PLAN_SOC_H)}
-              label="未來 24 小時預測與排程：從現在起 24 小時的太陽能、負載、電網、電池功率與 SOC" />
+              label={`未來 24 小時預測與排程：從現在起 24 小時的太陽能、負載、電網、電池功率與${socName}`} />
           : <div className="skeleton" style={{ height: 380 + socExtraHeight(PLAN_SOC_H) }} />}
       </Panel>
 

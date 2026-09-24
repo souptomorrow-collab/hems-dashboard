@@ -51,6 +51,8 @@ import {
   valueYAxis,
   touMarkArea,
   bgSeries,
+  socLabel,
+  withSocLabel,
   powerSocLayout,
   powerSocFormatter,
   socYAxis,
@@ -188,6 +190,7 @@ export default function History() {
    ================================================================ */
 function DayView({ date, setDate, yesterday, minDay, spans }) {
   const admin = useIsAdmin() // 住戶只看電費拆解與可轉移設備運轉時段；管理員另有能源來源與去向
+  const socName = socLabel(admin) // 住戶看不懂 SOC，寫「電量」
   const theme = useTheme()
   const [res, setRes] = useState(null)
   const [loadError, setLoadError] = useState(null)
@@ -251,7 +254,7 @@ function DayView({ date, setDate, yesterday, minDay, spans }) {
   const curveOption = useMemo(() => {
     if (!sim) return {}
     const line = { type: 'line', smooth: true, symbol: 'none' }
-    return {
+    return withSocLabel({
       tooltip: { ...baseTooltip, formatter: powerSocFormatter },
       legend: { ...baseLegend, data: ['太陽能發電', '家庭負載', '電網購電', '電池充電', '電池放電', 'SOC'] },
       ...powerSocLayout({ boundaryGap: true }),
@@ -275,8 +278,8 @@ function DayView({ date, setDate, yesterday, minDay, spans }) {
         bgSeries({ markArea: touMarkArea(sim.tier, sim.price) }),
         bgSeries({ markArea: touMarkArea(sim.tier, sim.price, undefined, { label: false }), soc: true }),
       ],
-    }
-  }, [sim, theme])
+    }, socName)
+  }, [sim, theme, socName])
 
   /* ---- 日前計畫與實際運轉：和主頁面同一種圖，實線＝實際、虛線＝計畫，同一種量同一個顏色 ---- */
   const compareOption = useMemo(() => {
@@ -304,7 +307,7 @@ function DayView({ date, setDate, yesterday, minDay, spans }) {
         row(COLORS.battery, 'SOC', a.soc[i], p.soc[i], '%', '計畫', 0),
       ].join('<br/>')
     }
-    return {
+    return withSocLabel({
       tooltip: { ...baseTooltip, formatter },
       legend: { ...baseLegend, data: ['太陽能發電', '家庭負載', '電網購電', '電池充電', '電池放電', 'SOC'] },
       ...powerSocLayout({ boundaryGap: true, socH: CMP_SOC_H }),
@@ -330,8 +333,8 @@ function DayView({ date, setDate, yesterday, minDay, spans }) {
         bgSeries({ markArea: touMarkArea(tier, getPriceSlots(parseYmd(date))) }),
         bgSeries({ markArea: touMarkArea(tier, getPriceSlots(parseYmd(date)), undefined, { label: false }), soc: true }),
       ],
-    }
-  }, [cmp, theme, date])
+    }, socName)
+  }, [cmp, theme, date, socName])
 
   /* ---- 匯出當日明細 ---- */
   const exportDay = () => {
@@ -361,7 +364,7 @@ function DayView({ date, setDate, yesterday, minDay, spans }) {
         { key: 'grid', label: '電網購電(kW)', digits: 3 },
         { key: 'charge', label: '電池充電(kW)', digits: 3 },
         { key: 'discharge', label: '電池放電(kW)', digits: 3 },
-        { key: 'soc', label: 'SOC(%)', digits: 1 },
+        { key: 'soc', label: `${socName}(%)`, digits: 1 },
         { key: 'pvSelf', label: '太陽能直接自用(kW)', digits: 3 },
         { key: 'pvBatt', label: '太陽能充電池(kW)', digits: 3 },
         { key: 'pvCut', label: '太陽能削減(kW)', digits: 3 },
@@ -464,7 +467,7 @@ function DayView({ date, setDate, yesterday, minDay, spans }) {
                 <Tile label="實際太陽能" value={cmp.actual.total.pv.toFixed(1)} unit="度" color={COLORS.solar} />
               </div>
               <EChart option={compareOption} height={300 + socExtraHeight(CMP_SOC_H)}
-                label={`${date} 的日前計畫與實際運轉：太陽能、負載、購電與 SOC 的計畫（虛線）和實際（實線）`} />
+                label={`${date} 的日前計畫與實際運轉：太陽能、負載、購電與${socName}的計畫（虛線）和實際（實線）`} />
             </Panel>
           )}
 
@@ -531,8 +534,8 @@ function DayView({ date, setDate, yesterday, minDay, spans }) {
               <Tile label="充電" value={rec.battery.chargeKwh.toFixed(2)} unit="kWh" color={COLORS.battery} />
               <Tile label="其中太陽能充電" value={rec.battery.fromPvKwh.toFixed(2)} unit="kWh" color={COLORS.solar} />
               <Tile label="放電" value={rec.battery.dischargeKwh.toFixed(2)} unit="kWh" color="#f97316" />
-              <Tile label="SOC 最高" value={rec.battery.socMax.toFixed(0)} unit="%" />
-              <Tile label="SOC 最低" value={rec.battery.socMin.toFixed(0)} unit="%" />
+              <Tile label={admin ? 'SOC 最高' : '電量最高'} value={rec.battery.socMax.toFixed(0)} unit="%" />
+              <Tile label={admin ? 'SOC 最低' : '電量最低'} value={rec.battery.socMin.toFixed(0)} unit="%" />
             </div>
           </Panel>
 

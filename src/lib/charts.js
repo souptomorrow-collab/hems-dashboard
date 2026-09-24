@@ -178,6 +178,22 @@ export function powerSocFormatter(ps) {
   }).join('<br/>')
 }
 
+/* 住戶看不懂 SOC：住戶畫面把圖上的「SOC」寫成「電量」（圖例、軸名、提示框），管理員照舊。
+   系列的名稱在程式裡仍叫 SOC（提示框、線尾標籤靠它判斷單位是 %），只換顯示的字 */
+export const socLabel = (admin) => (admin ? 'SOC' : '電量')
+export function withSocLabel(o, label) {
+  if (label === 'SOC' || !o?.series) return o
+  const fmt = o.tooltip?.formatter
+  return {
+    ...o,
+    legend: o.legend && { ...o.legend, formatter: (n) => (n === 'SOC' ? label : n) },
+    yAxis: Array.isArray(o.yAxis) ? o.yAxis.map((ax) => (ax?.name === 'SOC' ? { ...ax, name: label } : ax)) : o.yAxis,
+    tooltip: typeof fmt === 'function'
+      ? { ...o.tooltip, formatter: (...args) => String(fmt(...args) ?? '').replaceAll('SOC', label) }
+      : o.tooltip,
+  }
+}
+
 export function socYAxis({ interval = 50 } = {}) {
   return {
     type: 'value',
