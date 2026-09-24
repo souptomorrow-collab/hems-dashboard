@@ -41,11 +41,11 @@ const hms = (s) => `${p2(Math.floor(s / 3600))}:${p2(Math.floor(s / 60) % 60)}:$
    待命程式沒在跑時，「啟動」退回用 hems-watch:// 連結（只在註冊過的那台電腦有效，見 register_protocol.py）。 */
 const WATCH_URL = 'hems-watch://start'
 
-/* monthOnly：用電規劃頁不需要時段的進度條與速度（隔日規劃不看今天播到幾點），
-   只留日期、暫停／繼續；進到那頁時播放會先暫停，拖甘特圖時隔日才不會跟著換掉
-   compact：系統資訊頁用的精簡版，只在展示中出現：結束、暫停／繼續、目前播到哪（頁首時鐘照展示時間在走，
-   這頁卻沒有控制列的話，講系統設定時停不下來）。換天、拖時段、快捷鍵都回主頁面操作 */
-export default function DemoBar({ monthOnly = false, compact = false }) {
+/* 每一頁都是同一條完整的控制列（2026-09-24 起；原本用電規劃、歷史紀錄、系統資訊是少了時段與倍速的精簡版）。
+   keys：要不要接鍵盤快捷鍵——只有主頁面要（歷史紀錄的 ← → 是前後一天，兩個會打架）。
+   startPaused：在這頁按「展示模式」時先不播（用電規劃頁：拖甘特圖時隔日才不會跟著換掉）。
+   用電規劃頁進去時播放會先暫停（Planning.jsx），拖甘特圖時隔日才不會跟著換掉，要繼續按 ▶ */
+export default function DemoBar({ keys = false, startPaused = false }) {
   const demo = useDemoClock()
   const speed = SPEEDS.find((s) => s.key === demo.speed) ?? SPEEDS[0]
   const { season } = useScenario()
@@ -74,14 +74,14 @@ export default function DemoBar({ monthOnly = false, compact = false }) {
     if (!watcher?.agent) window.location.href = WATCH_URL
     setLaunchedAt(Date.now())
   }
-  // 開啟展示模式：從月初開始（用電規劃頁先不播）。「還在展示」的訊號由 Layout 每分鐘送，
+  // 開啟展示模式：從月初開始（startPaused 的頁面先不播）。「還在展示」的訊號由 Layout 每分鐘送，
   // 待命程式收到就叫起監看程式；這裡只是接下來一分鐘查快一點，狀態早點變成「運作中」
   const onPower = () => {
     if (demo.enabled) {
       stopDemo()
       return
     }
-    startDemo({ days, day: 0, play: !monthOnly })
+    startDemo({ days, day: 0, play: !startPaused })
     setLaunchedAt(Date.now())
   }
   const watchChip = watcher && (
@@ -106,7 +106,7 @@ export default function DemoBar({ monthOnly = false, compact = false }) {
   // 展示時用鍵盤操作，口試講解時不必回頭找滑鼠：
   // 空白鍵暫停／繼續、← → 前後一格（按住 Shift 一次一小時）、PageUp／PageDown 前後一天、Home 回到月初
   useEffect(() => {
-    if (!demo.enabled || monthOnly || compact) return
+    if (!demo.enabled || !keys) return
     const onKey = (e) => {
       if (e.altKey || e.ctrlKey || e.metaKey) return
       const tag = e.target?.tagName
@@ -125,7 +125,7 @@ export default function DemoBar({ monthOnly = false, compact = false }) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [demo.enabled, monthOnly, compact])
+  }, [demo.enabled, keys])
 
   // 日期欄：只接受展示月裡完整的日期。原本只取「日」那兩位，打 2010-08-05 會直接跳到 7/5；
   // 在欄位裡改年或月（日期其實沒變）也會把時間重設到 00:00。月外的日期不動、提示幾秒，欄位回到播放中的那天
@@ -174,9 +174,6 @@ export default function DemoBar({ monthOnly = false, compact = false }) {
   )
   const clockText = demo.speed <= 300 ? hms(demo.sec) : slotToTime(demo.slot)
 
-  // 系統資訊頁的精簡版只在展示中出現（Layout 也只在展示中放），結束展示的那一刻就收起來
-  if (compact && !demo.enabled) return null
-
   return (
     <div className={`demo-bar ${demo.enabled ? 'on' : ''}`}>
       <button
@@ -187,20 +184,7 @@ export default function DemoBar({ monthOnly = false, compact = false }) {
         {demo.enabled ? '⏹ 結束展示' : '▶ 展示模式'}
       </button>
 
-      {!demo.enabled ? null : compact ? (
-        <>
-          {playBtn}
-          <div className="demo-time">
-            <strong>{clockText}</strong>
-            <span className="muted">{md(today)}（{wk(today)}）</span>
-          </div>
-        </>
-      ) : monthOnly ? (
-        <>
-          {playBtn}
-          {dayPicker}
-        </>
-      ) : (
+      {!demo.enabled ? null : (
         <>
           {playBtn}
           <button className="demo-btn" onClick={restartDemo} title="從月初重播">

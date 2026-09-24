@@ -29,13 +29,11 @@ const NAV = [
   { to: '/system', label: '系統資訊', icon: '⚙️', end: false, admin: true },
 ]
 
-// 展示模式：主頁面有加速播放；用電規劃只有開關（隔日規劃不看今天播到哪）；
-// 歷史紀錄讀展示月的實時運轉紀錄（到展示時鐘的昨天），所以也要能換天
-const DEMO_PAGES = new Set(['/', '/planning', '/history'])
-const MONTH_ONLY_PAGES = new Set(['/planning', '/history'])
-// 系統資訊頁和展示時鐘無關，但展示模式開著時頁首的時鐘、電價徽章仍照展示時間在播：
-// 放一條精簡的控制列（結束／暫停／目前展示時間），切到這頁講系統設定時也停得下來
-const COMPACT_DEMO_PAGES = new Set(['/system'])
+// 展示模式的控制列：每一頁都放同一條完整的（重播、時間、第幾格、進度條、倍速），切頁不會少資訊。
+// 用電規劃的 23:45 截止跟時刻有關，也要看得到現在幾點；系統資訊頁的頁首時鐘照展示時間在走，也要停得下來。
+// 鍵盤快捷鍵只在主頁面：歷史紀錄的 ← → 是前後一天，兩個會打架
+const DEMO_PAGES = new Set(['/', '/planning', '/history', '/system'])
+const DEMO_KEY_PAGES = new Set(['/'])
 // 夏月／非夏月（展示 7 月還是 1 月）只在展示模式切換，平常一律 7 月
 const SEASON_PAGES = new Set(['/', '/planning', '/history'])
 
@@ -258,11 +256,10 @@ export default function Layout() {
         </header>
 
         <main className="content" id="main-content" tabIndex={-1}>
-          {/* 展示模式是全站共用的虛擬時鐘，所以控制列放在版面層而不是單一頁面：
-              原本只放在主頁面，切到頁面二時展示仍在背景播，卻沒地方暫停或拖曳。
-              用電規劃、歷史紀錄只換天不看時段（monthOnly）；系統資訊頁只在展示中放精簡版（compact）。 */}
-          {admin && DEMO_PAGES.has(pathname) && <DemoBar monthOnly={MONTH_ONLY_PAGES.has(pathname)} />}
-          {admin && demoOn && COMPACT_DEMO_PAGES.has(pathname) && <DemoBar compact />}
+          {/* 展示模式是全站共用的虛擬時鐘，所以控制列放在版面層而不是單一頁面，每一頁都是同一條完整的 */}
+          {admin && DEMO_PAGES.has(pathname) && (
+            <DemoBar keys={DEMO_KEY_PAGES.has(pathname)} startPaused={pathname === '/planning'} />
+          )}
           <ErrorBoundary key={pathname}>
             <Outlet />
           </ErrorBoundary>
