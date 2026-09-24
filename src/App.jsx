@@ -1,7 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import Layout from './components/Layout.jsx'
 import Dashboard from './pages/Dashboard.jsx'
-import Loads from './pages/Loads.jsx'
 import Planning from './pages/Planning.jsx'
 import History from './pages/History.jsx'
 import System from './pages/System.jsx'
@@ -17,7 +16,6 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Layout />}>
         <Route index element={<Dashboard />} />
-        <Route path="loads" element={<Loads />} />
         <Route path="planning" element={<Planning />} />
         <Route path="history" element={<History />} />
         {/* 系統資訊只給管理員；住戶直接打網址也會被導回主頁面 */}

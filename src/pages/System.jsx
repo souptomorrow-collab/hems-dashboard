@@ -11,9 +11,9 @@ import { BATTERY, DEVICES, CATEGORY_LABEL } from '../lib/constants.js'
 import { SHIFTABLE_RULES } from '../lib/simulate.js'
 import { PRICE } from '../lib/tou.js'
 import { SEASONS } from '../lib/scenario.js'
-import { fetchDayAheadForecast, fetchWeatherData, fetchSchedules, cached, apiBase } from '../api/forecastData.js'
+import { fetchDayAheadForecast, fetchWeatherData, fetchSchedules, cached } from '../api/forecastData.js'
 import { fetchHistory } from '../api/client.js'
-import { ACCOUNTS, useAuth } from '../lib/auth.js'
+import { ACCOUNTS } from '../lib/auth.js'
 
 /** ['2010-01-01', '2010-01-02', …] → 「2010-01-01～01-31、2010-07-01～07-31（共 62 天）」：連續的日子併成一段 */
 function dateRanges(dates) {
@@ -39,7 +39,6 @@ const ROLE_SEES = {
 }
 
 export default function System() {
-  const session = useAuth()
   const [meta, setMeta] = useState(null)
 
   useEffect(() => {
@@ -99,7 +98,7 @@ export default function System() {
   return (
     <>
       <div className="grid cols-2">
-        <Panel title="帳號與權限" sub={`目前登入：${session?.username}（${session?.label}）`}>
+        <Panel title="帳號與權限">
           {/* 手機上表格比畫面寬、要左右捲動：tabIndex 讓鍵盤也能選到再用方向鍵捲 */}
           <div className="table-wrap" tabIndex={0} role="region" aria-label="帳號與權限表">
             <table className="history-table compact">
@@ -121,14 +120,9 @@ export default function System() {
               </tbody>
             </table>
           </div>
-          <p className="hint prose mt-16">
-            {'⚠️ 後端 API 目前只提供唯讀資料，登入仍在瀏覽器裡檢查，只用來區分住戶與管理員看到的畫面，不是資安保護：'}
-            {'懂技術的人看原始碼可以繞過，資料檔也仍能直接下載。修改帳密請用 npm run hash-password，'}
-            {'把產生的設定貼到 src/lib/auth.js。'}
-          </p>
         </Panel>
 
-        <Panel title="資料來源" sub={apiBase ? `先讀後端 API（${apiBase}），讀不到才用靜態快照；天氣一律讀快照` : '網站讀取的靜態快照（public/data，由 MongoDB 與 open-meteo 匯出）'}>
+        <Panel title="資料來源">
           <div className="table-wrap" tabIndex={0} role="region" aria-label="資料快照表">
             <table className="history-table compact">
               <thead>
@@ -162,7 +156,7 @@ export default function System() {
       </div>
 
       <div className="grid cols-2 mt-16">
-        <Panel title="電池規格" sub="Tesla Powerwall 2・設定在 src/lib/constants.js">
+        <Panel title="電池規格">
           <dl className="kv-list">
             <dt>可用容量</dt><dd>{BATTERY.capacityKwh} kWh</dd>
             <dt>最大充放電功率</dt><dd>{BATTERY.maxPowerKw} kW</dd>
@@ -173,7 +167,7 @@ export default function System() {
           </dl>
         </Panel>
 
-        <Panel title="台電簡易二段式電價" sub="元／度・設定在 src/lib/tou.js">
+        <Panel title="台電簡易二段式電價">
           <div className="table-wrap" tabIndex={0} role="region" aria-label="電價表">
             <table className="history-table compact">
               <thead>
@@ -200,14 +194,10 @@ export default function System() {
               </tbody>
             </table>
           </div>
-          <p className="hint prose mt-16">
-            {'週六、週日與國定假日（台電的離峰日）全天離峰；排程程式用同一份假日表。'}
-            {'假日表只收錄資料集的年份 2006～2011（src/lib/holidays.js）。'}
-          </p>
         </Panel>
       </div>
 
-      <Panel title="設備與運轉規則" sub="額定功率與可轉移設備的建議範圍（沒排的設備不開）・設定在 src/lib/constants.js、src/lib/simulate.js" className="mt-16">
+      <Panel title="設備與運轉規則" className="mt-16">
         <div className="table-wrap" tabIndex={0} role="region" aria-label="設備與運轉規則表">
           <table className="history-table compact">
             <thead>

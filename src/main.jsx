@@ -7,7 +7,7 @@ import './index.css'
 import './lib/theme.js'
 
 // 使用 HashRouter：GitHub Pages 是靜態主機，沒有伺服器端路由設定，
-// 用 hash (#/loads) 可以避免重新整理子頁面時出現 404。
+// 用 hash (#/history) 可以避免重新整理子頁面時出現 404。
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     {/* 先開啟 React Router v7 的兩個新行為，開發模式就不會一直提醒。

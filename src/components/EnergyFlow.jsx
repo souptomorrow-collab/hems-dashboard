@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from 'react'
  *   太陽能 → 家、電池 ↔ 家、電網 ↔ 家
  * 線條的方向、粗細、是否流動都由即時功率決定（能量平衡）：
  *   PV + 電池放電 + 電網購電 = 家庭負載 + 電池充電 + 電網逆送
+ * 右下角空白處放今日預估省下電費（到現在為止照實際、之後照計畫，和不裝系統比）。
  */
 
 /* 各節點在容器中的百分比座標（與 SVG viewBox 0~100 對齊）
@@ -109,7 +110,7 @@ function useNarrowContainer(ref) {
   return narrow
 }
 
-export default function EnergyFlow({ live }) {
+export default function EnergyFlow({ live, savings = null }) {
   const boxRef = useRef(null)
   const narrow = useNarrowContainer(boxRef)
   const N = narrow ? N_NARROW : N_WIDE
@@ -179,7 +180,6 @@ export default function EnergyFlow({ live }) {
         label="太陽能 PV"
         color="var(--c-solar)"
         value={live ? `${pv.toFixed(2)} kW` : '—'}
-        sub="即時發電"
       />
       <FlowNode
         n={N.home}
@@ -188,7 +188,6 @@ export default function EnergyFlow({ live }) {
         label="家庭用電"
         color="var(--c-load)"
         value={live ? `${load.toFixed(2)} kW` : '—'}
-        sub="即時總負載"
       />
       <FlowNode
         n={N.batt}
@@ -197,15 +196,6 @@ export default function EnergyFlow({ live }) {
         label={`電池・${charging ? '充電中' : discharging ? '放電中' : '待機'}`}
         color="var(--c-battery)"
         value={live ? `${live.socPct.toFixed(0)}%` : '—'}
-        sub={
-          live
-            ? charging
-              ? `↑ 充電 ${charge.toFixed(2)} kW`
-              : discharging
-              ? `↓ 放電 ${discharge.toFixed(2)} kW`
-              : `${live.socKwh.toFixed(1)} kWh`
-            : ''
-        }
       />
       <FlowNode
         n={N.grid}
@@ -214,13 +204,17 @@ export default function EnergyFlow({ live }) {
         label={`電網・${reverse ? '逆送' : '購電'}`}
         color="var(--c-grid)"
         value={live ? `${Math.abs(gridKw).toFixed(2)} kW` : '—'}
-        sub={live ? `${live.tier === 'peak' ? '尖峰' : '離峰'}・${live.price} 元/度` : ''}
       />
+
+      <div className="flow-savings" role="group" aria-label="今日預估省下電費">
+        <span className="fs-label">💰 今日預估省下電費</span>
+        <span className="fs-value">{savings == null ? '—' : savings}<small> 元</small></span>
+      </div>
     </div>
   )
 }
 
-function FlowNode({ n, variant, icon, label, color, value, sub }) {
+function FlowNode({ n, variant, icon, label, color, value }) {
   return (
     <div className={`flow-node ${variant}`} style={{ left: `${n.x}%`, top: `${n.y}%` }}>
       <span className="fn-icon">{icon}</span>
@@ -228,7 +222,6 @@ function FlowNode({ n, variant, icon, label, color, value, sub }) {
       <span className="fn-value" style={{ color }}>
         {value}
       </span>
-      {sub && <span className="fn-sub">{sub}</span>}
     </div>
   )
 }

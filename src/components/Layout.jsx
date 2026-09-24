@@ -3,11 +3,11 @@ import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useClock } from '../hooks/useClock.js'
 import { fmtClock, fmtDate } from '../lib/format.js'
 import { getCurrentTier, isSummer, TIER_LABEL } from '../lib/tou.js'
-import { LOCATION, nowTaipei } from '../lib/time.js'
+import { LOCATION } from '../lib/time.js'
 import { useTheme, toggleTheme } from '../lib/theme.js'
 import DemoBar from './DemoBar.jsx'
 import ErrorBoundary from './ErrorBoundary.jsx'
-import { useScenario, setSeason, SEASONS, scenarioNow, seasonOf } from '../lib/scenario.js'
+import { useScenario, setSeason, SEASONS, DEFAULT_SEASON } from '../lib/scenario.js'
 import { getDemo, stopDemo, useDemoEnabled } from '../lib/demoClock.js'
 import { useAuth, logout } from '../lib/auth.js'
 import { pingDemo } from '../api/prefs.js'
@@ -23,21 +23,20 @@ const stampsOf = (s, o) => [s, o]
 // admin：只有管理員看得到的頁面
 const NAV = [
   { to: '/', label: '主頁面', icon: '🏠', end: true },
-  { to: '/loads', label: '各負載功率', icon: '🔌', end: false },
   { to: '/planning', label: '用電規劃', icon: '📅', end: false },
   { to: '/history', label: '歷史紀錄', icon: '🗂️', end: false },
   { to: '/system', label: '系統資訊', icon: '⚙️', end: false, admin: true },
 ]
 
-// 展示模式：主頁面、各負載有加速播放；用電規劃只有開關（隔日規劃不看今天播到哪）；
-// 歷史紀錄在展示模式下讀展示月的實時運轉紀錄（到展示時鐘的昨天），所以也要能換天
-const DEMO_PAGES = new Set(['/', '/loads', '/planning', '/history'])
+// 展示模式：主頁面有加速播放；用電規劃只有開關（隔日規劃不看今天播到哪）；
+// 歷史紀錄讀展示月的實時運轉紀錄（到展示時鐘的昨天），所以也要能換天
+const DEMO_PAGES = new Set(['/', '/planning', '/history'])
 const MONTH_ONLY_PAGES = new Set(['/planning', '/history'])
 // 系統資訊頁和展示時鐘無關，但展示模式開著時頁首的時鐘、電價徽章仍照展示時間在播：
 // 放一條精簡的控制列（結束／暫停／目前展示時間），切到這頁講系統設定時也停得下來
 const COMPACT_DEMO_PAGES = new Set(['/system'])
-// 夏月／非夏月情境只影響「今天／明天」這幾頁；歷史紀錄平常照每一天的實際日期，展示模式下才跟著情境換展示月
-const SEASON_PAGES = new Set(['/', '/loads', '/planning', '/history'])
+// 夏月／非夏月（展示 7 月還是 1 月）只在展示模式切換，平常一律 7 月
+const SEASON_PAGES = new Set(['/', '/planning', '/history'])
 
 // 側欄收合狀態記在瀏覽器裡，重新整理或下次開啟都維持上次的樣子。
 // 無痕視窗或封鎖網站資料時讀寫會直接丟例外，當成沒存過即可。
@@ -51,11 +50,10 @@ function readCollapsed() {
 }
 
 const PAGE_META = {
-  '/': { title: '主頁面', sub: '太陽能・電池・負載・電網 即時總覽' },
-  '/loads': { title: '各負載即時功率', sub: '家中各設備即時消耗與分布' },
-  '/planning': { title: '用電規劃', sub: '隔日 24 小時最佳化排程（以 15 分鐘為單位）' },
-  '/history': { title: '歷史紀錄', sub: '依日／週／月查詢用電、發電、購電與電費，並匯出日報／月報' },
-  '/system': { title: '系統資訊', sub: '帳號權限、資料快照、電池與設備規則、電價（管理員）' },
+  '/': { title: '主頁面' },
+  '/planning': { title: '用電規劃' },
+  '/history': { title: '歷史紀錄' },
+  '/system': { title: '系統資訊' },
 }
 
 /** 網址 → 查表用的頁面路徑：React Router 比對路由不分大小寫、也接受結尾斜線
@@ -76,24 +74,23 @@ export default function Layout() {
   // 夏月／非夏月切換只在展示模式出現（選要播 7 月還是 1 月）；平常就是今天實際的季節
   const seasonToggle = scenarioPage && demoOn
   // 情境頁的電價徽章跟著情境走（非夏月情境下，九月的今天也照非夏月的尖離峰顯示）
-  const tier = getCurrentTier(scenarioPage ? scenarioNow(now, season) : now)
+  const tier = getCurrentTier(now) // 時鐘的日期就是展示月的今天（平常模式也是）
   const summer = isSummer(now)
   const theme = useTheme()
   const [collapsed, setCollapsed] = useState(readCollapsed)
 
   // 展示模式開著：每分鐘告訴本機的待命程式「還在展示」，它就會叫起、留著排程監看（在哪台電腦開網頁都一樣）
+  // 平常模式和展示模式看的是同一份資料：住戶在用電規劃按「重排」也要有人重算，所以網頁開著就一直通知
   useEffect(() => {
-    if (!demoOn || !admin) return undefined
     pingDemo()
     const id = setInterval(pingDemo, 60000)
     return () => clearInterval(id)
-  }, [demoOn, admin])
+  }, [])
 
   // 使用者改了隔日設定，本機從隔日起逐日重算，算完一天就寫回資料庫一天。
   // 各頁（主頁面、用電規劃、歷史紀錄）都靠這裡：本機在重算時每 10 秒重讀
   // 排程與實時運轉，有新寫回的日子就通知各頁重抓——算好的日子馬上看得到，不必等整個月算完或重新整理
   useEffect(() => {
-    if (!demoOn || !admin) return undefined
     let on = true
     let wasComputing = false
     const tick = async () => {
@@ -116,22 +113,17 @@ export default function Layout() {
     tick()
     const id = setInterval(tick, 10000)
     return () => { on = false; clearInterval(id) }
-  }, [demoOn, admin])
+  }, [])
 
-  // 關掉展示模式就回到今天實際的季節（平常沒有切換鈕，不能停在另一季）
+  // 關掉展示模式就回到夏月（平常一律看 7 月，沒有切換鈕，不能停在 1 月）
   useEffect(() => {
-    if (demoOn) return
-    const real = seasonOf(nowTaipei())
-    if (season !== real) setSeason(real)
+    if (!demoOn && season !== DEFAULT_SEASON) setSeason(DEFAULT_SEASON)
   }, [demoOn, season])
 
-  // 住戶登入時（或管理員登出後換住戶登入），把管理員切過的情境、開著的展示模式恢復原狀
+  // 住戶登入時（或管理員登出後換住戶登入），把管理員開著的展示模式關掉（季節由上面回到夏月）
   useEffect(() => {
-    if (admin) return
-    if (season !== seasonOf(now)) setSeason(seasonOf(now))
-    if (getDemo().enabled) stopDemo()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [admin, season])
+    if (!admin && getDemo().enabled) stopDemo()
+  }, [admin])
 
   // 頂端列的實際高度寫成 CSS 變數 --topbar-h，展示控制列才知道要黏在哪個高度。
   // 高度不固定：手機上頂端列會折成好幾行，側欄收合也可能讓標題換行
@@ -218,7 +210,6 @@ export default function Layout() {
             <div className="topbar-logo" aria-hidden="true">⚡</div>
             <div className="page-title">
               <h2>{meta.title}</h2>
-              <p>{meta.sub}</p>
             </div>
           </div>
 
@@ -272,7 +263,7 @@ export default function Layout() {
           {/* 展示模式是全站共用的虛擬時鐘，所以控制列放在版面層而不是單一頁面：
               原本只放在主頁面，切到頁面二時展示仍在背景播，卻沒地方暫停或拖曳。
               用電規劃、歷史紀錄只換天不看時段（monthOnly）；系統資訊頁只在展示中放精簡版（compact）。 */}
-          {admin && DEMO_PAGES.has(pathname) && <DemoBar monthOnly={MONTH_ONLY_PAGES.has(pathname)} history={pathname === '/history'} />}
+          {admin && DEMO_PAGES.has(pathname) && <DemoBar monthOnly={MONTH_ONLY_PAGES.has(pathname)} />}
           {admin && demoOn && COMPACT_DEMO_PAGES.has(pathname) && <DemoBar compact />}
           <ErrorBoundary key={pathname}>
             <Outlet />

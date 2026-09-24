@@ -45,11 +45,11 @@ const WATCH_URL = 'hems-watch://start'
    只留日期、暫停／繼續；進到那頁時播放會先暫停，拖甘特圖時隔日才不會跟著換掉
    compact：系統資訊頁用的精簡版，只在展示中出現：結束、暫停／繼續、目前播到哪（頁首時鐘照展示時間在走，
    這頁卻沒有控制列的話，講系統設定時停不下來）。換天、拖時段、快捷鍵都回主頁面操作 */
-export default function DemoBar({ monthOnly = false, history = false, compact = false }) {
+export default function DemoBar({ monthOnly = false, compact = false }) {
   const demo = useDemoClock()
   const speed = SPEEDS.find((s) => s.key === demo.speed) ?? SPEEDS[0]
   const { season } = useScenario()
-  const { today, next } = useScenarioDays()
+  const { today } = useScenarioDays()
   const show = (SEASONS.find((s) => s.key === season) ?? SEASONS[0]).dataset
   const month = `2010 年 ${+show.slice(5, 7)} 月`
   const days = monthLengthOf(season)
@@ -187,34 +187,18 @@ export default function DemoBar({ monthOnly = false, history = false, compact = 
         {demo.enabled ? '⏹ 結束展示' : '▶ 展示模式'}
       </button>
 
-      {!demo.enabled ? (
-        <span className="hint demo-idle">
-          {`目前是今天、全部模擬。開啟後換成專題的實際資料：從 ${md(monthStart)} 起一天一天播完 ${month}`
-            + '（RF／LSTM 預測、MILP 排程、實時運轉），今天跟著播放走、能調整的隔日也跟著走'}
-        </span>
-      ) : compact ? (
+      {!demo.enabled ? null : compact ? (
         <>
           {playBtn}
           <div className="demo-time">
             <strong>{clockText}</strong>
             <span className="muted">{md(today)}（{wk(today)}）</span>
           </div>
-          <span className="hint demo-note">
-            {ended
-              ? '播完整個月了：按 ▶ 從月初重播'
-              : `${demo.playing ? '展示播放中' : '展示已暫停'}：頁首的時鐘與電價照展示時間走，本頁的系統設定不受影響・換天、拖時段請回主頁面`}
-          </span>
         </>
       ) : monthOnly ? (
         <>
           {playBtn}
           {dayPicker}
-          <span className="hint demo-note">
-            {history
-              ? `今天 ${md(today)}，歷史紀錄是展示月到昨天為止的實時運轉結果（月底播到 23:45 以後含當天）・按 ‹ › 換天`
-              : <>{next ? `今天 ${md(today)}，只能調整隔日 ${md(next)}` : '播到月底了，沒有隔日可以調整'}
-                ・進到這頁會先暫停，調整完按 ▶ 繼續</>}
-          </span>
         </>
       ) : (
         <>
@@ -255,11 +239,6 @@ export default function DemoBar({ monthOnly = false, history = false, compact = 
             ))}
           </div>
 
-          <span className="hint demo-note">
-            {ended
-              ? '播完整個月了：按 ▶ 或空白鍵從月初重播'
-              : `${speed.hint}・空白鍵暫停、← → 前後一格、PageUp／PageDown 前後一天`}
-          </span>
         </>
       )}
       {watchChip}

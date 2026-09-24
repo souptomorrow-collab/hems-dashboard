@@ -22,7 +22,21 @@ const readJson = (f) => JSON.parse(fs.readFileSync(path.join(ROOT, 'public', 'da
 
 const { liveSnapshot, simulateDay, dispatchPlan, planFits, SHIFTABLE_RULES, isAllowedSlot } = await lib('simulate.js')
 const { weatherFromEra5 } = await lib('weather.js')
-const { scenarioDate, seasonOf } = await lib('scenario.js')
+const { seasonOf } = await lib('scenario.js')
+
+/** 把日期換到指定季節：往前或往後挪整數週（星期幾不變，平日／週末的電價才不會跑掉），
+    取離原日期最近、而且落在該季節的那天，時分保留（檢查不同季節、平日／週末的調度用） */
+function scenarioDate(date, season) {
+  if (seasonOf(date) === season) return date
+  for (let weeks = 1; weeks <= 53; weeks++) {
+    for (const dir of [-1, 1]) {
+      const d = new Date(date)
+      d.setDate(d.getDate() + dir * 7 * weeks)
+      if (seasonOf(d) === season) return d
+    }
+  }
+  return date
+}
 const { BATTERY, SLOTS_PER_DAY, DEVICES } = await lib('constants.js')
 
 const snaps = { summer: readJson('forecast_day.json'), non_summer: readJson('forecast_day_non_summer.json') }

@@ -15,7 +15,9 @@
      {"washer": {"enabled": true}, "dryer": {"enabled": false},
       "dishwasher": {"enabled": true, "slots": [["20:00", "21:00"]]}}
    enabled true 且沒給範圍＝照建議；earliest／deadline＝最早開始、最晚完成；slots＝指定時間；
-   enabled false 或沒列出＝那天不開。排的只管那一天（by_date.<隔日>），後天要用再排。
+   enabled false 或沒列出＝那天不開。兩種排法：
+     明日排程（mode day）     只管隔日那一天（by_date.<隔日>），後天照常駐排程
+     常駐排程（mode standing）從隔日起同一個月每天都用這份（standing），取代隔日以後的舊排法
    日前排程先排出預估時間，實時層每 15 分鐘重排，排到「現在開」才開機。條件的換算見 lib/deviceJobs.js。 */
 
 const ENV = import.meta.env ?? {}
@@ -94,9 +96,10 @@ async function call(path, init) {
     用電規劃頁收到就等本機把隔日照這一版重排好 */
 export const PREFS_SAVED = 'hems:prefs-saved'
 
-/** 目前的設定。date 給資料集日期就是那天的條件（用電規劃頁給隔日；只管那一天，那天沒排過就是 devices）。
-    回傳 { devices, from, source: 'cloud' | 'local' | 'default', updatedAt, stamp, changedFrom }
-    devices：各設備的條件（沒列出的＝不開）；from：那天是使用者排的就是那天（null＝用 devices，展示月的假設）
+/** 目前的設定。date 給資料集日期就是那天的條件（用電規劃頁給隔日）。
+    回傳 { devices, from, mode, standingFrom, source: 'cloud' | 'local' | 'default', updatedAt, stamp, changedFrom }
+    devices：各設備的條件（沒列出的＝不開）；from：那天是明日排程就是那天；
+    mode：那天用的是 'day'（明日排程）還是 'standing'（常駐排程；沒排過常駐就是展示月的假設）
     stamp 是設定的版本，和排程、實時運轉每天記的 prefs_stamp 同格式；
     changedFrom 是最近一次改的是哪天起（null＝原本的設定整個換掉，兩個月整月重排） */
 export async function loadPrefs(date = null) {
@@ -105,6 +108,7 @@ export async function loadPrefs(date = null) {
       const d = await call(date ? `/prefs?date=${date}` : '/prefs')
       return {
         devices: d.devices ?? {}, from: d.from ?? null,
+        mode: d.mode === 'day' ? 'day' : 'standing', standingFrom: d.standing_from ?? null,
         source: 'cloud', updatedAt: d.updated_at ?? null,
         stamp: d.stamp ?? null, changedFrom: d.changed_from ?? null,
       }
@@ -113,20 +117,20 @@ export async function loadPrefs(date = null) {
     }
   }
   const local = readLocal()
-  const none = { from: null, updatedAt: null, stamp: null, changedFrom: null }
+  const none = { from: null, mode: 'standing', standingFrom: null, updatedAt: null, stamp: null, changedFrom: null }
   return local ? { ...none, devices: local, source: 'local' } : { ...none, devices: DEFAULT_PREFS, source: 'default' }
 }
 
-/** 儲存設定。from＝排哪一天（使用者只能排隔日，給隔日的資料集日期；只管那一天）。
+/** 儲存設定。from＝隔日的資料集日期；mode＝'day'（明日排程，只管那天）或 'standing'（常駐排程，從那天起每天）。
     一律先存這台裝置，再試著寫回雲端。回傳 { saved: 'cloud' | 'local', error, stamp, from } */
-export async function savePrefs(devices, from = null) {
+export async function savePrefs(devices, from = null, mode = 'day') {
   writeLocal(devices)
   if (!canSave) return { saved: 'local', error: null }
   try {
     const r = await call('/prefs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Api-Key': KEY },
-      body: JSON.stringify(from ? { devices, from } : { devices }),
+      body: JSON.stringify(from ? { devices, from, mode } : { devices }),
     })
     const stamp = r.stamp ?? null
     window.dispatchEvent(new CustomEvent(PREFS_SAVED, { detail: { stamp, from: r.from ?? from } }))

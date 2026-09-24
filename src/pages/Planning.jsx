@@ -2,55 +2,43 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import Panel from '../components/Panel.jsx'
 import EChart from '../components/EChart.jsx'
 import Tile from '../components/Tile.jsx'
-import { fetchPlanning, recomputeSchedule } from '../api/client.js'
-import { DEVICES, COLORS, CATEGORY_LABEL, slotToTime, SLOTS_PER_DAY, BATTERY } from '../lib/constants.js'
-import { SHIFTABLE_RULES } from '../lib/simulate.js'
-import DevicePrefs, { deviceStatus } from '../components/DevicePrefs.jsx'
+import { fetchPlanning, recomputeSchedule, fetchRolling } from '../api/client.js'
+import { DEVICES, COLORS, slotToTime } from '../lib/constants.js'
+import DevicePrefs from '../components/DevicePrefs.jsx'
 import { loadPrefs, savePrefs } from '../api/prefs.js'
-import { useScenario, getScenario, SEASONS, useScenarioDays } from '../lib/scenario.js'
+import { useScenario, getScenario, useScenarioDays } from '../lib/scenario.js'
 import { cached, fetchSchedules, SCHEDULES_REFRESHED } from '../api/forecastData.js'
 import { PREFS_SAVED } from '../api/prefs.js'
-import { useDemoEnabled, getDemo, togglePlay } from '../lib/demoClock.js'
+import { useDemoEnabled, useDemoDay, getDemo, togglePlay } from '../lib/demoClock.js'
+import { useCurrentSlot } from '../hooks/useClock.js'
+import { useDataRevision } from '../hooks/useDataRevision.js'
 import {
   SHIFT_IDS, defaultCond, recommendCond, recCond, followsRec, fromPrefs, toPrefs, condKey, estimate, estimateWithRec,
   recClash, rowsOf, startsFromRows, checkCond, durOf, latestStart, hardOk, inDefault, nameOf, hm,
 } from '../lib/deviceJobs.js'
-import { tomorrow, fmtDate, pad2 } from '../lib/format.js'
+import { pad2 } from '../lib/format.js'
 import { useTheme } from '../lib/theme.js'
-import { useIsAdmin } from '../lib/auth.js'
 import {
   valueYAxis,
   baseTooltip,
   baseLegend,
-  peakMarkArea,
+  touMarkArea,
   powerSocLayout,
   powerSocFormatter,
   socYAxis,
   SOC_EXTRA_HEIGHT,
-  AXIS_TEXT,
+  socExtraHeight,
   TEXT_MAIN,
-  TRACK_LINE,
 } from '../lib/charts.js'
+import { PLAN_SOC_H, rollingOption } from '../lib/planChart.js'
 
-// 最佳化目標只做「省錢」一種：排程組本學期的範圍就是電費最小化。
-// 之前另外設計過「自用率最大」「舒緩夜尖峰」兩種模式，因為不會有對應的
-// 演算法實作，留在畫面上會讓人誤以為三種都有做，故一併移除。
-const OBJECTIVE = {
-  label: '省錢模式',
-  desc: '把可轉移設備與電池充電排到最便宜的時段，電費最低',
-  descPlan: '電池在離峰與太陽能充足時充電、尖峰時放電，電費最低',
-}
 const HOURS = Array.from({ length: 24 }, (_, h) => h)
+const SHIFTABLE = DEVICES.filter((d) => d.category === 'shiftable') // 甘特圖只列可轉移設備
 const STALL_MS = 3 * 60 * 1000 // 送出後 3 分鐘都沒有任何一天重排好，就不再等
 const md = (d) => (d ? `${+d.slice(5, 7)}/${+d.slice(8, 10)}` : '')
-const parseDay = (s) => {
-  const [y, m, d] = s.split('-').map(Number)
-  return new Date(y, m - 1, d)
-}
 
 export default function Planning() {
   const theme = useTheme() // 主題一換，下面的圖表 option 就會重算
-  const admin = useIsAdmin()
   const [plan, setPlan] = useState(null)
   const [schedule, setSchedule] = useState(null)
   const [computing, setComputing] = useState(false)
@@ -61,24 +49,27 @@ export default function Planning() {
     const id = setTimeout(() => setNotice(''), 3500)
     return () => clearTimeout(id)
   }, [notice])
-  const planDate = useMemo(() => tomorrow(), [])
   const { season } = useScenario()
-  const demoOn = useDemoEnabled() // 展示模式：隔日跟著播放走，改的條件送給本機排程程式重排
-  // 資料集的隔日：平常是 2010-07-20、2010-01-12；展示模式跟著播放走，播到月底是 null
+  const demoOn = useDemoEnabled()
+  const demoDay = useDemoDay()
+  const curSlot = useCurrentSlot()
+  const rev = useDataRevision() // 本機重算時每寫回一天就加一：未來 24 小時那份換新了要重抓
+  // 資料集的隔日（展示月的日子）；今天是月底時是 null
   const { next: planDay } = useScenarioDays()
   const [cond, setCond] = useState(null) // 隔日各設備的條件（lib/deviceJobs.js）
   const [sent, setSent] = useState('') // 已送出（或雲端讀到）的條件，判斷有沒有改過
-  // 基準 { cond, starts, source, plan, rec, recCost }：載入時的，送出後換成送出的那一份。「復原更改」回到這裡、
-  // 電費「改之前」和這裡比。recCost 是日前排程另外算的「三台都照建議」電費（MILP 設備和電池一起排；沒有是 null）
+  // 排法：standing＝常駐排程（從隔日起每天都用）、day＝明日排程（只管隔日）。sentMode 是雲端讀到／已送出的
+  const [mode, setMode] = useState('standing')
+  const [sentMode, setSentMode] = useState('standing')
+  // 基準 { cond, mode, starts, source, plan, rec, recCost }：載入時的，送出後換成送出的那一份。「復原更改」回到這裡。
+  // recCost 是日前排程另外算的「三台都照建議」電費（MILP 設備和電池一起排；沒有是 null）
   const loaded = useRef(null)
-  const [justSent, setJustSent] = useState(false) // 剛送出、本機還沒重排好（重新載入就清掉）
   const [est, setEst] = useState(null) // 各設備預估幾點開（第幾格；不跑是 null）
-  const [estSource, setEstSource] = useState('price') // schedule＝日前排程（MILP）、price＝依電價估
   const [rec, setRec] = useState(null) // 建議時間：三台都照建議時各設備幾點開（第幾格）
-  const [recSource, setRecSource] = useState('price') // schedule＝日前排程另外算的 MILP 解、price＝依電價估
   const [cmp, setCmp] = useState(null) // { recCost, diffs }：照建議排的電費、指定時間比建議時間多花多少
   const [sending, setSending] = useState(false)
   const [prefsMsg, setPrefsMsg] = useState('')
+  const [rolling, setRolling] = useState(null) // 未來 24 小時（實時運轉層在這一格重排的計畫）
   const planRef = useRef(null) // 最新一次重算的結果（送出時記成基準；重算是非同步的）
   planRef.current = plan
 
@@ -87,7 +78,6 @@ export default function Planning() {
     if (getDemo().enabled && getDemo().playing) togglePlay()
   }, [])
   const [reload, setReload] = useState(0)
-  const planStamp = useRef(null)
   // 送出後，等本機把隔日照這一版設定重排：{ stamp＝這次設定的版本, day＝送出的那天（null＝整個換掉） }
   const [awaiting, setAwaiting] = useState(null)
   // 本機從送出的那天起重排同一個月（電量一天接一天）：隔日在這個範圍內才等；換到別天（之前、別的月）不會換新，不等
@@ -139,48 +129,49 @@ export default function Planning() {
   // 進頁面即取得隔日的規劃與條件；切換情境、換天、本機重排好時重新載入，沒送出的更改一併清掉
   useEffect(() => {
     let on = true
-    if (!planDay) return undefined // 展示模式播到月底，沒有隔日可以規劃
+    if (!planDay) return undefined // 今天是月底，沒有隔日可以規劃
     setComputing(true)
     setPrefsMsg('')
-    setJustSent(false)
     ;(async () => {
       const p = await fetchPlanning(planDay)
       if (!on || !p) return
-      planStamp.current = p.planStamp
-      let c = defaultCond()
-      if (demoOn) {
-        const d = await loadPrefs(planDay) // 那天的條件（只管那一天；沒排過用 devices，展示月的假設）
-        if (!on) return
-        c = fromPrefs(d.devices)
-      }
-      const fromPlan = demoOn && p.planSource !== 'sim'
-      // 建議時間：展示模式用日前排程另外算的（三台都照建議的 MILP 解）；平常模式或沒有時依電價估
+      const d = await loadPrefs(planDay) // 隔日的條件：明日排程（只管那天）或常駐排程（每天）
+      if (!on) return
+      const c = fromPrefs(d.devices)
+      const fromPlan = p.planSource !== 'sim'
+      // 建議時間：日前排程另外算的（三台都照建議的 MILP 解）；沒有時依電價估
       const recPlan = fromPlan && p.recommended?.start_slot
       const recStarts = recPlan
         ? Object.fromEntries(SHIFT_IDS.map((id) => [id, p.recommended.start_slot[id] ?? null]))
         : estimate(recommendCond(), p.price)
       const recCost = recPlan && Number.isFinite(p.recommended.cost) ? +p.recommended.cost.toFixed(1) : null
-      // 預估時間：展示模式有日前排程就用排程的（MILP 把設備和電池一起排）；平常模式或沒有排程時，
-      // 照建議的用建議時間、其他依電價估（和改條件時同一套）
+      // 預估時間：有日前排程就用排程的（MILP 把設備和電池一起排）；沒有排程時，照建議的用建議時間、其他依電價估
       const starts = fromPlan ? startsFromRows(p.schedule) : estimateWithRec(c, p.price, recStarts)
       const rows = { ...p.schedule, ...rowsOf(starts) }
       const cur = fromPlan ? p : await recomputeSchedule(rows, planDay)
       if (!on) return
-      loaded.current = { cond: c, starts, source: fromPlan ? 'schedule' : 'price', plan: cur, rec: recStarts, recCost }
+      loaded.current = { cond: c, mode: d.mode, starts, source: fromPlan ? 'schedule' : 'price', plan: cur, rec: recStarts, recCost }
       setCond(c)
       setSent(condKey(c))
+      setMode(d.mode)
+      setSentMode(d.mode)
       setEst(starts)
-      setEstSource(loaded.current.source)
       setRec(recStarts)
-      setRecSource(recPlan ? 'schedule' : 'price')
       setSchedule(rows)
       setPlan(cur)
       setComputing(false)
     })()
     return () => { on = false }
-  }, [season, reload, planDay, demoOn])
+  }, [season, reload, planDay])
 
-  /** 套用新的條件：條件沒變的設備沿用基準的預估（展示模式是排程排的），照建議的用建議時間
+  // 未來 24 小時：每前進一格換一份（和主頁面同一份）
+  useEffect(() => {
+    let on = true
+    fetchRolling(curSlot).then((d) => on && setRolling(d)).catch(() => on && setRolling(null))
+    return () => { on = false }
+  }, [curSlot, demoOn, demoDay, season, rev])
+
+  /** 套用新的條件：條件沒變的設備沿用基準的預估（日前排程排的），照建議的用建議時間
       （洗衣機、烘衣機只有一台照建議時，和另一台的條件接得上才用；接不上的原因顯示在那台底下），
       其他依電價估；再重算電費 */
   const apply = (c) => {
@@ -199,7 +190,6 @@ export default function Planning() {
     if (cond && condKey(c) !== condKey(cond)) setPrefsMsg('') // 條件改了：上一次「已送出」的訊息不再適用
     setCond(c)
     setEst(starts)
-    setEstSource(all ? base.source : 'price')
     setSchedule(rows)
     if (all) setPlan(base.plan)
     // 切換情境的瞬間，舊情境的重算晚一步回來時不能蓋掉新的
@@ -209,15 +199,23 @@ export default function Planning() {
   const allOff = () => apply(defaultCond())
   const allRec = () => apply(recommendCond())
   const follow = (id) => apply({ ...cond, [id]: recCond(id) })
-  const undo = () => loaded.current && apply(loaded.current.cond)
-  const dirty = Boolean(cond) && condKey(cond) !== sent
+  const pickMode = (m) => {
+    if (m !== mode) setPrefsMsg('')
+    setMode(m)
+  }
+  const undo = () => {
+    if (!loaded.current) return
+    setMode(loaded.current.mode)
+    apply(loaded.current.cond)
+  }
+  const dirty = Boolean(cond) && (condKey(cond) !== sent || mode !== sentMode)
   // 條件的問題（⛔ 擋送出、⚠️ 提醒），加上照建議的設備為什麼預估時間不是建議時間
   const problems = useMemo(() => (cond
     ? [...checkCond(cond), ...Object.entries(recClash(cond, rec)).map(([devId, text]) => ({ devId, level: 'warn', text }))]
     : []), [cond, rec])
 
   // 照建議排的電費，以及指定時間的設備比建議時間多花多少。都用 recomputeSchedule 算，
-  // 和上面「預估電費」同一套算法（展示模式電池照原排程），比起來才公平。
+  // 和上面「預估電費」同一套算法（電池照原排程），比起來才公平。
   // 照建議排的電費有日前排程另外算的 MILP 解（設備和電池一起排）就用那個，不另外試算
   useEffect(() => {
     if (!schedule || !cond || !rec || !planDay) return undefined
@@ -238,21 +236,26 @@ export default function Planning() {
     return () => { on = false }
   }, [schedule, cond, rec, est, planDay])
 
-  /** 送出明天的排法：只管那一天；本機從隔日起重排（電量一天接一天，之後幾天也會變），今天以前不動 */
+  /** 重排：送出條件，本機從隔日起重排（電量一天接一天，之後幾天也會變），今天以前不動。
+      常駐排程＝隔日起每天都照這個排；明日排程＝只管隔日，後天照常駐排程 */
   const submit = async () => {
     if (!cond) return
     const c = cond
+    const m = mode
     const starts = est
-    const source = estSource
     setSending(true)
-    const r = await savePrefs(toPrefs(c), planDay)
+    const r = await savePrefs(toPrefs(c), planDay, m)
     setSending(false)
     if (r.saved === 'cloud') {
       setSent(condKey(c))
-      // 送出的條件成為新的基準：「復原更改」回到送出的條件，電費「改之前」也和送出的比
-      if (loaded.current) loaded.current = { ...loaded.current, cond: c, starts, source, plan: planRef.current ?? loaded.current.plan }
-      setJustSent(true)
-      setPrefsMsg(`已送出。只排 ${md(planDay)} 這一天；本機排程程式重排 ${md(planDay)} 以後的日子（電量一天接一天）、今天以前不動；算好後這頁會自動換成新的排程。`)
+      setSentMode(m)
+      // 送出的條件成為新的基準：「復原更改」回到送出的條件
+      if (loaded.current) {
+        loaded.current = { ...loaded.current, cond: c, mode: m, starts, source: 'price', plan: planRef.current ?? loaded.current.plan }
+      }
+      setPrefsMsg(m === 'standing'
+        ? `已送出常駐排程：${md(planDay)} 起每天照這個排，算好後這頁會自動更新。`
+        : `已送出明日排程：只排 ${md(planDay)}，算好後這頁會自動更新。`)
     } else {
       setPrefsMsg(`沒有送出：${r.error ?? '未設定雲端金鑰'}`)
     }
@@ -268,7 +271,7 @@ export default function Planning() {
     return { start: s, clamped: s !== raw }
   }
   const dragHint = drag
-    ? `指定 ${nameOf(drag.devId)}　${hm(drag.start)}～${hm(drag.start + durOf(drag.devId))}　放開後改成指定時間`
+    ? `指定 ${nameOf(drag.devId)}　${hm(drag.start)}～${hm(drag.start + durOf(drag.devId))}`
     : null
 
   const commitDrag = (d) => {
@@ -319,7 +322,7 @@ export default function Planning() {
     window.addEventListener('keydown', esc)
   }
 
-  // ---- 電力供需與電池調度 ----
+  // ---- 電力供需與電池調度（隔日） ----
   const supplyOption = useMemo(() => {
     if (!plan) return {}
     return {
@@ -341,7 +344,7 @@ export default function Planning() {
       series: [
         { name: '太陽能供電', type: 'line', stack: 'sup', symbol: 'none', lineStyle: { width: 0 },
           areaStyle: { color: 'rgba(255,176,32,0.7)' }, data: plan.pvToLoad,
-          markArea: peakMarkArea(plan.tier) },
+          markArea: touMarkArea(plan.tier, plan.price) },
         { name: '電池放電', type: 'line', stack: 'sup', symbol: 'none', lineStyle: { width: 0 },
           areaStyle: { color: 'rgba(249,115,22,0.7)' }, data: plan.battToLoad },
         { name: '電網供電', type: 'line', stack: 'sup', symbol: 'none', lineStyle: { width: 0 },
@@ -350,118 +353,32 @@ export default function Planning() {
           lineStyle: { width: 2, color: TEXT_MAIN, type: 'dashed' }, data: plan.load },
         { name: 'SOC', type: 'line', xAxisIndex: 1, yAxisIndex: 1, symbol: 'none', smooth: true,
           lineStyle: { width: 2, color: COLORS.battery }, data: plan.socPct,
-          markArea: peakMarkArea(plan.tier) },
+          markArea: touMarkArea(plan.tier, plan.price, undefined, { label: false }) },
       ],
     }
   }, [plan, theme])
 
-  // ---- 電池充放電 + SOC ----
-  const battOption = useMemo(() => {
-    if (!plan) return {}
-    return {
-      tooltip: { ...baseTooltip, formatter: powerSocFormatter },
-      color: ['rgba(34,197,94,0.8)', 'rgba(20,184,166,0.8)', 'rgba(249,115,22,0.85)', COLORS.battery],
-      legend: { ...baseLegend, data: ['太陽能充電', '電網充電', '電池放電', 'SOC'] },
-      ...powerSocLayout(),
-      yAxis: [valueYAxis('kW'), socYAxis()],
-      series: [
-        { name: '太陽能充電', type: 'bar', stack: 'b', data: plan.pvToBatt,
-          itemStyle: { color: 'rgba(34,197,94,0.8)' } },
-        { name: '電網充電', type: 'bar', stack: 'b', data: plan.gridToBatt,
-          itemStyle: { color: 'rgba(20,184,166,0.8)' } },
-        { name: '電池放電', type: 'bar', stack: 'b', data: plan.dischargeKw.map((v) => -v),
-          itemStyle: { color: 'rgba(249,115,22,0.85)' } },
-        { name: 'SOC', type: 'line', xAxisIndex: 1, yAxisIndex: 1, symbol: 'none', smooth: true,
-          lineStyle: { width: 2, color: COLORS.battery }, data: plan.socPct,
-          markArea: peakMarkArea(plan.tier),
-          markLine: { silent: true, symbol: 'none', lineStyle: { color: TRACK_LINE, type: 'dashed' },
-            label: { color: AXIS_TEXT, fontSize: 10, formatter: '{c}%' },
-            data: [{ yAxis: Math.round(BATTERY.socMax * 100) }, { yAxis: Math.round(BATTERY.socMin * 100) }] } },
-      ],
-    }
-  }, [plan, theme])
+  // ---- 未來 24 小時預測與排程（和主頁面同一張） ----
+  const hasRolling = Boolean(rolling && rolling.source !== 'none' && rolling.season === season)
+  const next24Option = useMemo(() => (hasRolling ? rollingOption(rolling) : {}), [rolling, hasRolling, theme])
 
   const s = plan?.summary
-  // 電費是試算：有日前排程時電池照原排程，只換設備時間（排程還沒照這個條件重排）；送出後由排程把設備和電池一起重排
-  const trial = Boolean(plan && plan.planSource !== 'sim' && estSource !== 'schedule')
-  const followAll = Boolean(cond) && SHIFT_IDS.every((id) => followsRec(cond, id)) // 三台都照建議
   const milpRec = loaded.current?.recCost ?? null
-  // 改了條件後，電費和改之前（載入時／已送出的）差多少
-  const base = loaded.current?.plan?.summary
-  const costDiff = s && base ? +(s.optimizedCost - base.optimizedCost).toFixed(1) : null
-  const diffWord = costDiff == null ? ''
-    : costDiff === 0 ? '和改之前相同' : `比改之前${costDiff > 0 ? '多' : '少'} ${Math.abs(costDiff)} 元`
-  // 三台都照建議：試算的電池沒跟著設備重排，會比 MILP 一起排的貴，直接比會變成「照建議反而多花」；改成說送出後重排約多少
-  const costDiffText = !dirty || costDiff == null
-    ? ''
-    : trial && followAll && milpRec != null
-    ? `電池照原排程試算・送出後重排約 ${milpRec} 元（改之前 ${base.optimizedCost}）`
-    : trial
-    ? `${diffWord}（電池照原排程試算）`
-    : diffWord
 
   if (!planDay) {
     return (
       <Panel>
-        <p className="hint">展示模式播到月底了，沒有隔日可以調整。到上方展示列換一天，或按 ▶ 從月初重播。</p>
+        <p>今天是展示月的最後一天，沒有隔日可以規劃。</p>
       </Panel>
     )
   }
 
   return (
     <>
-      {/* 控制列 */}
-      <Panel>
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 16, justifyContent: 'space-between' }}>
-          <div>
-            <div className="objective">
-              <span className="objective-tag">最佳化目標</span>
-              {OBJECTIVE.label}
-            </div>
-            <p className="hint" style={{ marginTop: 8 }}>
-              {plan && plan.planSource !== 'sim' ? OBJECTIVE.descPlan : OBJECTIVE.desc}
-            </p>
-            {plan && (
-              <p className="hint" style={{ marginTop: 4 }}>
-                {plan.planSource !== 'sim'
-                  ? (admin
-                      ? `電池與可轉移設備：排程組的 ${plan.planSource} 日前排程（資料集 ${plan.planDate}），設備和電池一起排，設備時間是預估；實際幾點開由實時層每 15 分鐘重排決定。改條件後按「送出給排程」，本機從隔日起重排、今天以前不動`
-                      : '洗衣機、烘衣機、洗碗機設條件就好，幾點開由排程決定')
-                  : (admin
-                      ? (demoOn
-                          ? `電池充放電：模擬調度（${plan.planNote ?? '這一天還沒有排程組的排程'}）`
-                          : '平常模式：負載、太陽能、電池與可轉移設備都是模擬的；開啟展示模式才換成專題的實際資料與排程組的排程')
-                      : null)}
-              </p>
-            )}
-          </div>
-          <div className="plan-date">
-            <div className="muted" style={{ fontSize: 12 }}>
-              規劃日（隔日）・{SEASONS.find((x) => x.key === season)?.label}電價
-            </div>
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>
-              {demoOn && planDay ? `${fmtDate(parseDay(planDay))}・展示中` : fmtDate(planDate)}
-            </div>
-            {waitHere && <div className="hint" role="status" style={{ marginBottom: 8 }}>⏳ 本機正在照新設定重排隔日…</div>}
-            <button
-              className="btn primary"
-              onClick={undo}
-              disabled={computing || !dirty}
-              title={dirty ? '捨棄還沒送出的更改，回到上次送出（沒送出過就是載入時）的條件' : '條件沒有改過'}
-            >
-              ↺ 復原更改
-            </button>
-            <div className="dim" style={{ fontSize: 11, marginTop: 6 }}>
-              {dirty ? (demoOn ? '條件改過，還沒送出' : '條件改過') : (demoOn ? '目前是已送出的條件' : '目前都還沒排')}
-            </div>
-          </div>
-        </div>
-      </Panel>
-
-      {/* 結果摘要 */}
-      <div className="grid cols-6 mt-16">
-        <Tile label="預估電費" value={s ? s.optimizedCost : '—'} unit="元" sub={costDiffText} />
-        <Tile label="預估省電費" value={s ? s.savings : '—'} unit="元" color={COLORS.save} sub={s ? `省 ${s.savingPct}%` : ''} />
+      {/* 結果摘要（隔日） */}
+      <div className="grid cols-6">
+        <Tile label="預估電費" value={s ? s.optimizedCost : '—'} unit="元" />
+        <Tile label="預估省電費" value={s ? s.savings : '—'} unit="元" color={COLORS.save} />
         <Tile label="太陽能自用率" value={s ? s.selfUseRate : '—'} unit="%" color={COLORS.solar} />
         <Tile label="向電網購電" value={s ? s.gridImportKwh : '—'} unit="度" color={COLORS.grid} />
         <Tile label="太陽能充電" value={s ? s.pvToBattKwh : '—'} unit="度" color={COLORS.battery} />
@@ -469,52 +386,49 @@ export default function Planning() {
       </div>
 
       {/* 供需調度 */}
-      <Panel title="電力供需與電池調度" sub="隔日 24 小時・各供電來源堆疊（紅底為尖峰時段）" className="mt-16">
+      <Panel title={`電力供需與電池調度（${md(planDay)}）`} className="mt-16">
         <EChart option={supplyOption} height={330 + SOC_EXTRA_HEIGHT} label="隔日電力供需：太陽能、電池、電網供電堆疊與 SOC" />
       </Panel>
 
-      {/* 電池充放電 */}
-      <Panel title="電池充放電規劃" sub={`太陽能充電 / 電網充電 / 放電 與 SOC（虛線為 ${Math.round(BATTERY.socMin * 100)}%–${Math.round(BATTERY.socMax * 100)}% 上下限）`} className="mt-16">
-        <EChart option={battOption} height={300 + SOC_EXTRA_HEIGHT} label="隔日電池充放電規劃與 SOC" />
+      {/* 未來 24 小時預測與排程（實時運轉層每 15 分鐘重排的計畫） */}
+      <Panel title="未來 24 小時預測與排程" className="mt-16">
+        {hasRolling
+          ? <EChart option={next24Option} height={380 + socExtraHeight(PLAN_SOC_H)}
+              label="未來 24 小時預測與排程：從現在起 24 小時的太陽能、負載、電網、電池功率與 SOC" />
+          : <div className="skeleton" style={{ height: 380 + socExtraHeight(PLAN_SOC_H) }} />}
       </Panel>
 
-      {/* 隔日可轉移設備的條件（在下面的甘特圖上拖動＝指定時間） */}
+      {/* 用戶規劃：可轉移設備的條件（常駐排程／明日排程；在下面的甘特圖上拖動＝指定時間） */}
       <DevicePrefs
         cond={cond}
         est={est}
-        estSource={estSource}
         rec={rec}
-        recSource={recSource}
         recCost={milpRec ?? cmp?.recCost ?? null}
-        recTrial={milpRec == null && Boolean(plan && plan.planSource !== 'sim')}
         curCost={s?.optimizedCost ?? null}
-        curTrial={trial}
         diffs={cmp?.diffs}
         date={planDay}
-        cloud={demoOn}
+        mode={mode}
+        onMode={pickMode}
         dirty={dirty}
-        sent={justSent}
+        busy={computing || sending}
         sending={sending}
+        waiting={waitHere}
         msg={prefsMsg}
         problems={problems}
         onChange={change}
         onFollow={follow}
         onAllOff={allOff}
         onAllRec={allRec}
+        onUndo={undo}
         onSubmit={submit}
       />
 
-      {/* 設備運行時段甘特 */}
+      {/* 可轉移設備運行時段甘特 */}
       <Panel
         title="各設備運行時段"
-        sub="可轉移設備：深藍＝指定時間、淺藍＝系統決定的預估、斜線＝建議時間；按住拖曳＝改成指定時間・隔日 24 小時，15 分鐘為單位"
-        right={
-          <span className={`hint ${notice || dragHint ? 'plan-notice' : ''}`} role="status" aria-live="polite">
-            {dragHint || notice || `✏️ 按住設備那一列拖曳＝指定時間（按在原本的運轉段上就整段拖著走）；放開後${
-              plan && plan.planSource !== 'sim' ? '購電與電費即時重算（電池維持原排程）' : '電池與成本即時重算'
-            }${demoOn ? '。改好到上面按「送出給排程」' : ''}`}
-          </span>
-        }
+        right={(dragHint || notice)
+          ? <span className="hint plan-notice" role="status" aria-live="polite">{dragHint || notice}</span>
+          : null}
         className="mt-16"
       >
         {schedule && plan ? (
@@ -531,46 +445,32 @@ export default function Planning() {
                   </tr>
                 </thead>
                 <tbody>
-                  {DEVICES.map((dev) => (
+                  {SHIFTABLE.map((dev) => (
                     <tr key={dev.id}>
                       <td className="dev-name">
                         <span style={{ marginRight: 6 }}>{dev.icon}</span>
                         {dev.name}
-                        <span className={`badge ${dev.category === 'shiftable' ? 'shiftable' : 'fixed'}`}
-                          style={{ marginLeft: 8, fontSize: 10, padding: '1px 7px' }}>
-                          {CATEGORY_LABEL[dev.category]}
-                        </span>
-                        {SHIFTABLE_RULES[dev.id] && (
-                          <div className="dev-window">建議 {SHIFTABLE_RULES[dev.id].text}</div>
-                        )}
-                        {dev.category === 'shiftable' && (() => {
-                          const st = deviceStatus(cond, dev.id, est?.[dev.id])
-                          return <div className={`dev-window status-${st.tone}`}>{st.text}</div>
-                        })()}
                       </td>
                       {schedule[dev.id].map((on, slot) => {
                         const peak = plan.tier[slot] === 'peak'
-                        const shiftable = dev.category === 'shiftable'
                         // 拖曳中：這一台照放開後的位置顯示
-                        const dragging = shiftable && drag?.devId === dev.id
+                        const dragging = drag?.devId === dev.id
                         const inDrag = dragging && slot >= drag.start && slot < drag.start + durOf(dev.id)
                         const shownOn = dragging ? inDrag : on
-                        const cls = ['cell']
+                        const cls = ['cell', 'editable']
                         if (peak) cls.push('peak-bg')
-                        if (shownOn) cls.push('on', shiftable ? 'shiftable' : 'fixed')
-                        if (shownOn && shiftable && !dragging && cond?.[dev.id]?.mode === 'auto') cls.push('est')
-                        const r = shiftable ? rec?.[dev.id] : null
+                        if (shownOn) cls.push('on', 'shiftable')
+                        if (shownOn && !dragging && cond?.[dev.id]?.mode === 'auto') cls.push('est')
+                        const r = rec?.[dev.id]
                         const inRec = r != null && slot >= r && slot < r + durOf(dev.id)
                         if (inRec && !shownOn) cls.push('rec')
-                        if (shiftable) cls.push('editable')
                         if (inDrag) cls.push('painting')
-                        if (shiftable && !hardOk(dev.id, slot)) cls.push('blocked')
-                        else if (shiftable && !inDefault(dev.id, slot)) cls.push('outside')
-                        const note = !shiftable ? ''
-                          : !hardOk(dev.id, slot) ? '（22:00 以後不能運轉）'
+                        if (!hardOk(dev.id, slot)) cls.push('blocked')
+                        else if (!inDefault(dev.id, slot)) cls.push('outside')
+                        const note = !hardOk(dev.id, slot) ? '（22:00 以後不能運轉）'
                           : !inDefault(dev.id, slot) ? '（建議範圍外，可以指定）'
-                          : inRec ? '（建議時間；按住拖曳＝指定時間）'
-                          : '（按住拖曳＝指定時間）'
+                          : inRec ? '（建議時間）'
+                          : ''
                         return (
                           <td
                             key={slot}
@@ -578,7 +478,7 @@ export default function Planning() {
                             data-dev={dev.id}
                             data-slot={slot}
                             title={`${dev.name}｜${slotToTime(slot)}｜${peak ? '尖峰' : '離峰'}${note}`}
-                            onPointerDown={shiftable ? (e) => startDrag(e, dev.id, slot) : undefined}
+                            onPointerDown={(e) => startDrag(e, dev.id, slot)}
                           />
                         )
                       })}
@@ -588,19 +488,19 @@ export default function Planning() {
               </table>
             </div>
             <div className="legend mt-16">
-              <span className="item"><span className="swatch" style={{ background: '#3b82f6' }} /> 可轉移設備（指定時間）</span>
-              <span className="item"><span className="swatch est-swatch" /> 可轉移設備（系統決定・預估）</span>
-              <span className="item"><span className="swatch" style={{ background: '#a855f7' }} /> 不可轉移設備運轉</span>
+              <span className="item"><span className="swatch" style={{ background: '#3b82f6' }} /> 指定時間</span>
+              <span className="item"><span className="swatch est-swatch" /> 系統決定（預估）</span>
               <span className="item"><span className="swatch" style={{ background: 'rgba(239,68,68,0.18)' }} /> 尖峰時段</span>
-              <span className="item"><span className="swatch rec-swatch" /> 建議時間（沒排在這裡時）</span>
-              <span className="item"><span className="swatch outside-swatch" /> 建議範圍外（可以指定）</span>
+              <span className="item"><span className="swatch rec-swatch" /> 建議時間</span>
+              <span className="item"><span className="swatch outside-swatch" /> 建議範圍外</span>
               <span className="item"><span className="swatch blocked-swatch" /> 烘衣機 22:00 後不能運轉</span>
             </div>
           </>
         ) : (
-          <div className="skeleton" style={{ height: 360 }} />
+          <div className="skeleton" style={{ height: 200 }} />
         )}
       </Panel>
     </>
   )
 }
+

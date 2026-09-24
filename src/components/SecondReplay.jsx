@@ -204,13 +204,10 @@ export default function SecondReplay() {
   return (
     <Panel
       title="秒級重播"
-      sub={`${data.date}・每秒一筆，共 ${data.n.toLocaleString()} 筆・目前 ${hhmmss(sec)}`}
       right={
         <div className="replay-ctl">
           {picker}
-          {locked ? (
-            <span className="hint">跟著展示時鐘・速度在上方展示列調</span>
-          ) : (
+          {locked ? null : (
             <>
               <button className="btn" onClick={() => setPlaying((p) => !p)}>
                 {playing ? '暫停' : '播放'}
@@ -230,7 +227,7 @@ export default function SecondReplay() {
       }
     >
       <div className="replay-now">
-        <div><span>負載</span><b>{now.load.toFixed(2)}</b> kW{now.dev > 0 && <span className="dim">（設備 {now.dev.toFixed(1)}）</span>}</div>
+        <div><span>負載</span><b>{now.load.toFixed(2)}</b> kW</div>
         <div><span>太陽能</span><b>{now.pv.toFixed(2)}</b> kW</div>
         <div><span>淨負載</span><b>{(now.load - now.pv).toFixed(2)}</b> kW</div>
         {planRow && (
@@ -261,11 +258,6 @@ export default function SecondReplay() {
         aria-label="重播進度"
       />
       <EChart option={option} height={260} label={`秒級重播：${data.date} 最近 15 分鐘的負載與太陽能`} />
-      <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
-        實線為實際（每秒），虛線為排程對這一格的計畫值（來自資料庫）；秒級資料跟著網站一起部署（0.9 MB），不經過資料庫。
-        可轉移設備照使用者存下的時段、以額定功率加進負載。
-        負載每分鐘的平均為實測、分鐘內為合成；太陽能的 15 分鐘平均由實測日射量換算，秒級起伏為合成。
-      </p>
     </Panel>
   )
 }

@@ -194,22 +194,40 @@ export function socYAxis({ interval = 50 } = {}) {
   }
 }
 
-/** 把 tier 陣列轉成「尖峰時段」的 markArea 資料（淡紅底色）。labels 是 x 軸的類別（未來 24 小時那張不是從 00:00 起） */
-export function peakMarkArea(tier, labels = slotLabels) {
+/* ------------------------------------------------------------
+   背景電價：每張時間軸的圖都把尖峰／離峰塗上底色，並直接寫出那段的電價（元/度），
+   不用把滑鼠移上去才知道。tier、price 是每格的時段與電價（和 x 軸同長）；
+   labels 是 x 軸的類別（未來 24 小時那張不是從 00:00 起）。
+   功率＋SOC 兩格的圖只在上面那格寫字（label: false 給下面的 SOC 格）。
+   ------------------------------------------------------------ */
+const TOU_FILL = { peak: 'rgba(239,68,68,0.10)', offpeak: 'rgba(34,197,94,0.07)' }
+const TOU_NAME = { peak: '尖峰', offpeak: '離峰' }
+export function touMarkArea(tier, price, labels = slotLabels, { label = true } = {}) {
   const areas = []
-  let start = null
-  for (let i = 0; i < tier.length; i++) {
-    if (tier[i] === 'peak' && start === null) start = i
-    if ((tier[i] !== 'peak' || i === tier.length - 1) && start !== null) {
-      const end = tier[i] === 'peak' ? i : i - 1
-      areas.push([{ xAxis: labels[start] }, { xAxis: labels[end] }])
-      start = null
-    }
+  let start = 0
+  for (let i = 1; i <= tier.length; i++) {
+    if (i < tier.length && tier[i] === tier[start]) continue
+    // 每段畫到下一段的起點，相鄰兩段之間不留白
+    const end = Math.min(i, tier.length - 1)
+    const t = tier[start]
+    const p = price?.[start]
+    areas.push([
+      {
+        xAxis: labels[start],
+        itemStyle: { color: TOU_FILL[t] ?? 'transparent' },
+        label: {
+          // 太窄（不到 2 小時）的那段放不下字，只塗色
+          show: label && i - start >= 8 && Number.isFinite(p),
+          formatter: `${TOU_NAME[t] ?? ''} ${Number.isFinite(p) ? p.toFixed(2) : ''} 元`,
+          position: 'insideTop',
+          color: AXIS_TEXT,
+          fontSize: 11,
+          fontWeight: 600,
+        },
+      },
+      { xAxis: labels[end] },
+    ])
+    start = i
   }
-  return {
-    silent: true,
-    itemStyle: { color: 'rgba(239,68,68,0.08)' },
-    data: areas,
-  }
+  return { silent: true, data: areas }
 }
-

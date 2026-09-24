@@ -824,7 +824,26 @@ h1, h2, h3, h4 {
 }
 .flow-node .fn-label { font-size: 11.5px; color: var(--text-muted); }
 .flow-node .fn-value { font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; }
-.flow-node .fn-sub { font-size: 10px; color: var(--text-dim); }
+
+/* 今日預估省下電費：放在流向圖右下角的空白處（寬版電池在右側中間、窄版電池在下方中間，右下角都空著） */
+.flow-savings {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(20, 184, 166, 0.45);
+  background: linear-gradient(180deg, var(--bg-elevated), var(--bg-panel-2));
+  box-shadow: 0 0 0 1px rgba(20, 184, 166, 0.12), 0 10px 24px rgba(20, 184, 166, 0.1);
+}
+.flow-savings .fs-label { font-size: 11.5px; color: var(--text-muted); white-space: nowrap; }
+.flow-savings .fs-value { font-size: 20px; font-weight: 800; color: var(--c-save, #14b8a6); font-variant-numeric: tabular-nums; }
+.flow-savings .fs-value small { font-size: 12px; font-weight: 600; color: var(--text-muted); }
 
 /* 能源流向圖的窄版（直向）配置。
    由 EnergyFlow 量容器寬度決定要不要掛 .narrow，而不是看視窗寬度——
@@ -837,7 +856,9 @@ h1, h2, h3, h4 {
 .flow.narrow .flow-node .fn-label { font-size: 10.5px; }
 .flow.narrow .flow-node .fn-value { font-size: 14.5px; }
 .flow.narrow .flow-node.home .fn-value { font-size: 17px; }
-.flow.narrow .flow-node .fn-sub { font-size: 9.5px; }
+.flow.narrow .flow-savings { max-width: 30%; padding: 6px 8px; align-items: center; text-align: center; }
+.flow.narrow .flow-savings .fs-label { white-space: normal; font-size: 10.5px; }
+.flow.narrow .flow-savings .fs-value { font-size: 16px; }
 .flow.narrow .flow-edge-val { font-size: 10px; padding: 2px 6px; }
 
 
