@@ -9,7 +9,7 @@ import { DEFAULT_RANGE, HARD_END, SHIFT_IDS, PLAN_CUTOFF_SLOT, durOf, hm, slotOf
    最上面是建議時間：三台都照建議時最省的開機時間（日前排程另外算的 MILP 解），
    可以一鍵「全部照建議排」，或逐台按「照建議」。沒排的設備不開。
    每台三種：系統決定（範圍沒改＝照建議，也可以自己設最早開始、最晚完成）／指定時間／不開。
-   在下方甘特圖上拖動也是指定時間。改好按「重排」送出，本機從隔日起重排；「復原更改」回到上次送出的條件。
+   在下方甘特圖上拖動也是指定時間。改好按「重排」送出，本機只重排隔日那一天；「復原更改」回到上次送出的條件。
    隔日的規劃在今天 23:45 截止（日前排程在那時排定隔日）；截止到午夜之間整區鎖住，午夜後換成規劃下一天。
    條件、預估時間、建議時間都在上層（Planning），這裡只負責顯示與操作。 */
 
@@ -69,7 +69,7 @@ export default function DevicePrefs({
           <button className="btn" onClick={onAllRec} disabled={lock || allRec}>全部照建議排</button>
           <button className="btn" onClick={onUndo} disabled={busy || closed || !dirty}>↺ 復原更改</button>
           <button className="btn primary" onClick={onSubmit} disabled={busy || closed || !dirty || !canSave || errors.length > 0}
-            title={closed ? `隔日的規劃已於 ${hm(PLAN_CUTOFF_SLOT)} 截止` : !canSave ? '未設定雲端金鑰' : errors.length ? '先修正標 ⛔ 的問題' : dirty ? '送出，本機從隔日起重排' : '和已送出的相同'}>
+            title={closed ? `隔日的規劃已於 ${hm(PLAN_CUTOFF_SLOT)} 截止` : !canSave ? '未設定雲端金鑰' : errors.length ? '先修正標 ⛔ 的問題' : dirty ? '送出，本機重排隔日' : '和已送出的相同'}>
             {sending ? '送出中…' : '重排'}
           </button>
         </div>

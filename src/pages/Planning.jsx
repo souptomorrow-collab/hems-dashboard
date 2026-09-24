@@ -238,7 +238,7 @@ export default function Planning() {
     return () => { on = false }
   }, [schedule, cond, rec, est, planDay])
 
-  /** 重排：送出條件，本機從隔日起重排（電量一天接一天，之後幾天也會變），今天以前不動。
+  /** 重排：送出條件，本機只重排隔日那一天（和每天 23:45 只排隔日一樣），今天以前、隔日以後都不動。
       常駐排程＝隔日起每天都照這個排；明日排程＝只管隔日，後天照常駐排程 */
   const submit = async () => {
     if (!cond || closed) return
