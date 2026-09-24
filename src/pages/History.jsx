@@ -23,14 +23,14 @@ import { fetchDayActual, fetchDailyActual, fetchPlanVsActual, ymd, parseYmd, add
 import { useDataRevision } from '../hooks/useDataRevision.js'
 import { useDemoEnabled, useDemoSlot } from '../lib/demoClock.js'
 import { useScenarioDays, SEASONS } from '../lib/scenario.js'
-import { COLORS, DEVICES, DEVICE_COLORS, BATTERY, SLOTS_PER_DAY, slotToTime } from '../lib/constants.js'
+import { useIsAdmin } from '../lib/auth.js'
+import { COLORS, DEVICE_COLORS, BATTERY, SLOTS_PER_DAY, slotToTime } from '../lib/constants.js'
 import { TIER_LABEL, getPriceSlots } from '../lib/tou.js'
 import { useTheme, getTheme, setTheme } from '../lib/theme.js'
 import { toCsv, downloadCsv, printReport, fitChartsOnPrint } from '../lib/exportFile.js'
 import { dayRecord } from '../lib/dayRecord.js'
 import { SHIFTABLE_RULES } from '../lib/simulate.js'
 
-const SHIFT_IDS = new Set(DEVICES.filter((d) => d.category === 'shiftable').map((d) => d.id))
 
 /** 可轉移設備建議範圍以外的時段（小時區間）：照建議時不會用到，使用者可以自己指定 */
 function blockedHours(id) {
@@ -186,6 +186,7 @@ export default function History() {
    單日紀錄
    ================================================================ */
 function DayView({ date, setDate, yesterday, minDay, spans }) {
+  const admin = useIsAdmin() // 住戶只看電費拆解與可轉移設備運轉時段；管理員另有能源來源與去向
   const theme = useTheme()
   const [res, setRes] = useState(null)
   const [loadError, setLoadError] = useState(null)
@@ -328,25 +329,6 @@ function DayView({ date, setDate, yesterday, minDay, spans }) {
     }
   }, [cmp, theme, date])
 
-  /* ---- 可轉移設備用電排行（不可轉移設備不列） ---- */
-  const shiftDevices = useMemo(() => (rec ? rec.devices.filter((d) => SHIFT_IDS.has(d.id)) : []), [rec])
-  const deviceOption = useMemo(() => {
-    if (!rec) return {}
-    const list = [...shiftDevices].reverse() // 橫條圖由下往上畫，反過來才會是「最多的在最上面」
-    return {
-      tooltip: { ...baseTooltip, trigger: 'item', formatter: (p) => `${p.name}：${(+p.value).toFixed(2)} kWh` },
-      grid: { left: 84, right: 56, top: 8, bottom: 20 },
-      xAxis: { type: 'value', axisLabel: { color: AXIS_TEXT, fontSize: 11 }, splitLine: { lineStyle: { color: SPLIT_LINE } } },
-      yAxis: { type: 'category', data: list.map((d) => d.name), axisLabel: { color: AXIS_TEXT, fontSize: 12 }, axisTick: { show: false }, axisLine: { show: false } },
-      series: [{
-        type: 'bar',
-        data: list.map((d) => ({ value: +d.kwh.toFixed(3), itemStyle: { color: DEVICE_COLORS[d.id], borderRadius: [0, 4, 4, 0] } })),
-        barMaxWidth: 16,
-        label: { show: true, position: 'right', color: AXIS_TEXT, fontSize: 11, formatter: (p) => `${(+p.value).toFixed(2)}` },
-      }],
-    }
-  }, [rec, shiftDevices, theme])
-
   /* ---- 匯出當日明細 ---- */
   const exportDay = () => {
     if (!sim) return
@@ -384,6 +366,29 @@ function DayView({ date, setDate, yesterday, minDay, spans }) {
   }
 
   const w = sim?.weather?.summary
+
+  // 可轉移設備運轉時段：住戶放在電費拆解右邊，管理員放在下一排（整列寬）
+  const runsPanel = rec && sim ? (
+    <Panel title="可轉移設備運轉時段">
+      <Timeline runs={rec.runs} tier={sim.tier} />
+      <div className="run-list">
+        {rec.runs.map((d) => (
+          <div key={d.id} className="run-row">
+            <span className="run-name">{d.icon} {d.name}</span>
+            <span className="run-times">
+              {d.runs.length === 0
+                ? <span className="dim">當日未運轉</span>
+                : d.runs.map((r, i) => (
+                  <span key={i} className={`run-chip ${r.allOffpeak ? 'offpeak' : 'peak'}`}>
+                    {r.from}–{r.to}・{r.kwh.toFixed(2)} 度・{r.cost.toFixed(1)} 元
+                  </span>
+                ))}
+            </span>
+          </div>
+        ))}
+      </div>
+    </Panel>
+  ) : null
 
   return (
     <>
@@ -505,50 +510,23 @@ function DayView({ date, setDate, yesterday, minDay, spans }) {
               </div>
             </Panel>
 
-            {/* 能源來源與去向 */}
-            <Panel title="能源來源與去向">
-              <StackBar title="家庭用電" total={rec.load} parts={rec.sources} colors={{ pv: COLORS.solar, batt: COLORS.battery, grid: COLORS.grid }} />
-              <StackBar title="太陽能發電" total={rec.pv} parts={rec.pvDest} colors={{ self: COLORS.solar, batt: COLORS.battery, cut: '#94a3b8' }} />
-            </Panel>
+            {/* 住戶這一排是電費拆解與可轉移設備運轉時段；管理員是電費拆解與能源來源與去向，運轉時段放下一排 */}
+            {admin ? (
+              <Panel title="能源來源與去向">
+                <StackBar title="家庭用電" total={rec.load} parts={rec.sources} colors={{ pv: COLORS.solar, batt: COLORS.battery, grid: COLORS.grid }} />
+                <StackBar title="太陽能發電" total={rec.pv} parts={rec.pvDest} colors={{ self: COLORS.solar, batt: COLORS.battery, cut: '#94a3b8' }} />
+              </Panel>
+            ) : runsPanel}
           </div>
 
-          <div className="grid cols-2 mt-16">
-            {/* 可轉移設備用電排行 */}
-            <Panel title="可轉移設備用電">
-              <EChart option={deviceOption} height={Math.max(160, shiftDevices.length * 40)} label={`${date} 可轉移設備用電量`} />
-            </Panel>
-
-            {/* 可轉移設備的排程 */}
-            <Panel
-              title="可轉移設備運轉時段"
-            >
-              <Timeline runs={rec.runs} tier={sim.tier} />
-              <div className="run-list">
-                {rec.runs.map((d) => (
-                  <div key={d.id} className="run-row">
-                    <span className="run-name">{d.icon} {d.name}</span>
-                    <span className="run-times">
-                      {d.runs.length === 0
-                        ? <span className="dim">當日未運轉</span>
-                        : d.runs.map((r, i) => (
-                          <span key={i} className={`run-chip ${r.allOffpeak ? 'offpeak' : 'peak'}`}>
-                            {r.from}–{r.to}・{r.kwh.toFixed(2)} 度・{r.cost.toFixed(1)} 元
-                          </span>
-                        ))}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </Panel>
-          </div>
+          {admin && <div className="mt-16">{runsPanel}</div>}
 
           {/* 電池 */}
           <Panel title="電池" className="mt-16">
-            <div className="grid cols-6">
+            <div className="grid cols-5">
               <Tile label="充電" value={rec.battery.chargeKwh.toFixed(2)} unit="kWh" color={COLORS.battery} />
               <Tile label="其中太陽能充電" value={rec.battery.fromPvKwh.toFixed(2)} unit="kWh" color={COLORS.solar} />
               <Tile label="放電" value={rec.battery.dischargeKwh.toFixed(2)} unit="kWh" color="#f97316" />
-              <Tile label="等效循環" value={rec.battery.cycles.toFixed(2)} unit="次" />
               <Tile label="SOC 最高" value={rec.battery.socMax.toFixed(0)} unit="%" />
               <Tile label="SOC 最低" value={rec.battery.socMin.toFixed(0)} unit="%" />
             </div>
