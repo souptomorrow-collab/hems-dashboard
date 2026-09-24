@@ -669,8 +669,23 @@ export async function fetchRolling(atSlot) {
   }
 }
 
+/** 某一天的實時運轉紀錄換成圖用的欄位（96 格；那天沒有紀錄就全是 null），即時運轉兩種版本共用 */
+function opSeries(ops, date) {
+  const op = ops[date]
+  const t = parseYmd(date)
+  const price = getPriceSlots(t)
+  const empty = new Array(SLOTS_PER_DAY).fill(null)
+  if (!op) return { tier: getTierSlots(t), price, pv: empty, load: empty, gridKw: empty, chargeKw: empty, dischargeKw: empty, socPct: empty }
+  return {
+    tier: getTierSlots(t), price, pv: op.pv_kw, load: op.load_kw, gridKw: actualGrid(op, price), socPct: op.soc_pct,
+    chargeKw: op.batt_kw.map((v) => Math.max(0, v)), dischargeKw: op.batt_kw.map((v) => Math.max(0, -v)),
+  }
+}
+
+const POWER_KEYS = ['pv', 'load', 'gridKw', 'chargeKw', 'dischargeKw', 'socPct']
+
 /**
- * 管理員「即時運轉」：過去 24 小時的實時運轉紀錄，右端是現在這一格，每進一格整張往左捲一格。
+ * 主頁面「即時運轉」（管理員）：過去 24 小時的實時運轉紀錄，右端是現在這一格，每進一格整張往左捲一格。
  * 昨天那段接昨天的紀錄（展示月第一天沒有昨天，那段留空）；欄位同 fetchRolling，labels 裡昨天的加「昨天 」，
  * midnight＝今天 00:00 是第幾格（現在是 23:45 時整段都是今天，為 null）。
  */
@@ -681,19 +696,8 @@ export async function fetchPast24(atSlot) {
   const t0 = parseYmd(day)
   const prev = ymd(addDays(t0, -1))
   const ops = await operationDays().catch(() => ({}))
-  const series = (date) => {
-    const op = ops[date]
-    const t = parseYmd(date)
-    const price = getPriceSlots(t)
-    const empty = new Array(SLOTS_PER_DAY).fill(null)
-    if (!op) return { tier: getTierSlots(t), price, pv: empty, load: empty, gridKw: empty, chargeKw: empty, dischargeKw: empty, socPct: empty }
-    return {
-      tier: getTierSlots(t), price, pv: op.pv_kw, load: op.load_kw, gridKw: actualGrid(op, price), socPct: op.soc_pct,
-      chargeKw: op.batt_kw.map((v) => Math.max(0, v)), dischargeKw: op.batt_kw.map((v) => Math.max(0, -v)),
-    }
-  }
-  const a = series(prev)
-  const b = series(day)
+  const a = opSeries(ops, prev)
+  const b = opSeries(ops, day)
   const from = s + 1 // 昨天的第幾格起
   const join = (x, y) => x.slice(from).concat(y.slice(0, from))
   const out = {
@@ -704,7 +708,22 @@ export async function fetchPast24(atSlot) {
     }),
     midnight: from >= SLOTS_PER_DAY ? null : SLOTS_PER_DAY - from,
   }
-  for (const k of ['tier', 'price', 'pv', 'load', 'gridKw', 'chargeKw', 'dischargeKw', 'socPct']) out[k] = join(a[k], b[k])
+  for (const k of ['tier', 'price', ...POWER_KEYS]) out[k] = join(a[k], b[k])
+  return out
+}
+
+/**
+ * 主頁面「即時運轉」（住戶）：只看今天，00:00 到現在這一格的實時運轉紀錄，之後留空（96 格，時間軸固定 00:00～24:00）。
+ * 欄位同 fetchPast24（沒有 labels、midnight）；背景電價是今天整天的。
+ */
+export async function fetchTodaySoFar(atSlot) {
+  const s = Math.max(0, Math.min(SLOTS_PER_DAY - 1, atSlot ?? 0))
+  const season = getScenario().season
+  const day = todayOf(season)
+  const ops = await operationDays().catch(() => ({}))
+  const d = opSeries(ops, day)
+  const out = { season, source: ops[day] ? 'actual' : 'none', endSlot: s, date: day, tier: d.tier, price: d.price }
+  for (const k of POWER_KEYS) out[k] = d[k].map((v, i) => (i <= s ? v : null))
   return out
 }
 

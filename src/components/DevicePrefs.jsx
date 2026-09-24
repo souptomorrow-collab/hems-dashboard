@@ -1,7 +1,7 @@
 import Panel from './Panel'
 import { DEVICES } from '../lib/constants.js'
 import { canSave } from '../api/prefs.js'
-import { DEFAULT_RANGE, HARD_END, SHIFT_IDS, durOf, hm, slotOf, latestStart, followsRec } from '../lib/deviceJobs.js'
+import { DEFAULT_RANGE, HARD_END, SHIFT_IDS, PLAN_CUTOFF_SLOT, durOf, hm, slotOf, latestStart, followsRec } from '../lib/deviceJobs.js'
 
 /* 用戶規劃：可轉移設備（2026-09-23 定案：滾動決定、開機才定案；沒排就不開）
 
@@ -10,6 +10,7 @@ import { DEFAULT_RANGE, HARD_END, SHIFT_IDS, durOf, hm, slotOf, latestStart, fol
    可以一鍵「全部照建議排」，或逐台按「照建議」。沒排的設備不開。
    每台三種：系統決定（範圍沒改＝照建議，也可以自己設最早開始、最晚完成）／指定時間／不開。
    在下方甘特圖上拖動也是指定時間。改好按「重排」送出，本機從隔日起重排；「復原更改」回到上次送出的條件。
+   隔日的規劃在今天 23:45 截止（日前排程在那時排定隔日）；截止到午夜之間整區鎖住，午夜後換成規劃下一天。
    條件、預估時間、建議時間都在上層（Planning），這裡只負責顯示與操作。 */
 
 const SHIFTABLE = DEVICES.filter((d) => d.category === 'shiftable')
@@ -38,35 +39,37 @@ function TimeSelect({ id, value, onChange, from = 0, to = 96, label }) {
 }
 
 /* recCost：三台都照建議的電費；curCost：目前排法的電費。mode：standing／day；busy＝載入或送出中；
-   waiting＝已送出、本機還在照新設定重排 */
+   waiting＝已送出、本機還在照新設定重排；closed＝已過 23:45，隔日的規劃截止 */
 export default function DevicePrefs({
-  cond, est, rec, recCost, curCost, diffs = {}, date, mode, onMode, dirty, busy, sending, waiting, msg,
+  cond, est, rec, recCost, curCost, diffs = {}, date, closed = false, mode, onMode, dirty, busy, sending, waiting, msg,
   problems = [], onChange, onFollow, onAllOff, onAllRec, onUndo, onSubmit,
 }) {
   if (!cond) return null
   const errors = problems.filter((p) => p.level === 'error')
   const on = SHIFTABLE.filter((d) => cond[d.id]?.mode !== 'off').length
   const allRec = SHIFT_IDS.every((id) => followsRec(cond, id))
+  const lock = sending || closed
+  const due = closed ? '已截止' : `今日 ${hm(PLAN_CUTOFF_SLOT)} 截止`
 
   return (
     <Panel
-      title={mode === 'standing' ? `用戶規劃・常駐排程（${md(date)} 起每天）` : `用戶規劃・明日排程（${md(date)}）`}
+      title={mode === 'standing' ? `用戶規劃・常駐排程（${md(date)} 起每天，${due}）` : `用戶規劃・明日排程（${md(date)}，${due}）`}
       className="mt-16"
       right={(
         <div className="prefs-actions">
           <div className="seg" role="radiogroup" aria-label="排法">
             {PLAN_MODES.map(([m, label]) => (
               <button key={m} role="radio" aria-checked={mode === m} className={mode === m ? 'active' : ''}
-                onClick={() => onMode(m)} disabled={sending}>
+                onClick={() => onMode(m)} disabled={lock}>
                 {label}
               </button>
             ))}
           </div>
-          <button className="btn" onClick={onAllOff} disabled={sending || on === 0}>全部不開</button>
-          <button className="btn" onClick={onAllRec} disabled={sending || allRec}>全部照建議排</button>
-          <button className="btn" onClick={onUndo} disabled={busy || !dirty}>↺ 復原更改</button>
-          <button className="btn primary" onClick={onSubmit} disabled={busy || !dirty || !canSave || errors.length > 0}
-            title={!canSave ? '未設定雲端金鑰' : errors.length ? '先修正標 ⛔ 的問題' : dirty ? '送出，本機從隔日起重排' : '和已送出的相同'}>
+          <button className="btn" onClick={onAllOff} disabled={lock || on === 0}>全部不開</button>
+          <button className="btn" onClick={onAllRec} disabled={lock || allRec}>全部照建議排</button>
+          <button className="btn" onClick={onUndo} disabled={busy || closed || !dirty}>↺ 復原更改</button>
+          <button className="btn primary" onClick={onSubmit} disabled={busy || closed || !dirty || !canSave || errors.length > 0}
+            title={closed ? `隔日的規劃已於 ${hm(PLAN_CUTOFF_SLOT)} 截止` : !canSave ? '未設定雲端金鑰' : errors.length ? '先修正標 ⛔ 的問題' : dirty ? '送出，本機從隔日起重排' : '和已送出的相同'}>
             {sending ? '送出中…' : '重排'}
           </button>
         </div>
@@ -91,6 +94,8 @@ export default function DevicePrefs({
         </div>
       )}
 
+      {/* 截止後整區鎖住（fieldset disabled 會一併停用裡面所有按鈕與選單） */}
+      <fieldset className="prefs-lock" disabled={closed}>
       <div className="prefs">
         {SHIFTABLE.map((dev) => {
           const c = cond[dev.id]
@@ -136,7 +141,7 @@ export default function DevicePrefs({
                 )}
                 {c.mode === 'off' && (
                   <div className="range-line">
-                    <button className="btn follow-btn" onClick={() => onFollow(id)} disabled={sending}>照建議</button>
+                    <button className="btn follow-btn" onClick={() => onFollow(id)} disabled={lock}>照建議</button>
                   </div>
                 )}
               </div>
@@ -169,6 +174,12 @@ export default function DevicePrefs({
           )
         })}
       </div>
+      </fieldset>
+      {closed && (
+        <p style={{ marginTop: 10 }} role="status">
+          <b>⏰ {md(date)} 的規劃已於今日 {hm(PLAN_CUTOFF_SLOT)} 截止（日前排程已排定），00:00 起可規劃下一天。</b>
+        </p>
+      )}
       {(msg || waiting) && (
         <p style={{ marginTop: 10 }} role="status"><b>{msg || '⏳ 本機正在照新設定重排…'}</b></p>
       )}

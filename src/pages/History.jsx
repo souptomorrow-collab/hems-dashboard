@@ -10,6 +10,8 @@
    資料來源：api/client.js 的 fetchDayActual()／fetchDailyActual()，資料庫的實時運轉紀錄（排程組 MILP
    每 15 分鐘重排、逐秒控制的結果）。平常模式與展示模式相同：日期是展示月 1 日到「今天」的昨天
    （平常模式的今天見 scenario.js 的 todayOf）。展示模式播到月底最後一格（23:45 以後）時，月底這天也列入。
+   比目前展示月早的展示月整個月都已經過去，也一起列入（7 月時看得到整個 1 月；1 月時 7 月還沒到，不列）。
+   兩段中間沒有紀錄的月份：選到時拉到最近一個有紀錄的日子，前後一天直接跳過。
    只收已經結束的日子（到昨天為止）——和電費帳單一樣，今天要到 24:00 才結算。
    ============================================================ */
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -20,7 +22,7 @@ import WeatherStrip from '../components/WeatherStrip.jsx'
 import { fetchDayActual, fetchDailyActual, fetchPlanVsActual, ymd, parseYmd, addDays } from '../api/client.js'
 import { useDataRevision } from '../hooks/useDataRevision.js'
 import { useDemoEnabled, useDemoSlot } from '../lib/demoClock.js'
-import { useScenarioDays } from '../lib/scenario.js'
+import { useScenarioDays, SEASONS } from '../lib/scenario.js'
 import { COLORS, DEVICES, DEVICE_COLORS, BATTERY, SLOTS_PER_DAY, slotToTime } from '../lib/constants.js'
 import { TIER_LABEL, getPriceSlots } from '../lib/tou.js'
 import { useTheme, getTheme, setTheme } from '../lib/theme.js'
@@ -68,6 +70,19 @@ const clampYmd = (s, lo, hi) => (s < lo ? lo : s > hi ? hi : s)
 /** 區間統計的預設：「昨天」所在那個月的 1 號到昨天。
     今天是 1 號時昨天屬於上個月，就會自然顯示整個上月，不會出現空區間 */
 const thisMonthOf = (y) => ({ from: ymd(new Date(y.getFullYear(), y.getMonth(), 1)), to: ymd(y) })
+/** 有紀錄的日子分成幾段（spans：['YYYY-MM-DD', 'YYYY-MM-DD'] 由舊到新）；d 不在任何一段裡就拉到最近的一端 */
+function snapDay(d, spans) {
+  let best = d
+  let dist = Infinity
+  for (const [a, b] of spans) {
+    if (d >= a && d <= b) return d
+    for (const e of [a, b]) {
+      const x = Math.abs(parseYmd(e) - parseYmd(d))
+      if (x < dist) { dist = x; best = e }
+    }
+  }
+  return best
+}
 
 // 列印時白紙上要看得清楚：夜間模式先切到日間，印完再切回來（不寫入使用者的偏好）
 function printInLight() {
@@ -86,10 +101,20 @@ export default function History() {
   // 只看格數（useDemoSlot 進到下一格才重畫），不必每 0.1 秒跟著時鐘重畫整頁
   const demoSlot = useDemoSlot()
   const monthDone = demoOn && !!today && !next && demoSlot >= SLOTS_PER_DAY - 1
-  // 展示月 1 日到「今天」的昨天（展示模式月底播完則到月底）。下面沿用 yesterday 這個名字，指的是「可以看的最後一天」
-  const [yesterday, minDay] = useMemo(() => {
+  // 可以看的日子：比目前早的展示月整個月（7 月時的 1 月），加上展示月 1 日到「今天」的昨天（展示模式月底播完則到月底）。
+  // 下面沿用 yesterday、minDay 這兩個名字，指的是「可以看的最後一天」「最早的一天」；中間沒有紀錄的月份靠 spans 跳過
+  const [yesterday, minDay, spans] = useMemo(() => {
     const t = parseYmd(today)
-    return [monthDone ? t : addDays(t, -1), new Date(t.getFullYear(), t.getMonth(), 1)]
+    const first = new Date(t.getFullYear(), t.getMonth(), 1)
+    const last = monthDone ? t : addDays(t, -1)
+    const earlier = SEASONS.map((x) => x.dataset.slice(0, 7)).filter((m) => m < today.slice(0, 7)).sort()
+      .map((m) => {
+        const [y, mo] = m.split('-').map(Number)
+        return [new Date(y, mo - 1, 1), new Date(y, mo, 0)]
+      })
+    const sp = [...earlier, ...(last >= first ? [[first, last]] : [])]
+    if (!sp.length) return [last, first, []]
+    return [sp[sp.length - 1][1], sp[0][0], sp.map(([a, b]) => [ymd(a), ymd(b)])]
   }, [today, monthDone])
   const [tab, setTab] = useState('day')
   const [day, setDay] = useState(() => ymd(yesterday))
@@ -100,7 +125,7 @@ export default function History() {
   // 選的日期超出範圍也拉回昨天；其他情況保留使用者選的那天。
   // 區間統計同樣處理：結束日原本是昨天就跟著換，起訖都夾回範圍（展示日往回調時，不會列出「昨天」之後的日子）；
   // 平常↔展示、或換了展示月，區間回到預設的本月
-  const scope = `${demoOn ? 'demo' : 'live'}-${ymd(minDay)}`
+  const scope = `${demoOn ? 'demo' : 'live'}-${today.slice(0, 7)}` // 換了展示月（夏月↔非夏月）區間就回到預設
   const prevScope = useRef(scope)
   const prevYesterday = useRef(ymd(yesterday))
   useEffect(() => {
@@ -108,7 +133,7 @@ export default function History() {
     const lo = ymd(minDay)
     const was = prevYesterday.current
     prevYesterday.current = y
-    setDay((d) => (d === was || d > y || d < lo ? y : d))
+    setDay((d) => (d === was || d > y || d < lo ? y : snapDay(d, spans)))
     if (prevScope.current !== scope) {
       prevScope.current = scope
       setRange(thisMonthOf(yesterday))
@@ -119,7 +144,7 @@ export default function History() {
   }, [yesterday, minDay]) // eslint-disable-line react-hooks/exhaustive-deps
   // 列印（按鈕或 Ctrl+P）時圖表照紙張寬度重畫，印完畫回螢幕寬度
   useEffect(() => fitChartsOnPrint(), [])
-  const empty = yesterday < minDay // 展示月第一天：還沒有過去的日子
+  const empty = spans.length === 0 // 1 月 1 日：還沒有過去的日子
 
   return (
     <div className="history">
@@ -136,7 +161,7 @@ export default function History() {
           <p>今天是展示月第一天（{today}），還沒有過去的日子。</p>
         </Panel>
       ) : tab === 'day' ? (
-        <DayView date={day} setDate={setDay} yesterday={yesterday} minDay={minDay} />
+        <DayView date={day} setDate={setDay} yesterday={yesterday} minDay={minDay} spans={spans} />
       ) : (
         <RangeView
           key={scope}
@@ -160,7 +185,7 @@ export default function History() {
 /* ================================================================
    單日紀錄
    ================================================================ */
-function DayView({ date, setDate, yesterday, minDay }) {
+function DayView({ date, setDate, yesterday, minDay, spans }) {
   const theme = useTheme()
   const [res, setRes] = useState(null)
   const [loadError, setLoadError] = useState(null)
@@ -192,9 +217,14 @@ function DayView({ date, setDate, yesterday, minDay }) {
   const s = rec?.summary
 
   // 用函式形式更新：鍵盤連按時，每一下都要從「最新的日期」往前後推，不能用這次畫面拿到的舊值
+  // 落在兩段中間（沒有紀錄的月份）就往同一方向跳到下一段的端點
   const step = (n) => setDate((cur) => {
     const t = addDays(parseYmd(cur), n)
-    return t < minDay || t > yesterday ? cur : ymd(t)
+    if (t < minDay || t > yesterday) return cur
+    const d = ymd(t)
+    if (spans.some(([a, b]) => d >= a && d <= b)) return d
+    const jump = n > 0 ? spans.find(([a]) => a > d)?.[0] : [...spans].reverse().find(([, b]) => b < d)?.[1]
+    return jump ?? cur
   })
   const atFirst = date <= ymd(minDay)
   const atLast = date >= ymd(yesterday)
@@ -369,7 +399,8 @@ function DayView({ date, setDate, yesterday, minDay }) {
         <div className="history-bar">
           <div className="day-nav">
             <button className="btn" onClick={() => step(-1)} disabled={atFirst} aria-label="前一天" title="前一天（鍵盤 ←）">◀</button>
-            <DateInput aria-label="紀錄日期" value={date} min={ymd(minDay)} max={ymd(yesterday)} onChange={setDate} />
+            <DateInput aria-label="紀錄日期" value={date} min={ymd(minDay)} max={ymd(yesterday)}
+              onChange={(v) => setDate(snapDay(v, spans))} title={`可選 ${spans.map(([a, b]) => `${a} ～ ${b}`).join('、')}`} />
             <button className="btn" onClick={() => step(1)} disabled={atLast} aria-label="後一天" title="後一天（鍵盤 →）">▶</button>
             <strong className="day-nav-wd">週{weekdayOf(date)}</strong>
             {w && (

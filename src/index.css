@@ -224,15 +224,6 @@ h1, h2, h3, h4 {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
-.sidebar-foot {
-  margin-top: auto;
-  font-size: 11px;
-  color: var(--text-dim);
-  padding: 14px 10px 2px;
-  border-top: 1px solid var(--border);
-  line-height: 1.7;
-}
-
 .main {
   display: flex;
   flex-direction: column;
@@ -623,7 +614,6 @@ h1, h2, h3, h4 {
     align-items: center;
     overflow-x: auto;
   }
-  .sidebar-foot { display: none; }
   .sidebar-toggle { display: none; }
   /* 手機上側欄是頂端的一排導覽，不能被收合藏掉；桌機上收合過也要照常顯示 */
   .app-shell.collapsed { grid-template-columns: 1fr; }
@@ -1884,6 +1874,9 @@ body {
 
 /* 可轉移設備設定 */
 .prefs { display: grid; gap: 10px; }
+/* 用戶規劃截止後整區停用：fieldset 只拿來 disabled，不要它的框線與內距 */
+.prefs-lock { border: 0; padding: 0; margin: 0; min-width: 0; }
+.prefs-lock:disabled { opacity: 0.6; }
 .prefs-row { display: grid; grid-template-columns: minmax(150px, 1fr) minmax(160px, 1.6fr) auto; gap: 8px 16px; align-items: center; }
 .prefs-name { display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer; }
 .prefs-rule { font-size: 12.5px; color: var(--text-muted); }

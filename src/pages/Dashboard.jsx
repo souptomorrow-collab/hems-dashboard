@@ -4,7 +4,7 @@ import EChart from '../components/EChart.jsx'
 import EnergyFlow from '../components/EnergyFlow.jsx'
 import SecondReplay from '../components/SecondReplay.jsx'
 import WeatherStrip from '../components/WeatherStrip.jsx'
-import { fetchLive, fetchToday, fetchShowcase, fetchRolling, fetchPast24, parseYmd } from '../api/client.js'
+import { fetchLive, fetchToday, fetchShowcase, fetchRolling, fetchPast24, fetchTodaySoFar, parseYmd } from '../api/client.js'
 import { useDataRevision } from '../hooks/useDataRevision.js'
 import { COLORS, BATTERY, SLOT_HOURS, slotToTime } from '../lib/constants.js'
 import { getTierSlots, getPriceSlots } from '../lib/tou.js'
@@ -84,7 +84,7 @@ export default function Dashboard() {
   const kwRange = useRef({})
   const [live, setLive] = useState(null)
   const [today, setToday] = useState(null) // 今天：過去是實際、之後是計畫（流向圖的今日預估省下電費）
-  const [past, setPast] = useState(null) // 過去 24 小時的實時運轉紀錄（即時運轉，只給管理員）
+  const [past, setPast] = useState(null) // 即時運轉：管理員看過去 24 小時、住戶看今天到現在的實時運轉紀錄
   const [dayPlan, setDayPlan] = useState(null) // 前一晚排定的全天計畫（今日全天用）
   const [rolling, setRolling] = useState(null) // 從現在起 24 小時的計畫（未來 24 小時用）
   const [planView, setPlanView] = useState(loadView)
@@ -123,11 +123,11 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [curSlot, demo.enabled, demo.day, season, rev])
 
-  // 即時運轉（管理員）：過去 24 小時，每前進一格往左捲一格
+  // 即時運轉：管理員看過去 24 小時（每前進一格往左捲一格），住戶只看今天 00:00 到現在
   useEffect(() => {
-    if (!admin) return undefined
     let on = true
-    fetchPast24(curSlot).then((d) => on && setPast(d)).catch(() => on && setPast(null))
+    const get = admin ? fetchPast24 : fetchTodaySoFar
+    get(curSlot).then((d) => on && setPast(d)).catch(() => on && setPast(null))
     return () => { on = false }
   }, [admin, curSlot, demo.enabled, demo.day, season, rev])
 
@@ -154,11 +154,11 @@ export default function Dashboard() {
     return () => { on = false }
   }, [season, demo.enabled, demo.day])
 
-  // ---- 即時運轉（管理員）：過去 24 小時，右端是現在 ----
-  // kW 軸只增不減（整張往左捲時軸不跳）
+  // ---- 即時運轉：管理員是過去 24 小時（右端是現在）、住戶是今天 00:00～24:00（畫到現在） ----
+  // kW 軸只增不減（整張往左捲或往右長時軸不跳）；兩種版本、兩個情境各記各的
   const realtimeAxis = (d) => {
     const vals = allKw(d)
-    const key = d.season ?? 'summer'
+    const key = `${d.season ?? 'summer'}-${d.labels ? 'past24' : 'today'}`
     const prev = kwRange.current[key] ?? { min: 0, max: 0 }
     const r = (kwRange.current[key] = {
       max: Math.max(prev.max, Math.max(0, ...vals)),
@@ -170,7 +170,12 @@ export default function Dashboard() {
   const TIP = { '太陽能發電': ['太陽能', COLORS.solar], '家庭負載': ['負載', COLORS.load], '電網購電': ['購電', COLORS.grid], SOC: ['SOC', COLORS.battery] }
   const realtimeOption = useMemo(() => {
     if (!past || past.source === 'none') return {}
-    const o = past24Option(past, { kwAxis: realtimeAxis(past), animation: !demo.enabled })
+    const o = past.labels
+      ? past24Option(past, { kwAxis: realtimeAxis(past), animation: !demo.enabled })
+      : powerSocOption(past, {
+        playhead: past.endSlot, playheadLabel: `${demo.enabled ? '' : '現在 '}${slotToTime(past.endSlot)}`,
+        kwAxis: realtimeAxis(past), animation: !demo.enabled,
+      })
     const right = narrow ? 58 : 76
     o.grid = o.grid.map((g) => ({ ...g, right }))
     o.series = o.series.map((x) => {
@@ -420,12 +425,13 @@ export default function Dashboard() {
         </Panel>
       </div>
 
-      {/* 即時運轉（管理員）：過去 24 小時的實時運轉紀錄，右端是現在，每 15 分鐘往左捲一格 */}
-      {admin && (
-        <Panel title="即時運轉（過去 24 小時）" className="mt-16">
-          <EChart option={realtimeOption} height={300 + SOC_EXTRA_HEIGHT} label="即時運轉：過去 24 小時的太陽能、負載、電網、電池功率與 SOC" />
-        </Panel>
-      )}
+      {/* 即時運轉：管理員看過去 24 小時（右端是現在，每 15 分鐘往左捲一格）；住戶只看今天，畫到現在 */}
+      <Panel title={admin ? '即時運轉（過去 24 小時）' : '即時運轉（今日）'} className="mt-16">
+        <EChart option={realtimeOption} height={300 + SOC_EXTRA_HEIGHT}
+          label={admin
+            ? '即時運轉：過去 24 小時的太陽能、負載、電網、電池功率與 SOC'
+            : '即時運轉：今天 00:00 到現在的太陽能、負載、電網、電池功率與 SOC'} />
+      </Panel>
 
       {/* 秒級重播：資料集的秒級資料（跟著網站部署，不經過資料庫），只在展示模式出現 */}
       {demo.enabled && (

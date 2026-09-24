@@ -14,7 +14,7 @@ import { useCurrentSlot } from '../hooks/useClock.js'
 import { useDataRevision } from '../hooks/useDataRevision.js'
 import {
   SHIFT_IDS, defaultCond, recommendCond, recCond, followsRec, fromPrefs, toPrefs, condKey, estimate, estimateWithRec,
-  recClash, rowsOf, startsFromRows, checkCond, durOf, latestStart, hardOk, inDefault, nameOf, hm,
+  recClash, rowsOf, startsFromRows, checkCond, durOf, latestStart, hardOk, inDefault, nameOf, hm, PLAN_CUTOFF_SLOT,
 } from '../lib/deviceJobs.js'
 import { pad2 } from '../lib/format.js'
 import { useTheme } from '../lib/theme.js'
@@ -209,6 +209,8 @@ export default function Planning() {
     apply(loaded.current.cond)
   }
   const dirty = Boolean(cond) && (condKey(cond) !== sent || mode !== sentMode)
+  // 23:45 起隔日的日前排程已排定：條件鎖住到午夜，午夜後換成規劃下一天
+  const closed = curSlot >= PLAN_CUTOFF_SLOT
   // 條件的問題（⛔ 擋送出、⚠️ 提醒），加上照建議的設備為什麼預估時間不是建議時間
   const problems = useMemo(() => (cond
     ? [...checkCond(cond), ...Object.entries(recClash(cond, rec)).map(([devId, text]) => ({ devId, level: 'warn', text }))]
@@ -239,7 +241,7 @@ export default function Planning() {
   /** 重排：送出條件，本機從隔日起重排（電量一天接一天，之後幾天也會變），今天以前不動。
       常駐排程＝隔日起每天都照這個排；明日排程＝只管隔日，後天照常駐排程 */
   const submit = async () => {
-    if (!cond) return
+    if (!cond || closed) return
     const c = cond
     const m = mode
     const starts = est
@@ -283,6 +285,7 @@ export default function Planning() {
   }
 
   const startDrag = (e, devId, slot) => {
+    if (closed) { e.preventDefault(); return } // 已截止：不能拖，也不要拖出一片反白的文字
     if (!schedule || !cond || e.button > 0) return // 滑鼠右鍵、中鍵不算
     e.preventDefault() // 拖曳時不要選取到文字
     const cur = est?.[devId]
@@ -407,6 +410,7 @@ export default function Planning() {
         curCost={s?.optimizedCost ?? null}
         diffs={cmp?.diffs}
         date={planDay}
+        closed={closed}
         mode={mode}
         onMode={pickMode}
         dirty={dirty}
@@ -457,7 +461,7 @@ export default function Planning() {
                         const dragging = drag?.devId === dev.id
                         const inDrag = dragging && slot >= drag.start && slot < drag.start + durOf(dev.id)
                         const shownOn = dragging ? inDrag : on
-                        const cls = ['cell', 'editable']
+                        const cls = closed ? ['cell'] : ['cell', 'editable'] // 截止後不能拖
                         if (peak) cls.push('peak-bg')
                         if (shownOn) cls.push('on', 'shiftable')
                         if (shownOn && !dragging && cond?.[dev.id]?.mode === 'auto') cls.push('est')

@@ -185,12 +185,6 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
-
-        <div className="sidebar-foot">
-          基於發電量與負載預測之
-          <br />
-          家庭能源管理系統
-        </div>
       </aside>
 
       <div className="main">

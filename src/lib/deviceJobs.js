@@ -18,6 +18,8 @@ import { DEVICES, SLOTS_PER_DAY } from './constants.js'
 import { SHIFTABLE_RULES } from './simulate.js'
 
 export const SHIFT_IDS = ['washer', 'dryer', 'dishwasher']
+/** 隔日規劃的截止：每天 23:45 排定隔日的日前排程，從這一格（23:45）起到午夜，隔日的條件不能再改 */
+export const PLAN_CUTOFF_SLOT = 95
 /** 硬性限制：最晚要在第幾格前跑完（烘衣機 22:00）。和資料庫 meta.devices 的 hard_end 相同 */
 export const HARD_END = { dryer: 88 }
 /** 建議範圍（最早開始, 最晚完成）：照建議時系統在這裡面挑開機時間。和 meta.devices 的 window 相同 */
