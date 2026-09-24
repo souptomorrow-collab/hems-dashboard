@@ -29,7 +29,7 @@ const NAV = [
   { to: '/system', label: '系統資訊', icon: '⚙️', end: false, admin: true },
 ]
 
-// 展示模式：主頁面、各負載有加速播放；用電規劃只有開關（隔日規劃不看今天播到哪），開了顯示整月；
+// 展示模式：主頁面、各負載有加速播放；用電規劃只有開關（隔日規劃不看今天播到哪）；
 // 歷史紀錄在展示模式下讀展示月的實時運轉紀錄（到展示時鐘的昨天），所以也要能換天
 const DEMO_PAGES = new Set(['/', '/loads', '/planning', '/history'])
 const MONTH_ONLY_PAGES = new Set(['/planning', '/history'])
@@ -90,7 +90,7 @@ export default function Layout() {
   }, [demoOn, admin])
 
   // 使用者改了隔日設定，本機從隔日起逐日重算，算完一天就寫回資料庫一天。
-  // 用電規劃頁的整月檢視自己每 5 秒重讀；其他頁（主頁面、歷史紀錄）靠這裡：本機在重算時每 10 秒重讀
+  // 各頁（主頁面、用電規劃、歷史紀錄）都靠這裡：本機在重算時每 10 秒重讀
   // 排程與實時運轉，有新寫回的日子就通知各頁重抓——算好的日子馬上看得到，不必等整個月算完或重新整理
   useEffect(() => {
     if (!demoOn || !admin) return undefined

@@ -91,7 +91,7 @@ async function call(path, init) {
 }
 
 /** 存到雲端之後發出的事件（detail.stamp＝這次設定的版本、detail.from＝從哪天起生效）。
-    整月檢視收到就開始追蹤本機重算的進度 */
+    用電規劃頁收到就等本機把隔日照這一版重排好 */
 export const PREFS_SAVED = 'hems:prefs-saved'
 
 /** 目前的設定。date 給資料集日期就是那天的條件（用電規劃頁給隔日；只管那一天，那天沒排過就是 devices）。

@@ -4,7 +4,6 @@ import StatCard from '../components/StatCard.jsx'
 import EChart from '../components/EChart.jsx'
 import EnergyFlow from '../components/EnergyFlow.jsx'
 import SecondReplay from '../components/SecondReplay.jsx'
-import MonthView from '../components/MonthView.jsx'
 import WeatherStrip from '../components/WeatherStrip.jsx'
 import { fetchLive, fetchToday, fetchShowcase, fetchRolling } from '../api/client.js'
 import { useDataRevision } from '../hooks/useDataRevision.js'
@@ -752,9 +751,6 @@ export default function Dashboard() {
           <SecondReplay />
         </div>
       )}
-
-      {/* 展示模式才顯示整個展示月；平常照真實時間，只看今天 */}
-      {demo.enabled && <MonthView />}
 
       {/* 計畫：預設看「從現在起 24 小時」（展示模式是實時運轉層每 15 分鐘重排的計畫），可切回今日全天（前一晚的日前計畫）；
           和上面那張刻意分開，避免把「已發生」和「還沒發生」混為一談 */}

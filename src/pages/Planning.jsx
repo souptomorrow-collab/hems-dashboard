@@ -6,7 +6,6 @@ import { fetchPlanning, recomputeSchedule } from '../api/client.js'
 import { DEVICES, COLORS, CATEGORY_LABEL, slotToTime, SLOTS_PER_DAY, BATTERY } from '../lib/constants.js'
 import { SHIFTABLE_RULES } from '../lib/simulate.js'
 import DevicePrefs, { deviceStatus } from '../components/DevicePrefs.jsx'
-import MonthView from '../components/MonthView.jsx'
 import { loadPrefs, savePrefs } from '../api/prefs.js'
 import { useScenario, getScenario, SEASONS, useScenarioDays } from '../lib/scenario.js'
 import { cached, fetchSchedules, SCHEDULES_REFRESHED } from '../api/forecastData.js'
@@ -42,7 +41,7 @@ const OBJECTIVE = {
   descPlan: '電池在離峰與太陽能充足時充電、尖峰時放電，電費最低',
 }
 const HOURS = Array.from({ length: 24 }, (_, h) => h)
-const STALL_MS = 3 * 60 * 1000 // 送出後 3 分鐘都沒有任何一天重排好，就不再等（和整月檢視相同）
+const STALL_MS = 3 * 60 * 1000 // 送出後 3 分鐘都沒有任何一天重排好，就不再等
 const md = (d) => (d ? `${+d.slice(5, 7)}/${+d.slice(8, 10)}` : '')
 const parseDay = (s) => {
   const [y, m, d] = s.split('-').map(Number)
@@ -64,7 +63,7 @@ export default function Planning() {
   }, [notice])
   const planDate = useMemo(() => tomorrow(), [])
   const { season } = useScenario()
-  const demoOn = useDemoEnabled() // 展示模式：最下方多顯示整月排程與實時運轉
+  const demoOn = useDemoEnabled() // 展示模式：隔日跟著播放走，改的條件送給本機排程程式重排
   // 資料集的隔日：平常是 2010-07-20、2010-01-12；展示模式跟著播放走，播到月底是 null
   const { next: planDay } = useScenarioDays()
   const [cond, setCond] = useState(null) // 隔日各設備的條件（lib/deviceJobs.js）
@@ -100,7 +99,7 @@ export default function Planning() {
     window.addEventListener(PREFS_SAVED, onSaved)
     return () => window.removeEventListener(PREFS_SAVED, onSaved)
   }, [])
-  // 不自己輪詢：整月檢視重算期間每 5 秒重讀排程、版面（Layout）在本機重算時每 10 秒重讀，讀到都會發
+  // 不自己輪詢：版面（Layout）在本機重算時每 10 秒重讀排程，有新寫回的日子就發
   // SCHEDULES_REFRESHED；隔日那份換成新設定就重新載入這頁的規劃。3 分鐘都沒有任何一天換新就不等了
   useEffect(() => {
     if (!waitHere) return undefined
@@ -253,7 +252,7 @@ export default function Planning() {
       // 送出的條件成為新的基準：「復原更改」回到送出的條件，電費「改之前」也和送出的比
       if (loaded.current) loaded.current = { ...loaded.current, cond: c, starts, source, plan: planRef.current ?? loaded.current.plan }
       setJustSent(true)
-      setPrefsMsg(`已送出。只排 ${md(planDay)} 這一天；本機排程程式重排 ${md(planDay)} 以後的日子（電量一天接一天）、今天以前不動，最下方整月檢視看得到一天一天更新。`)
+      setPrefsMsg(`已送出。只排 ${md(planDay)} 這一天；本機排程程式重排 ${md(planDay)} 以後的日子（電量一天接一天）、今天以前不動；算好後這頁會自動換成新的排程。`)
     } else {
       setPrefsMsg(`沒有送出：${r.error ?? '未設定雲端金鑰'}`)
     }
@@ -403,12 +402,9 @@ export default function Planning() {
 
   if (!planDay) {
     return (
-      <>
-        <Panel>
-          <p className="hint">展示模式播到月底了，沒有隔日可以調整。到上方展示列換一天，或按 ▶ 從月初重播。</p>
-        </Panel>
-        {demoOn && <MonthView />}
-      </>
+      <Panel>
+        <p className="hint">展示模式播到月底了，沒有隔日可以調整。到上方展示列換一天，或按 ▶ 從月初重播。</p>
+      </Panel>
     )
   }
 
@@ -429,7 +425,7 @@ export default function Planning() {
               <p className="hint" style={{ marginTop: 4 }}>
                 {plan.planSource !== 'sim'
                   ? (admin
-                      ? `電池與可轉移設備：排程組的 ${plan.planSource} 日前排程（資料集 ${plan.planDate}），設備和電池一起排，設備時間是預估；實際幾點開由實時層每 15 分鐘重排決定。改條件後按「送出給排程」，本機從隔日起重排、今天以前不動，最下方看得到整月的變化`
+                      ? `電池與可轉移設備：排程組的 ${plan.planSource} 日前排程（資料集 ${plan.planDate}），設備和電池一起排，設備時間是預估；實際幾點開由實時層每 15 分鐘重排決定。改條件後按「送出給排程」，本機從隔日起重排、今天以前不動`
                       : '洗衣機、烘衣機、洗碗機設條件就好，幾點開由排程決定')
                   : (admin
                       ? (demoOn
@@ -605,9 +601,6 @@ export default function Planning() {
           <div className="skeleton" style={{ height: 360 }} />
         )}
       </Panel>
-
-      {/* 展示模式才顯示整個展示月的日前排程與實時運轉；送出後看得到隔日以後一天一天換成新設定 */}
-      {demoOn && <MonthView />}
     </>
   )
 }

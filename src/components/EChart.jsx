@@ -11,7 +11,6 @@ import {
   LegendComponent,
   MarkLineComponent,
   MarkAreaComponent,
-  DataZoomComponent,
 } from 'echarts/components'
 import { LabelLayout } from 'echarts/features' // 座標軸標籤的 hideOverlap 要用
 import { CanvasRenderer } from 'echarts/renderers'
@@ -26,7 +25,6 @@ echarts.use([
   LegendComponent,
   MarkLineComponent,
   MarkAreaComponent,
-  DataZoomComponent, // 整月檢視的縮放（滑鼠滾輪／下方拖曳條）
   LabelLayout,
   CanvasRenderer,
 ])
