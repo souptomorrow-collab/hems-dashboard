@@ -231,3 +231,20 @@ export function touMarkArea(tier, price, labels = slotLabels, { label = true } =
   }
   return { silent: true, data: areas }
 }
+
+/* 背景電價與時間線（「現在」「明天」那幾條）掛在這條隱形系列上：不在圖例裡（各圖的 legend.data 都列了名單）、
+   不畫線、沒有資料所以提示框也不會列出它。原本掛在太陽能或 SOC 那條線上，圖例把那條關掉時背景會跟著不見。
+   soc＝掛在功率＋SOC 兩格圖下面那格（SOC 格） */
+export const BG_NAME = '__bg'
+export function bgSeries({ markArea, markLine, soc = false } = {}) {
+  return {
+    name: soc ? `${BG_NAME}_soc` : BG_NAME,
+    type: 'line',
+    data: [],
+    silent: true,
+    symbol: 'none',
+    ...(soc ? { xAxisIndex: 1, yAxisIndex: 1 } : {}),
+    ...(markArea ? { markArea } : {}),
+    ...(markLine ? { markLine } : {}),
+  }
+}

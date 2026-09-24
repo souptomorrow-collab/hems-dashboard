@@ -21,6 +21,7 @@ import {
   baseLegend,
   baseGrid,
   touMarkArea,
+  bgSeries,
   SOC_EXTRA_HEIGHT,
   socExtraHeight,
   AXIS_TEXT,
@@ -254,8 +255,6 @@ export default function Dashboard() {
           lineStyle: { width: 2, type: 'dashed', color: COLORS.solar },
           itemStyle: { color: COLORS.solar },
           areaStyle: { color: 'rgba(255,176,32,0.14)' },
-          markLine: nowLine(s),
-          markArea: showTou ?? undefined,
         },
         ...(actual
           ? [{
@@ -266,6 +265,8 @@ export default function Dashboard() {
               itemStyle: { color: TEXT_MAIN },
             }]
           : []),
+        // 背景電價與「現在」那條線：圖例關掉預測那條也還在
+        bgSeries({ markArea: showTou ?? undefined, markLine: nowLine(s) }),
       ],
     }
   }, [show, curSlot, theme, demo.enabled, showTou])
@@ -331,8 +332,6 @@ export default function Dashboard() {
           data: show.dayAhead,
           lineStyle: { width: 2, type: 'dashed', color: COLORS.load },
           itemStyle: { color: COLORS.load },
-          markLine: nowLine(s),
-          markArea: showTou ?? undefined,
         },
         {
           ...line,
@@ -341,6 +340,7 @@ export default function Dashboard() {
           lineStyle: { width: 2, color: TEXT_MAIN },
           itemStyle: { color: TEXT_MAIN },
         },
+        bgSeries({ markArea: showTou ?? undefined, markLine: nowLine(s) }),
       ],
     }
   }, [show, curSlot, theme, loadRange, demo.enabled, showTou])

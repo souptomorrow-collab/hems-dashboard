@@ -22,6 +22,7 @@ import {
   baseTooltip,
   baseLegend,
   touMarkArea,
+  bgSeries,
   powerSocLayout,
   powerSocFormatter,
   socYAxis,
@@ -352,8 +353,7 @@ export default function Planning() {
       yAxis: [valueYAxis('kW'), socYAxis()],
       series: [
         { name: '太陽能供電', type: 'line', stack: 'sup', symbol: 'none', lineStyle: { width: 0 },
-          areaStyle: { color: 'rgba(255,176,32,0.7)' }, data: plan.pvToLoad,
-          markArea: touMarkArea(plan.tier, plan.price) },
+          areaStyle: { color: 'rgba(255,176,32,0.7)' }, data: plan.pvToLoad },
         { name: '電池放電', type: 'line', stack: 'sup', symbol: 'none', lineStyle: { width: 0 },
           areaStyle: { color: 'rgba(249,115,22,0.7)' }, data: plan.battToLoad },
         { name: '電網供電', type: 'line', stack: 'sup', symbol: 'none', lineStyle: { width: 0 },
@@ -361,8 +361,10 @@ export default function Planning() {
         { name: '總負載', type: 'line', symbol: 'none', smooth: true,
           lineStyle: { width: 2, color: TEXT_MAIN, type: 'dashed' }, data: plan.load },
         { name: 'SOC', type: 'line', xAxisIndex: 1, yAxisIndex: 1, symbol: 'none', smooth: true,
-          lineStyle: { width: 2, color: COLORS.battery }, data: plan.socPct,
-          markArea: touMarkArea(plan.tier, plan.price, undefined, { label: false }) },
+          lineStyle: { width: 2, color: COLORS.battery }, data: plan.socPct },
+        // 背景電價掛在隱形系列上：圖例關掉太陽能供電或 SOC 也還在
+        bgSeries({ markArea: touMarkArea(plan.tier, plan.price) }),
+        bgSeries({ markArea: touMarkArea(plan.tier, plan.price, undefined, { label: false }), soc: true }),
       ],
     }
   }, [plan, theme])

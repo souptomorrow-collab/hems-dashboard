@@ -6,6 +6,8 @@ import {
   baseTooltip,
   baseLegend,
   touMarkArea,
+  bgSeries,
+  BG_NAME,
   slotLabels,
   powerSocLayout,
   powerSocFormatter,
@@ -57,6 +59,39 @@ export function powerSocOption(d, { playhead = null, playheadLabel = null, kwAxi
         data: d.pv,
         lineStyle: { width: 2, color: COLORS.solar },
         areaStyle: { color: 'rgba(255,176,32,0.18)' },
+      },
+      { name: '家庭負載', type: 'line', smooth, symbol: 'none', data: d.load, lineStyle: { width: 2, color: COLORS.load } },
+      {
+        name: '電網購電', type: 'line', smooth, symbol: 'none', data: d.gridKw,
+        lineStyle: { width: 1.5, color: COLORS.grid, type: 'dashed' },
+      },
+      {
+        name: '電池充電', type: 'bar', stack: 'batt', ...(detail ? { barCategoryGap: '8%' } : {}),
+        data: d.chargeKw, itemStyle: { color: 'rgba(34,197,94,0.55)' },
+      },
+      {
+        name: '電池放電', type: 'bar', stack: 'batt', ...(detail ? { barCategoryGap: '8%' } : {}),
+        data: d.dischargeKw.map((v) => (v == null ? null : -v)), itemStyle: { color: 'rgba(249,115,22,0.6)' },
+      },
+      {
+        name: 'SOC',
+        type: 'line',
+        xAxisIndex: 1,
+        yAxisIndex: 1,
+        smooth,
+        symbol: 'none',
+        data: d.socPct,
+        lineStyle: { width: 2.5, color: COLORS.battery },
+        markLine: {
+          silent: true,
+          symbol: 'none',
+          label: { color: AXIS_TEXT, fontSize: 10, formatter: '{c}%' },
+          lineStyle: { color: TRACK_LINE, type: 'dashed' },
+          data: [{ yAxis: Math.round(BATTERY.socMax * 100) }, { yAxis: Math.round(BATTERY.socMin * 100) }],
+        },
+      },
+      // 背景電價與「現在」那條線：掛在隱形系列上，圖例關掉太陽能或 SOC 也還在
+      bgSeries({
         markArea: touMarkArea(d.tier, d.price, x),
         markLine: playhead == null
           ? undefined
@@ -81,38 +116,8 @@ export function powerSocOption(d, { playhead = null, playheadLabel = null, kwAxi
               lineStyle: { color: COLORS.save, width: 1.5, type: 'solid' },
               data: [{ xAxis: playhead }],
             },
-      },
-      { name: '家庭負載', type: 'line', smooth, symbol: 'none', data: d.load, lineStyle: { width: 2, color: COLORS.load } },
-      {
-        name: '電網購電', type: 'line', smooth, symbol: 'none', data: d.gridKw,
-        lineStyle: { width: 1.5, color: COLORS.grid, type: 'dashed' },
-      },
-      {
-        name: '電池充電', type: 'bar', stack: 'batt', ...(detail ? { barCategoryGap: '8%' } : {}),
-        data: d.chargeKw, itemStyle: { color: 'rgba(34,197,94,0.55)' },
-      },
-      {
-        name: '電池放電', type: 'bar', stack: 'batt', ...(detail ? { barCategoryGap: '8%' } : {}),
-        data: d.dischargeKw.map((v) => (v == null ? null : -v)), itemStyle: { color: 'rgba(249,115,22,0.6)' },
-      },
-      {
-        name: 'SOC',
-        type: 'line',
-        xAxisIndex: 1,
-        yAxisIndex: 1,
-        smooth,
-        symbol: 'none',
-        data: d.socPct,
-        lineStyle: { width: 2.5, color: COLORS.battery },
-        markArea: touMarkArea(d.tier, d.price, x, { label: false }),
-        markLine: {
-          silent: true,
-          symbol: 'none',
-          label: { color: AXIS_TEXT, fontSize: 10, formatter: '{c}%' },
-          lineStyle: { color: TRACK_LINE, type: 'dashed' },
-          data: [{ yAxis: Math.round(BATTERY.socMax * 100) }, { yAxis: Math.round(BATTERY.socMin * 100) }],
-        },
-      },
+      }),
+      bgSeries({ markArea: touMarkArea(d.tier, d.price, x, { label: false }), soc: true }),
     ],
   }
 }
@@ -155,7 +160,7 @@ export function rollingOption(r) {
       lineStyle: { color: AXIS_TEXT, width: 1, type: 'dashed' },
     })
   }
-  o.series = o.series.map((s) => (s.name === '太陽能發電' ? { ...s, markLine: { silent: true, symbol: 'none', data: lines } } : s))
+  o.series = o.series.map((s) => (s.name === BG_NAME ? { ...s, markLine: { silent: true, symbol: 'none', data: lines } } : s))
   return o
 }
 
@@ -177,6 +182,6 @@ export function past24Option(r, { kwAxis, animation = true } = {}) {
       lineStyle: { color: AXIS_TEXT, width: 1, type: 'dashed' },
     })
   }
-  o.series = o.series.map((s) => (s.name === '太陽能發電' ? { ...s, markLine: { silent: true, symbol: 'none', data: lines } } : s))
+  o.series = o.series.map((s) => (s.name === BG_NAME ? { ...s, markLine: { silent: true, symbol: 'none', data: lines } } : s))
   return o
 }

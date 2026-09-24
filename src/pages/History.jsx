@@ -50,6 +50,7 @@ import {
   baseGrid,
   valueYAxis,
   touMarkArea,
+  bgSeries,
   powerSocLayout,
   powerSocFormatter,
   socYAxis,
@@ -256,7 +257,7 @@ function DayView({ date, setDate, yesterday, minDay, spans }) {
       ...powerSocLayout({ boundaryGap: true }),
       yAxis: [valueYAxis('kW'), socYAxis()],
       series: [
-        { ...line, name: '太陽能發電', data: sim.pv, lineStyle: { width: 2, color: COLORS.solar }, itemStyle: { color: COLORS.solar }, areaStyle: { color: 'rgba(255,176,32,0.16)' }, markArea: touMarkArea(sim.tier, sim.price) },
+        { ...line, name: '太陽能發電', data: sim.pv, lineStyle: { width: 2, color: COLORS.solar }, itemStyle: { color: COLORS.solar }, areaStyle: { color: 'rgba(255,176,32,0.16)' } },
         { ...line, name: '家庭負載', data: sim.load, lineStyle: { width: 2, color: COLORS.load }, itemStyle: { color: COLORS.load } },
         { ...line, name: '電網購電', data: sim.gridKw, lineStyle: { width: 1.5, color: COLORS.grid, type: 'dashed' }, itemStyle: { color: COLORS.grid } },
         { type: 'bar', stack: 'b', name: '電池充電', data: sim.chargeKw, itemStyle: { color: 'rgba(34,197,94,0.55)' } },
@@ -264,13 +265,15 @@ function DayView({ date, setDate, yesterday, minDay, spans }) {
         {
           ...line, name: 'SOC', xAxisIndex: 1, yAxisIndex: 1, data: sim.socPct,
           lineStyle: { width: 2.4, color: COLORS.battery }, itemStyle: { color: COLORS.battery },
-          markArea: touMarkArea(sim.tier, sim.price, undefined, { label: false }),
           markLine: {
             silent: true, symbol: 'none', lineStyle: { color: TRACK_LINE, type: 'dashed' },
             label: { color: AXIS_TEXT, fontSize: 10, formatter: '{c}%' },
             data: [{ yAxis: Math.round(BATTERY.socMax * 100) }, { yAxis: Math.round(BATTERY.socMin * 100) }],
           },
         },
+        // 背景電價掛在隱形系列上：圖例關掉太陽能或 SOC 也還在
+        bgSeries({ markArea: touMarkArea(sim.tier, sim.price) }),
+        bgSeries({ markArea: touMarkArea(sim.tier, sim.price, undefined, { label: false }), soc: true }),
       ],
     }
   }, [sim, theme])
@@ -307,7 +310,7 @@ function DayView({ date, setDate, yesterday, minDay, spans }) {
       ...powerSocLayout({ boundaryGap: true, socH: CMP_SOC_H }),
       yAxis: [valueYAxis('kW'), socYAxis({ interval: 25 })],
       series: [
-        act('pv-a', '太陽能發電', a.pv, COLORS.solar, { areaStyle: { color: 'rgba(255,176,32,0.14)' }, markArea: touMarkArea(tier, getPriceSlots(parseYmd(date))) }),
+        act('pv-a', '太陽能發電', a.pv, COLORS.solar, { areaStyle: { color: 'rgba(255,176,32,0.14)' } }),
         pln('pv-p', '太陽能發電', p.pv, COLORS.solar),
         act('load-a', '家庭負載', a.load, COLORS.load),
         pln('load-p', '家庭負載', p.load, COLORS.load),
@@ -317,7 +320,6 @@ function DayView({ date, setDate, yesterday, minDay, spans }) {
         { type: 'bar', id: 'dis', stack: 'b', name: '電池放電', data: a.discharge.map((v) => -v), itemStyle: { color: 'rgba(249,115,22,0.5)' } },
         act('soc-a', 'SOC', a.soc, COLORS.battery, {
           ...soc,
-          markArea: touMarkArea(tier, getPriceSlots(parseYmd(date)), undefined, { label: false }),
           markLine: {
             silent: true, symbol: 'none', lineStyle: { color: TRACK_LINE, type: 'dashed' },
             label: { color: AXIS_TEXT, fontSize: 10, formatter: '{c}%' },
@@ -325,6 +327,8 @@ function DayView({ date, setDate, yesterday, minDay, spans }) {
           },
         }),
         pln('soc-p', 'SOC', p.soc, COLORS.battery, soc),
+        bgSeries({ markArea: touMarkArea(tier, getPriceSlots(parseYmd(date))) }),
+        bgSeries({ markArea: touMarkArea(tier, getPriceSlots(parseYmd(date)), undefined, { label: false }), soc: true }),
       ],
     }
   }, [cmp, theme, date])
