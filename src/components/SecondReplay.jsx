@@ -164,7 +164,8 @@ export default function SecondReplay() {
       s.push(flat(planRow.pv_kw, '太陽能・本格計畫', '太陽能計畫', '#a98200', both.pv))
     }
     return {
-      grid: { left: 46, right: narrow ? 74 : 118, top: 24, bottom: 28 },
+      // top 要留給 y 軸名稱「kW」：原本 24px，軸名上緣被切掉
+      grid: { left: 46, right: narrow ? 74 : 118, top: 36, bottom: 28 },
       tooltip: { ...baseTooltip },
       xAxis: {
         type: 'category', data: view.x,

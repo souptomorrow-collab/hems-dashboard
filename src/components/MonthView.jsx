@@ -11,9 +11,10 @@ import { baseTooltip, baseLegend, valueYAxis, AXIS_TEXT, SPLIT_LINE } from '../l
 
 /* 整月排程與實時運轉：兩個展示月（2010-07、2010-01）每一天的日前排程與實時運轉接成一條時間軸。
 
-   使用者只能調整隔日（展示日的下一天：7/20、1/12）的可轉移設備。按下儲存之後，本機的 watch_prefs.py
+   使用者只能調整隔日（展示日的下一天：7/20、1/12）的可轉移設備。按下送出之後，本機的 watch_prefs.py
    從隔日起一天一天重算那個月（電量一天接一天，只能依序算），算完一天就寫回資料庫；今天以前的不動。
-   這裡每 5 秒重讀一次，看得到隔日以後的曲線一天一天換成新設定；灰色是按下儲存之前的樣子，拿來對照。
+   這裡每 5 秒重讀一次，看得到隔日以後的曲線一天一天換成新設定；灰色是按下送出之前的樣子，拿來對照。
+   重讀到的排程會發 SCHEDULES_REFRESHED，用電規劃頁據此知道隔日那份換新了（那一頁不自己輪詢）。
 
    哪一天已經是新設定：排程與實時運轉每天都記著自己是用哪一版設定算的（prefs_stamp），
    受影響的日子（changed_from 起、同一個月）和目前設定的版本（GET /prefs 的 stamp）相同才算。
@@ -171,7 +172,7 @@ export default function MonthView() {
     return () => { on = false }
   }, [])
 
-  // 上面按下「儲存給排程」：記下現在的樣子當對照，開始追蹤本機重算的進度。
+  // 上面按下「送出給排程」：記下現在的樣子當對照，開始追蹤本機重算的進度。
   // 前一次還沒算完又存一次時，對照維持最早那份（中途的資料是新舊混在一起的）
   useEffect(() => {
     const onSaved = (e) => {
@@ -199,9 +200,12 @@ export default function MonthView() {
   const otherFresh = otherAff.filter((d) => d.fresh).length
   const allFresh = Boolean(days && otherDays) && fresh === curAff.length && otherFresh === otherAff.length
   const live = data?.via === 'api' && Boolean(stamp)
-  // 不動的最後一天：送出時的今天（重算起點的前一天）。重算途中播放往前走，今天會超過重算起點，
-  // 那幾天其實正在重算，所以有 changed_from 時以它為準
-  const frozenTo = changedFrom && changedFrom <= today ? dayBefore(changedFrom) : today
+  // 重算中：受影響的日子還有舊設定（包括本機停了、還沒算完），或正在輪詢
+  const recalculating = live && (watching || !allFresh)
+  // 不動的最後一天：平常就是今天。重算途中播放往前走，今天會超過重算起點，那幾天其實正在重算，
+  // 所以重算中以 changed_from 的前一天為準；算完了就一律是今天，不被上一次送出的 changed_from 卡住
+  // （例如 7/2 送出、算完後播到 7/19，今天以前不動的是 7/1～7/19，不是只有 7/1）
+  const frozenTo = recalculating && changedFrom && changedFrom <= today ? dayBefore(changedFrom) : today
 
   // 進頁面時就有舊設定的日子（例如別的分頁剛存過、本機正在算）：也開始追蹤
   useEffect(() => {
@@ -381,9 +385,12 @@ export default function MonthView() {
           const b = beforeDays?.[ps[0].dataIndex]
           const row = (label, v, bv) => (v == null ? '' : `<br/>${label}：${v.toFixed(2)} 元`
             + (bv != null && Math.abs(v - bv) >= 0.005 ? `（改設定前 ${bv.toFixed(2)}，${signed(v - bv, '元')}）` : ''))
-          const state = live && affected(d)
-            ? (d.fresh ? '<br/>✓ 已是目前的設定' : '<br/>⏳ 還是舊設定（重算中）')
-            : d.date <= frozenTo ? '<br/>今天以前：改設定也不重排' : ''
+          // 今天以前的日子先說「不重排」；重算中、這次受影響的日子才說新舊
+          const mark = d.fresh ? '<br/>✓ 已是目前的設定' : '<br/>⏳ 還是舊設定（重算中）'
+          const state = recalculating && affected(d)
+            ? mark
+            : d.date <= frozenTo ? '<br/>今天以前：改設定也不重排'
+            : live && affected(d) ? mark : ''
           return `${md(d.date)}（${WEEK[weekday(d.date)]}）${row('實時運轉', d.rtCost, b?.rtCost)}`
             + `${row('日前排程', d.planCost, b?.planCost)}${state}<br/><span style="opacity:.7">點一下放大這一天</span>`
         },
@@ -398,7 +405,7 @@ export default function MonthView() {
       series,
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [days, beforeDays, theme, live, changedFrom, today, frozenTo])
+  }, [days, beforeDays, theme, live, changedFrom, today, frozenTo, recalculating])
 
   const dailyEvents = useMemo(() => ({
     click: (p) => {
@@ -434,7 +441,7 @@ export default function MonthView() {
     if (allFresh) {
       status = (
         <span className="month-status done">
-          {changedFrom && here ? `✓ ${md(changedFrom)} 起已是新設定・${md(frozenTo)} 以前不動` : '✓ 已是目前的設定'}
+          {changedFrom && here ? `✓ ${md(changedFrom)} 起已是新設定・今天 ${md(today)} 以前不動` : '✓ 已是目前的設定'}
         </span>
       )
     } else if (watching) {
@@ -471,7 +478,7 @@ export default function MonthView() {
   return (
     <Panel
       title={title}
-      sub={`${days.length} 天、每 15 分鐘一點・今天 ${md(today)}，${next ? `只能調整隔日 ${md(next)}` : '已到月底，沒有隔日'}・藍＝實時運轉、橙虛線＝日前排程${before ? '、灰＝按下儲存之前' : ''}・淡色底為週末`}
+      sub={`${days.length} 天、每 15 分鐘一點・今天 ${md(today)}，${next ? `只能調整隔日 ${md(next)}` : '已到月底，沒有隔日'}・藍＝實時運轉、橙虛線＝日前排程${before ? '、灰＝按下送出之前' : ''}・淡色底為週末`}
       className="mt-16"
       right={
         <div className="month-ctl">
@@ -485,7 +492,7 @@ export default function MonthView() {
         <Tile label="實時運轉電費" value={sums.rt?.toFixed(0) ?? '—'} unit="元" color={C.rt} sub={vs('rt', '元') ?? '整月實際向電網購電的電費'} />
         <Tile label="日前排程電費" value={sums.plan?.toFixed(0) ?? '—'} unit="元" color={C.plan} sub={vs('plan', '元') ?? '照前一晚的預測排的計畫'} />
         <Tile label="實時向電網購電" value={sums.kwh?.toFixed(0) ?? '—'} unit="度" color={C.rt} sub={vs('kwh', '度')} />
-        <Tile label="可轉移設備用電" value={sums.dev?.toFixed(1) ?? '—'} unit="度" color={C.dev} sub={vs('dev', '度') ?? '照上面存下的時段，每天都一樣'} />
+        <Tile label="可轉移設備用電" value={sums.dev?.toFixed(1) ?? '—'} unit="度" color={C.dev} sub={vs('dev', '度') ?? '只排隔日（可以不開）；沒排過的日子三台照建議'} />
       </div>
       <EChart
         option={mainOption}
@@ -501,7 +508,7 @@ export default function MonthView() {
       />
       <p className="muted" style={{ fontSize: 12, marginTop: 8 }}>
         日前排程用前一晚的負載與發電量預測排電池；實時運轉每 15 分鐘從實際電量重新規劃、逐秒控制，
-        面對的是實際負載，所以兩者電費不同。使用者只能調整隔日；存下後本機從隔日起逐日重算那個月
+        面對的是實際負載，所以兩者電費不同。使用者只能調整隔日；送出後本機從隔日起逐日重算那個月
         （電量一天接一天，每天約 20～50 秒），算完一天就寫回一天，今天以前已經排好、跑過的不動。
         這裡每 5 秒更新一次，主頁面與歷史紀錄也會跟著換；還沒算到的日子長條較淡。
         滑鼠滾輪或下方拖曳條可以縮放，點每日長條直接放大那一天。

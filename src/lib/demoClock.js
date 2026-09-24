@@ -14,7 +14,8 @@
    能源流向、KPI 卡、尖離峰標示、設備開關狀態就會全部跟著跑，
    不會有「展示用的假畫面」和「真的畫面」兩套邏輯需要同步。
 
-   播放整個展示月：從月初 00:00 開始，播到 23:59:59 就進到下一天，播完最後一天就停。
+   播放整個展示月：從月初 00:00 開始，播到 23:59:59 就進到下一天，播完最後一天就停；
+   停在月底時再按繼續（▶ 或空白鍵）就從月初重播。
    day 是月內第幾天（0 起），日期由 scenario.js 的 todayOf() 換成資料集日期；
    今天跟著播放走，用電規劃能調整的隔日也跟著走。
 
@@ -119,25 +120,44 @@ export function toggleDemo() {
   state.enabled ? stopDemo() : startDemo()
 }
 
-/** 暫停／繼續（維持在展示模式，只是不再前進） */
+/** 已經播到月底最後一秒（播完自動停下的位置） */
+export function atMonthEnd(s = state) {
+  return s.day >= s.days - 1 && s.sec >= DAY_S - 1
+}
+
+/** 暫停／繼續（維持在展示模式，只是不再前進）。
+    播完整個月停在月底時按繼續，從月初重播：原本照樣開始計時，下一格又碰到月底馬上停，看起來像按了沒反應 */
 export function togglePlay() {
   if (!state.enabled) return
+  if (!state.playing && atMonthEnd()) {
+    state.day = 0
+    setSec(0)
+  }
   state.playing = !state.playing
   state.playing ? startTimer() : stopTimer()
   emit()
 }
 
-/** 拖進度條直接跳到今天的某一格（該格的開頭） */
+/** 拖進度條直接跳到今天的某一格（該格的開頭）。
+    鍵盤 ← → 會要求超出今天的格子（23:59 按 →、00:05 按 ←）：夾回範圍後還是同一格就不動，
+    原本會跳回那一格的開頭，時間反而往回走 */
 export function seekDemo(slot) {
   if (!state.enabled) return
-  setSec(Math.max(0, Math.min(SLOTS_PER_DAY - 1, Math.round(slot))) * SLOT_S)
+  const want = Math.round(slot)
+  const to = Math.max(0, Math.min(SLOTS_PER_DAY - 1, want))
+  if (to !== want && to === state.slot) return
+  setSec(to * SLOT_S)
   emit()
 }
 
-/** 跳到月內第幾天（0 起）的 00:00 */
+/** 跳到月內第幾天（0 起）的 00:00。
+    超出展示月（月底按 PageDown、月初按 PageUp）就維持不動，不要把時間重設到當天 00:00 */
 export function seekDemoDay(day) {
   if (!state.enabled) return
-  state.day = Math.max(0, Math.min(state.days - 1, Math.round(day)))
+  const want = Math.round(day)
+  const to = Math.max(0, Math.min(state.days - 1, want))
+  if (to !== want && to === state.day) return
+  state.day = to
   setSec(0)
   emit()
 }

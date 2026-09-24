@@ -37,9 +37,12 @@ function TimeSelect({ id, value, onChange, from = 0, to = 96, label }) {
   )
 }
 
+/* recCost：三台都照建議的電費（展示模式是 MILP 設備和電池一起排的結果）；recTrial＝沒有 MILP 的電費，
+   改用電池照原排程的試算。curCost：目前排法的電費；curTrial＝電池照原排程的試算（改了條件、排程還沒重排）。
+   sent＝剛送出、本機還沒重排好 */
 export default function DevicePrefs({
-  cond, est, estSource, rec, recSource, recCost, curCost, diffs = {}, date, cloud, dirty, sending, msg,
-  problems = [], onChange, onFollow, onAllOff, onAllRec, onSubmit,
+  cond, est, estSource, rec, recSource, recCost, recTrial, curCost, curTrial, diffs = {}, date, cloud, dirty, sent,
+  sending, msg, problems = [], onChange, onFollow, onAllOff, onAllRec, onSubmit,
 }) {
   if (!cond) return null
   const errors = problems.filter((p) => p.level === 'error')
@@ -47,8 +50,10 @@ export default function DevicePrefs({
   const allRec = SHIFT_IDS.every((id) => followsRec(cond, id))
   const sourceText = estSource === 'schedule'
     ? '預估時間來自日前排程（排程組 MILP，設備和電池一起排）'
-    : cloud
+    : cloud && dirty
     ? '改了條件還沒送出：照建議的設備用建議時間，其他先依電價估；送出後由排程重算'
+    : cloud && sent
+    ? '已送出，本機重排好之前：照建議的設備先用建議時間，其他依電價估'
     : '預估時間依電價估（不看太陽能與電池）'
   const recText = recSource === 'schedule'
     ? '排程組 MILP 算的最省時間（三台都照建議，設備和電池一起排）'
@@ -97,8 +102,9 @@ export default function DevicePrefs({
           </div>
           {recCost != null && (
             <div className="rec-cost">
-              三台都照建議排：明天預估電費 <b>{recCost}</b> 元
-              {!allRec && curCost != null && `（目前的排法 ${curCost} 元）`}
+              三台都照建議排：明天預估電費 <b>{recCost}</b> 元{recTrial ? '（電池照原排程試算）' : ''}
+              {!allRec && curCost != null && `（目前的排法 ${curCost} 元${
+                curTrial ? `，電池照原排程試算${cloud ? '，實際以送出後重排為準' : ''}` : ''}）`}
             </div>
           )}
         </div>
@@ -117,8 +123,9 @@ export default function DevicePrefs({
           const r = rec?.[id]
           return (
             <div className="prefs-row" key={id}>
-              <div className="prefs-name">
-                <span>{dev.icon} {dev.name}</span>
+              {/* 設備名稱不換行：1024 寬時會斷成「洗／衣機」；狀態標籤放不下就換到下一行 */}
+              <div className="prefs-name" style={{ flexWrap: 'wrap' }}>
+                <span style={{ whiteSpace: 'nowrap' }}>{dev.icon} {dev.name}</span>
                 <span className={`confirm-chip ${st.tone}`}>{st.text}</span>
               </div>
               <div className="prefs-rule">
@@ -126,7 +133,10 @@ export default function DevicePrefs({
                   <>
                     <label className="range-line">
                       最早
-                      <TimeSelect id={`${id}-earliest`} label={`${dev.name}最早開始`} value={c.earliest} to={95}
+                      {/* 有硬性限制的（烘衣機 22:00 前跑完）只列來得及跑完的最早開始（20:30 以前）；
+                          資料庫讀到的值更晚時也列出來，畫面才對得上（下面會標 ⛔） */}
+                      <TimeSelect id={`${id}-earliest`} label={`${dev.name}最早開始`} value={c.earliest}
+                        to={HARD_END[id] ? Math.max(HARD_END[id] - n, slotOf(c.earliest)) : 95}
                         onChange={(v) => onChange(id, { earliest: v })} />
                       開始，最晚
                       <TimeSelect id={`${id}-deadline`} label={`${dev.name}最晚完成`} value={c.deadline} from={1}
@@ -145,9 +155,9 @@ export default function DevicePrefs({
                   <>
                     <label className="range-line">
                       從
-                      <TimeSelect id={`${id}-start`} label={`${dev.name}指定開始時間`} value={hm(c.start)} to={latestStart(id)}
-                        onChange={(v) => onChange(id, { start: slotOf(v) })} />
-                      開始，跑到 {hm(c.start + n)}（{n * 15} 分鐘，當一般負載）
+                      <TimeSelect id={`${id}-start`} label={`${dev.name}指定開始時間`} value={hm(c.start)}
+                        to={Math.max(latestStart(id), c.start)} onChange={(v) => onChange(id, { start: slotOf(v) })} />
+                      開始，跑到 {c.start + n > 96 ? `隔天 ${hm(c.start + n - 96)}` : hm(c.start + n)}（{n * 15} 分鐘，當一般負載）
                     </label>
                     {r != null && (
                       <div>

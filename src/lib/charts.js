@@ -143,7 +143,8 @@ export const SOC_EXTRA_HEIGHT = SOC_H + SOC_GAP
 /** 自訂 SOC 小圖高度時，EChart 要多加的高度 */
 export const socExtraHeight = (socH) => socH + SOC_GAP
 
-export function powerSocLayout({ right = 24, boundaryGap, socH = SOC_H } = {}) {
+// 右邊留 32px：SOC 小圖右端有 90%／15% 參考線標籤，24px 會切掉「%」的右半邊
+export function powerSocLayout({ right = 32, boundaryGap, socH = SOC_H } = {}) {
   // boundaryGap 沒指定就不要傳：slotXAxis 會把 undefined 蓋上去，類別軸就變回預設的留邊
   const bg = boundaryGap == null ? {} : { boundaryGap }
   return {

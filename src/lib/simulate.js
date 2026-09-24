@@ -512,7 +512,8 @@ export function pack(date, pv, load, price, tier, flows, t) {
       gridToBattKwh: +gridToBatt.reduce((a, v) => a + v * SLOT_HOURS, 0).toFixed(2),
       baselineCost: +baseCost.toFixed(1),
       optimizedCost: +optCost.toFixed(1),
-      savings: +(baseCost - optCost).toFixed(1),
+      // 用四捨五入後的兩個電費相減：畫面上「不裝 HEMS 的電費 − 當日電費」才剛好等於「省下電費」
+      savings: +(+baseCost.toFixed(1) - +optCost.toFixed(1)).toFixed(1),
       savingPct: baseCost > 0 ? +(((baseCost - optCost) / baseCost) * 100).toFixed(1) : 0,
       selfUseRate: +selfUseRate.toFixed(1),
       peakGridKw: +Math.max(...gridKw).toFixed(2),
@@ -617,14 +618,17 @@ export function liveSnapshot(
   pvOverride = null,
   weather = simulateWeather(now),
   plan = null,
-  routine = null
+  routine = null,
+  precomputed = null
 ) {
-  const day = simulateDay(now, weather, fixedOverride, pvOverride, plan, routine)
+  // precomputed：展示模式已由實時運轉紀錄組好的一天（client.js 的 demoDay）；數字照紀錄，不加量測擾動
+  const day = precomputed ?? simulateDay(now, weather, fixedOverride, pvOverride, plan, routine)
+  const exact = day.planSource === 'actual'
   const slot = Math.min(
     SLOTS_PER_DAY - 1,
     Math.floor((now.getHours() * 60 + now.getMinutes()) / 15)
   )
-  const jitter = () => 0.95 + Math.random() * 0.1
+  const jitter = exact ? () => 1 : () => 0.95 + Math.random() * 0.1
 
   const devices = DEVICES.map((dev) => {
     const on = day.schedule[dev.id][slot]
@@ -664,6 +668,19 @@ export function liveSnapshot(
      原本先削太陽能，傍晚電池正在放電時會出現「防逆送削減」，等於把免費的電丟掉。
      每一步都夾在 0 以上，放電與太陽能都不會被減成負值。 */
   let curtailKw = 0
+  if (exact) {
+    // 實時運轉紀錄：負載、太陽能、棄光、購電都照紀錄（和歷史紀錄、秒級重播同一組數字）
+    return {
+      ...snapshotRest(day, slot, now, devices),
+      pvKw: r2(day.pv[slot] - day.pvToGrid[slot]),
+      pvPotentialKw: r2(day.pv[slot]),
+      loadKw: r2(day.load[slot]),
+      curtailKw: r2(day.pvToGrid[slot]),
+      gridKw: r2(day.gridKw[slot]),
+      chargeKw,
+      dischargeKw,
+    }
+  }
   if (gridKw < 0) {
     let surplus = -gridKw
     const less = Math.min(surplus, dischargeKw) // 電池放電最多只能收到 0
@@ -678,17 +695,25 @@ export function liveSnapshot(
   }
 
   return {
-    slot,
+    ...snapshotRest(day, slot, now, devices),
     pvKw,
     pvPotentialKw,
     loadKw,
     chargeKw,
     dischargeKw,
     curtailKw,
-    battNetKw: day.battNetKw[slot],
     gridKw,
+  }
+}
+
+/** 即時快照裡和擾動無關的欄位（電池、電價、設備、當日摘要、天氣） */
+function snapshotRest(day, slot, now, devices) {
+  return {
+    slot,
+    battNetKw: day.battNetKw[slot],
     socPct: day.socPct[slot],
-    socKwh: +((day.socPct[slot] / 100) * BATTERY.capacityKwh).toFixed(2),
+    // 不先捨入：畫面上各自取一位小數，先捨到兩位再捨一位會差 0.1（例如 2.149 → 2.15 → 2.2）
+    socKwh: (day.socPct[slot] / 100) * BATTERY.capacityKwh,
     price: day.price[slot],
     tier: day.tier[slot],
     devices,

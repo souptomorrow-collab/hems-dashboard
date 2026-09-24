@@ -84,6 +84,7 @@ export default function Dashboard() {
   const { season } = useScenario() // 夏月／非夏月情境，一換就整頁重抓
   const rev = useDataRevision() // 本機重算時每寫回一天就加一：今天那份換新了要重抓
   const narrow = useMediaQuery('(max-width: 760px)')
+  const midWidth = useMediaQuery('(max-width: 1280px)') // 電池儀表刻度數用
   // 住戶看不到預測模型相關的圖與資料來源標示，說明文字也改成一般用語
   const admin = useIsAdmin()
 
@@ -322,10 +323,14 @@ export default function Dashboard() {
       const t = TIP[x.name]
       if (!t) return x
       const [text, color] = t
+      // SOC 的 90%／15% 參考線標籤改放左邊：右端是曲線尖端的標籤，SOC 接近上下限時兩者會疊在一起
+      const ref = x.markLine?.label ? { markLine: { ...x.markLine, label: { ...x.markLine.label, position: 'insideStartTop' } } } : {}
       return {
         ...x,
+        ...ref,
         endLabel: {
-          show: true, color, fontSize: 11, fontWeight: 700, distance: 6,
+          // 剛開始（前兩格）只有一兩個點，幾條線的標籤全擠在同一處，先不標
+          show: curSlot >= 2, color, fontSize: 11, fontWeight: 700, distance: 6,
           formatter: (p) => (x.name === 'SOC' ? `${text} ${Math.round(p.value)}%` : `${text} ${(+p.value).toFixed(1)}`),
         },
         labelLayout: { moveOverlap: 'shiftY' },
@@ -539,7 +544,8 @@ export default function Dashboard() {
           axisLine: { lineStyle: { width: 14, color: [[1, TRACK]] } },
           axisTick: { show: false },
           // 手機上儀表只剩一百多 px 寬，10 格刻度的數字會擠成一團，改成 4 格（0、25、50、75、100）
-          splitNumber: narrow ? 4 : 10,
+          // 儀表寬度跟著版面欄寬走，不是視窗寬：1280 以下兩欄並排時儀表只剩約 150px，10 格刻度會疊在一起
+          splitNumber: narrow ? 4 : midWidth ? 5 : 10,
           splitLine: { length: 10, lineStyle: { color: TRACK_LINE } },
           axisLabel: { color: AXIS_TEXT, fontSize: 10, distance: 14 },
           pointer: { width: 4, itemStyle: { color: COLORS.battery } },
@@ -557,7 +563,7 @@ export default function Dashboard() {
         },
       ],
     }
-  }, [live, theme, narrow])
+  }, [live, theme, narrow, midWidth])
 
   const s = today?.summary
   // 「今日累積」只加到目前這一格；summary 裡的是全天 96 格的預估值
@@ -722,6 +728,8 @@ export default function Dashboard() {
                 ? '太陽能、用電、電網與電池到目前為止的運轉'
                 : !demo.enabled
                 ? '平常模式：負載、太陽能、電池都是模擬的'
+                : today?.planSource === 'actual'
+                ? '實時運轉紀錄：負載、太陽能、電池、購電皆為實際值（每 15 分鐘彙整，隨時間累積）'
                 : today && today.loadSource !== 'rf'
                 ? '不可轉移負載為模擬值（讀不到雲端預測快照）'
                 : '不可轉移負載取當日真實值（隨時間累積）'

@@ -188,6 +188,7 @@ h1, h2, h3, h4 {
 .brand .brand-text span {
   font-size: 11px;
   color: var(--text-dim);
+  white-space: nowrap;
 }
 
 .nav {
@@ -528,12 +529,28 @@ h1, h2, h3, h4 {
   cursor: pointer;
 }
 .demo-speeds { display: flex; gap: 4px; }
+/* 「1 分/秒」「1 天/10 秒」不能從中間斷成兩行；放不下時整顆按鈕換行 */
+.demo-speeds .demo-btn { white-space: nowrap; }
 .demo-note, .demo-idle { font-size: 12px; color: var(--text-dim); }
 
 @media (max-width: 760px) {
   .demo-bar.on { position: static; }   /* 手機上頂端列已佔好幾行，再黏一條會蓋掉半個螢幕 */
   .demo-note { display: none; }        /* 手機上這行會把控制列擠成三排 */
   .demo-seek { order: 10; flex-basis: 100%; }
+  .demo-speeds { flex-wrap: wrap; }
+  .demo-speeds .demo-btn { min-width: 0; padding: 6px 8px; }
+}
+/* 中等寬度又不高（1024×768 平板橫放）：頂端列折成兩行、展示列三行，兩條都黏住會佔掉快四成畫面。
+   展示中只黏展示列（它自己就有展示時間與暫停），頂端列跟著內容捲走 */
+@media (min-width: 761px) and (max-width: 1100px) and (max-height: 800px) {
+  .main:has(.demo-bar.on) .topbar { position: static; }
+  .demo-bar.on { top: 0; }
+}
+/* 矮螢幕（手機橫放 780×390 之類）寬度超過 760，上面 760 那條不會生效：
+   頂端列加上黏住的展示列會佔掉四分之三個畫面，兩條都不黏，捲下去就看得到內容 */
+@media (max-height: 500px) {
+  .demo-bar.on { position: static; }
+  .topbar { position: static; }
 }
 
 /* ============================================================
@@ -617,6 +634,9 @@ h1, h2, h3, h4 {
   }
   .nav { flex-direction: row; margin-top: 0; }
   .brand { padding: 0 16px 0 4px; }
+  /* 側欄變成頂端一排時只留 logo＋HEMS（同手機）：768 寬時副標會被擠成「家庭能源管理／系統」兩行，
+     不換行的話管理員的五個分頁又放不下 */
+  .brand .brand-text span { display: none; }
   .grid.kpi, .grid.cols-2, .grid.cols-3, .grid.cols-4 { grid-template-columns: 1fr; }
   .span-2 { grid-column: auto; }
 }
@@ -1482,34 +1502,6 @@ body {
   .topbar-right .badge.loc { display: none; }
 }
 
-/* 展示情境和今天實際季節不同時的說明列 */
-.scenario-note {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 14px;
-  margin-bottom: 16px;
-  padding: 8px 14px;
-  border-radius: var(--radius-sm);
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg-panel));
-  color: var(--text-muted);
-  font-size: 12.5px;
-}
-.scenario-back {
-  margin-left: auto;
-  padding: 4px 12px;
-  border-radius: 999px;
-  border: 1px solid var(--border-strong);
-  background: var(--bg-panel-2);
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.scenario-back:hover { border-color: var(--accent); }
-
 /* ---------- 用電規劃：規劃日區塊（窄螢幕折行時仍靠右） ---------- */
 .plan-date { margin-left: auto; text-align: right; }
 /* 小型數字卡（components/Tile.jsx）：標題前的色塊代表能源種類，數字用文字色 */
@@ -1809,6 +1801,8 @@ body {
 
 @media print {
   .tabbar { display: none !important; }
+  /* 列印時 Chrome 用約 794px 判斷版面，會套到 ≤900px 的「四欄變一欄」：對照面板的 4 張卡片排成一列才放得進一頁 */
+  .cmp-panel .grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
 }
 
 @media (max-width: 760px) {
@@ -1885,7 +1879,16 @@ body {
 
 /* 秒級重播：選哪一天 */
 .replay-day input { padding: 4px 8px; font-size: 13px; border: 1px solid var(--border); border-radius: 6px;
-  background: var(--surface); color: var(--text); font-variant-numeric: tabular-nums; }
+  background: var(--bg-panel-2); color: var(--text); font-variant-numeric: tabular-nums; }
+/* 瀏覽器內建的日曆圖示、日期選單與滑桿軌道跟著主題換色（同 .date-input）：
+   原本夜間模式下展示列日期欄的日曆圖示是黑的、秒級重播的滑桿軌道是白的 */
+.demo-day input,
+.replay-day input,
+input[type="range"] { color-scheme: dark; }
+:root[data-theme="light"] .demo-day input,
+:root[data-theme="light"] .replay-day input,
+:root[data-theme="light"] input[type="range"] { color-scheme: light; }
+.panel input[type="range"] { accent-color: var(--accent); }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .replay-now .plan.actual span { color: var(--accent); }
 
@@ -1910,6 +1913,8 @@ body {
 .demo-day input { padding: 3px 6px; font-size: 13px; border: 1px solid var(--border); border-radius: 6px;
   background: var(--bg-panel-2); color: var(--text); }
 .demo-wk { font-size: 12px; color: var(--text-muted); }
+.demo-day-note { font-size: 12px; font-weight: 600; color: var(--t-peak); }
+.demo-day-note:empty { display: none; }
 
 .watch-chip.idle { color: var(--text-muted); }
 .watch-chip.idle::before { background: var(--accent); }
@@ -1918,7 +1923,8 @@ body {
 .confirm-chip { display: inline-block; font-size: 11.5px; line-height: 1.5; padding: 0 8px; border-radius: 999px;
   border: 1px solid var(--border); color: var(--text-muted); white-space: nowrap; }
 .confirm-chip.auto { border-color: transparent; background: color-mix(in srgb, #3b82f6 16%, transparent); color: var(--text); }
-.confirm-chip.fixed { border-color: transparent; background: #3b82f6; color: #fff; }
+/* 白字小標籤要 4.5:1：#3b82f6 只有 3.7:1，深一階的 #2563eb 是 5.2:1（底色實心，日間夜間相同） */
+.confirm-chip.fixed { border-color: transparent; background: #2563eb; color: #fff; }
 .confirm-chip.off { border-style: dashed; }
 .prefs-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .prefs-actions .btn { padding: 3px 12px; font-size: 12.5px; }

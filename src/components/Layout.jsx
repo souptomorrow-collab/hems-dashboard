@@ -7,7 +7,7 @@ import { LOCATION, nowTaipei } from '../lib/time.js'
 import { useTheme, toggleTheme } from '../lib/theme.js'
 import DemoBar from './DemoBar.jsx'
 import ErrorBoundary from './ErrorBoundary.jsx'
-import { useScenario, setSeason, SEASONS, scenarioNow, seasonOf, nextDayOf, todayOf } from '../lib/scenario.js'
+import { useScenario, setSeason, SEASONS, scenarioNow, seasonOf } from '../lib/scenario.js'
 import { getDemo, stopDemo, useDemoEnabled } from '../lib/demoClock.js'
 import { useAuth, logout } from '../lib/auth.js'
 import { pingDemo } from '../api/prefs.js'
@@ -33,6 +33,9 @@ const NAV = [
 // 歷史紀錄在展示模式下讀展示月的實時運轉紀錄（到展示時鐘的昨天），所以也要能換天
 const DEMO_PAGES = new Set(['/', '/loads', '/planning', '/history'])
 const MONTH_ONLY_PAGES = new Set(['/planning', '/history'])
+// 系統資訊頁和展示時鐘無關，但展示模式開著時頁首的時鐘、電價徽章仍照展示時間在播：
+// 放一條精簡的控制列（結束／暫停／目前展示時間），切到這頁講系統設定時也停得下來
+const COMPACT_DEMO_PAGES = new Set(['/system'])
 // 夏月／非夏月情境只影響「今天／明天」這幾頁；歷史紀錄平常照每一天的實際日期，展示模式下才跟著情境換展示月
 const SEASON_PAGES = new Set(['/', '/loads', '/planning', '/history'])
 
@@ -55,9 +58,13 @@ const PAGE_META = {
   '/system': { title: '系統資訊', sub: '帳號權限、資料快照、電池與設備規則、電價（管理員）' },
 }
 
+/** 網址 → 查表用的頁面路徑：React Router 比對路由不分大小寫、也接受結尾斜線
+    （#/Planning、#/planning/ 都會進到用電規劃），這裡查表也要一樣，否則標題、展示控制列會對不上 */
+const pageOf = (pathname) => pathname.toLowerCase().replace(/\/+$/, '') || '/'
+
 export default function Layout() {
   const now = useClock()
-  const { pathname } = useLocation()
+  const pathname = pageOf(useLocation().pathname)
   const meta = PAGE_META[pathname] ?? PAGE_META['/']
   const session = useAuth()
   const admin = session?.role === 'admin'
@@ -71,10 +78,6 @@ export default function Layout() {
   // 情境頁的電價徽章跟著情境走（非夏月情境下，九月的今天也照非夏月的尖離峰顯示）
   const tier = getCurrentTier(scenarioPage ? scenarioNow(now, season) : now)
   const summer = isSummer(now)
-  // 展示的情境和今天實際的季節不同時（例如九月切到非夏月），頁首下方說明一下，免得看的人搞混
-  const shown = SEASONS.find((s) => s.key === season)
-  const natural = SEASONS.find((s) => s.key === seasonOf(now))
-  const offSeason = seasonToggle && shown && natural && shown.key !== natural.key
   const theme = useTheme()
   const [collapsed, setCollapsed] = useState(readCollapsed)
 
@@ -268,22 +271,9 @@ export default function Layout() {
         <main className="content" id="main-content" tabIndex={-1}>
           {/* 展示模式是全站共用的虛擬時鐘，所以控制列放在版面層而不是單一頁面：
               原本只放在主頁面，切到頁面二時展示仍在背景播，卻沒地方暫停或拖曳。
-              頁面三是隔日規劃，不受今天的播放進度影響，那一頁就不顯示。 */}
-          {offSeason && (
-            <div className="scenario-note" role="note">
-              <span>
-                {getDemo().enabled
-                  ? `🔁 目前展示${shown.label}情境：負載、太陽能與天氣換成資料集 ${
-                      pathname === '/planning' ? `${nextDayOf(shown.key) ?? '（月底沒有隔日）'}（隔日）` : todayOf(shown.key)}，`
-                    + `電價照${shown.label}的尖離峰時段計算。`
-                  : `🔁 目前是${shown.label}情境：電價照${shown.label}的尖離峰時段計算，負載與太陽能是模擬的；畫面上的日期與時鐘仍是今天。`}
-              </span>
-              <button className="scenario-back" onClick={() => setSeason(natural.key)}>
-                回到{natural.label}
-              </button>
-            </div>
-          )}
+              用電規劃、歷史紀錄只換天不看時段（monthOnly）；系統資訊頁只在展示中放精簡版（compact）。 */}
           {admin && DEMO_PAGES.has(pathname) && <DemoBar monthOnly={MONTH_ONLY_PAGES.has(pathname)} history={pathname === '/history'} />}
+          {admin && demoOn && COMPACT_DEMO_PAGES.has(pathname) && <DemoBar compact />}
           <ErrorBoundary key={pathname}>
             <Outlet />
           </ErrorBoundary>

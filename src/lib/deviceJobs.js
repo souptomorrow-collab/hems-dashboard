@@ -12,7 +12,8 @@
    建議時間：三台都照建議時最省的開機時間。展示模式是日前排程另外算的（排程組 MILP，設備和電池一起排），
    頁面三給使用者參考、一鍵照建議排；平常模式依電價估（不看太陽能與電池）。
    幾點開：展示模式由日前排程先排出預估時間，當天實時層每 15 分鐘用最新預測重排，排到「現在開」才開機。
-   平常模式、或改了條件還沒送出時，這裡依電價估一個最便宜的時間。 */
+   平常模式、或改了條件還沒送出時，照建議的設備用建議時間（和另一台的條件接不上時除外，見 recClash），
+   其他在這裡依電價估一個最便宜的時間。 */
 import { DEVICES, SLOTS_PER_DAY } from './constants.js'
 import { SHIFTABLE_RULES } from './simulate.js'
 
@@ -60,15 +61,16 @@ export function fromPrefs(devices) {
 }
 
 /** 條件 → API 的格式（POST /prefs）。三台都送（不開的送 enabled false，整份都不開也送得出去）；
-    範圍和建議範圍相同就不送；指定時間只送一段 */
+    範圍和建議範圍相同就不送；指定時間只送一段，而且不送範圍（有 slots 就不看範圍；
+    切到指定時間前留著的範圍若不合法，送出去會被 API 擋下，畫面上卻看不到那個範圍） */
 export function toPrefs(cond) {
   return Object.fromEntries(SHIFT_IDS.map((id) => {
     const c = cond[id]
     if (c.mode === 'off') return [id, { enabled: false }]
+    if (c.mode === 'fixed') return [id, { enabled: true, slots: [[hm(c.start), hm(c.start + durOf(id))]] }]
     const out = { enabled: true }
     if (c.earliest !== DEFAULT_RANGE[id][0]) out.earliest = c.earliest
     if (c.deadline !== DEFAULT_RANGE[id][1]) out.deadline = c.deadline
-    if (c.mode === 'fixed') out.slots = [[hm(c.start), hm(c.start + durOf(id))]]
     return [id, out]
   }))
 }
@@ -76,10 +78,12 @@ export function toPrefs(cond) {
 /** 兩份條件是不是一樣（和已送出的比，看有沒有改過） */
 export const condKey = (cond) => JSON.stringify(toPrefs(cond))
 
-/** (最早開始, 最晚完成) → 一天裡可以運轉的格子區間 [[起, 迄)]；最早晚於最晚＝跨午夜，拆成頭尾兩段 */
+/** (最早開始, 最晚完成) → 一天裡可以運轉的格子區間 [[起, 迄)]；最早晚於最晚＝跨午夜，拆成頭尾兩段。
+    兩個一樣＝空區間（不是跨午夜的一整天；API 也不收） */
 export function rangesOf(earliest, deadline) {
   const a = slotOf(earliest)
   const b = slotOf(deadline) || SLOTS_PER_DAY
+  if (a === b) return []
   return a < b ? [[a, b]] : [[a, SLOTS_PER_DAY], [0, b]]
 }
 
@@ -102,7 +106,8 @@ export const latestStart = (id) => (HARD_END[id] ?? SLOTS_PER_DAY) - durOf(id)
 /** 第 slot 格能不能運轉（硬性限制）：烘衣機 22:00 以後不行 */
 export const hardOk = (id, slot) => slot < (HARD_END[id] ?? SLOTS_PER_DAY)
 
-/** 烘衣機接在洗衣機之後：兩台都還有得選時，先把彼此不可能的開始時間去掉 */
+/** 烘衣機接在洗衣機之後：兩台都還有得選時，先把彼此不可能的開始時間去掉。
+    alone＝其中一台自己就排不下（範圍放不下一次運轉），那台的錯誤另外報，另一台照自己的條件估 */
 function pairStarts(cond) {
   const w = cond.washer.mode === 'fixed' ? [cond.washer.start] : startsOf('washer', cond.washer)
   const d = cond.dryer.mode === 'fixed' ? [cond.dryer.start] : startsOf('dryer', cond.dryer)
@@ -110,27 +115,36 @@ function pairStarts(cond) {
   const dw = durOf('washer')
   const d2 = d.filter((s) => w.length && s >= w[0] + dw)
   const w2 = w.filter((s) => d2.length && s + dw <= d2[d2.length - 1])
-  return { washer: w2, dryer: d2, ok: w2.length > 0 && d2.length > 0 }
+  return { washer: w2, dryer: d2, ok: w2.length > 0 && d2.length > 0, alone: !w.length || !d.length }
+}
+
+/** 在可以開機的格子裡挑電費最低的（同價取早）；沒有可以選的是 null */
+function cheapestStart(id, starts, price) {
+  const cost = (s) => {
+    let x = 0
+    for (let k = 0; k < durOf(id); k++) x += price[s + k]
+    return x
+  }
+  return starts.reduce((b, s) => (b == null || cost(s) < cost(b) - 1e-9 ? s : b), null)
 }
 
 /** 依電價估開機時間：系統決定的挑範圍內最便宜的（同價取早），指定的照指定，不跑的是 null。
     回傳 { 設備: 開機的格子 | null } */
 export function estimate(cond, price) {
   const pair = pairStarts(cond)
-  const cost = (id, s) => {
-    let x = 0
-    for (let k = 0; k < durOf(id); k++) x += price[s + k]
-    return x
-  }
-  const cheapest = (id, starts) => starts.reduce((b, s) => (b == null || cost(id, s) < cost(id, b) - 1e-9 ? s : b), null)
+  const cheapest = (id, starts) => cheapestStart(id, starts, price)
   const out = {}
   for (const id of ['washer', 'dishwasher', 'dryer']) {
     const c = cond[id]
     if (c.mode === 'off') out[id] = null
     else if (c.mode === 'fixed') out[id] = c.start
     else if (id === 'dishwasher') out[id] = cheapest(id, startsOf(id, c))
-    else if (!pair.ok) out[id] = cheapest(id, startsOf(id, c))     // 衝突時各自估，檢查會擋下送出
-    else if (id === 'dryer' && out.washer != null) {
+    else if (!pair.ok) {
+      // 排不出「先洗再烘」（檢查會擋下送出）。其中一台自己就排不下時，另一台照自己的條件估；
+      // 兩台各自排得下、只是接不起來時，不畫不可能的排法：系統決定的烘衣機不估，
+      // 烘衣機指定了時間時，系統決定的洗衣機不估（指定的照畫，錯誤訊息說明衝突）
+      out[id] = pair.alone || (id === 'washer' && cond.dryer.mode !== 'fixed') ? cheapest(id, startsOf(id, c)) : null
+    } else if (id === 'dryer' && out.washer != null) {
       out[id] = cheapest(id, pair.dryer.filter((s) => s >= out.washer + durOf('washer')))
     } else {
       // 洗衣機：要留時間給烘衣機（烘衣機指定時間時，要在那之前洗完）
@@ -140,12 +154,71 @@ export function estimate(cond, price) {
   return out
 }
 
-/** 開機的格子 → 96 格 true/false */
+/** 照建議的設備能不能直接用建議時間。建議時間是「三台都照建議」一起排的；洗衣機、烘衣機只有一台照建議、
+    另一台改成指定時間或自訂範圍時，建議時間可能接不上另一台（例如建議 10:45 洗、烘衣機卻指定 11:00 開）。
+    回傳 { 設備: 為什麼預估時間不是建議時間 }；接得上的不列。排不出先洗再烘時不列（那是錯誤，另外報） */
+export function recClash(cond, rec) {
+  const out = {}
+  if (!rec || !pairStarts(cond).ok) return out
+  const dw = durOf('washer')
+  const { washer: w, dryer: d } = cond
+  const wRec = followsRec(cond, 'washer') && rec.washer != null
+  const dRec = followsRec(cond, 'dryer') && rec.dryer != null
+  if (wRec && !dRec && d.mode !== 'off') {
+    const ds = d.mode === 'fixed' ? [d.start] : startsOf('dryer', d)
+    if (!ds.some((s) => s >= rec.washer + dw)) {
+      out.washer = d.mode === 'fixed'
+        ? `建議的 ${hm(rec.washer)} 開要到 ${hm(rec.washer + dw)} 才洗完，趕不上烘衣機指定的 ${hm(d.start)}，預估時間改排在那之前`
+        : `建議的 ${hm(rec.washer)} 開、${hm(rec.washer + dw)} 洗完後，烘衣機的範圍排不下，預估時間改排在更早`
+    }
+  }
+  if (dRec && !wRec && w.mode !== 'off') {
+    const ws = w.mode === 'fixed' ? [w.start] : startsOf('washer', w)
+    if (!ws.some((s) => s + dw <= rec.dryer)) {
+      out.dryer = w.mode === 'fixed'
+        ? `洗衣機指定 ${hm(w.start)} 開、${hm(w.start + dw)} 才洗完，比建議的 ${hm(rec.dryer)} 晚，預估時間改排在洗完之後`
+        : `洗衣機的範圍來不及在建議的 ${hm(rec.dryer)} 前洗完，預估時間改排在洗完之後`
+    }
+  }
+  return out
+}
+
+/** 依電價估，再把照建議的設備換成建議時間（rec：{ 設備: 開機的格子 }）。
+    洗衣機、烘衣機只有一台照建議時，建議時間和另一台接得上（recClash 沒列）才用，
+    另一台是系統決定就重新接在它前後；接不上就維持依電價估的時間 */
+export function estimateWithRec(cond, price, rec) {
+  const out = estimate(cond, price)
+  if (!rec) return out
+  const use = (id) => followsRec(cond, id) && rec[id] != null
+  if (use('dishwasher')) out.dishwasher = rec.dishwasher
+  const pair = pairStarts(cond)
+  if (!pair.ok) {
+    // 其中一台自己就排不下（錯誤報在那一台）：另一台照建議就用建議時間；
+    // 兩台各自排得下、只是接不起來：錯誤訊息擋送出，不套建議時間
+    if (pair.alone) for (const id of ['washer', 'dryer']) if (use(id) && out[id] != null) out[id] = rec[id]
+    return out
+  }
+  const clash = recClash(cond, rec)
+  const w = use('washer') && !clash.washer
+  const d = use('dryer') && !clash.dryer
+  const dw = durOf('washer')
+  if (w) out.washer = rec.washer
+  if (d) out.dryer = rec.dryer
+  if (w && !d && cond.dryer.mode === 'auto') {
+    out.dryer = cheapestStart('dryer', startsOf('dryer', cond.dryer).filter((s) => s >= out.washer + dw), price)
+  }
+  if (d && !w && cond.washer.mode === 'auto') {
+    out.washer = cheapestStart('washer', startsOf('washer', cond.washer).filter((s) => s + dw <= out.dryer), price)
+  }
+  return out
+}
+
+/** 開機的格子 → 96 格 true/false（超過一天的部分不畫，列的長度固定 96 格） */
 export function rowsOf(starts) {
   return Object.fromEntries(SHIFT_IDS.map((id) => {
     const row = new Array(SLOTS_PER_DAY).fill(false)
     const s = starts[id]
-    if (s != null) for (let k = 0; k < durOf(id); k++) row[s + k] = true
+    if (s != null) for (let k = 0; k < durOf(id) && s + k < SLOTS_PER_DAY; k++) row[s + k] = true
     return [id, row]
   }))
 }
@@ -167,7 +240,9 @@ export function checkCond(cond) {
     const c = cond[id]
     const n = durOf(id)
     if (c.mode === 'auto') {
-      if (!startsOf(id, c).length) {
+      if (c.earliest === c.deadline) {
+        add(id, 'error', `最早開始和最晚完成都是 ${c.earliest}，請改成不同的時刻`)
+      } else if (!startsOf(id, c).length) {
         add(id, 'error', `範圍 ${c.earliest}～${c.deadline} 放不下一次運轉（需要 ${n * 15} 分鐘`
           + `${HARD_END[id] ? `，且要在 ${hm(HARD_END[id])} 前跑完` : ''}）`)
       } else if (rangesOf(c.earliest, c.deadline).some(([a, b]) => {
@@ -178,16 +253,22 @@ export function checkCond(cond) {
       }
     } else if (c.mode === 'fixed') {
       const s = c.start
-      if (s + n > (HARD_END[id] ?? SLOTS_PER_DAY)) add(id, 'error', `要在 ${hm(HARD_END[id])} 前跑完`)
+      // 烘衣機有硬性限制（22:00）；其他設備至少要在當天 24:00 前跑完（一天跑一次，以日曆日為單位）
+      const end = HARD_END[id] ?? SLOTS_PER_DAY
+      if (s + n > end) {
+        add(id, 'error', `要在 ${hm(end)} 前跑完（從 ${hm(s)} 開始跑不完 ${n * 15} 分鐘）`)
+        continue // 先修這個，不另外提醒超出建議範圍
+      }
       let outside = false
       for (let k = 0; k < n; k++) if (!inDefault(id, s + k)) outside = true
       if (outside) add(id, 'warn', `不在建議範圍（${SHIFTABLE_RULES[id].text}）`)
     }
   }
-  // 先後：烘衣機要等洗衣機跑完
+  // 先後：烘衣機要等洗衣機跑完。其中一台自己就有錯（放不下、跑不完）時先修那個，不重複報
   const w = cond.washer
   const d = cond.dryer
-  if (w.mode !== 'off' && d.mode !== 'off' && !pairStarts(cond).ok) {
+  const broken = out.some((x) => x.level === 'error' && (x.devId === 'washer' || x.devId === 'dryer'))
+  if (w.mode !== 'off' && d.mode !== 'off' && !broken && !pairStarts(cond).ok) {
     const dw = durOf('washer')
     add('dryer', 'error', w.mode === 'fixed' && d.mode === 'fixed'
       ? `要在洗衣機洗完（${hm(w.start + dw)}）之後才能開`

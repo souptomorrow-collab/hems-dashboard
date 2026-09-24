@@ -9,12 +9,12 @@ import DevicePrefs, { deviceStatus } from '../components/DevicePrefs.jsx'
 import MonthView from '../components/MonthView.jsx'
 import { loadPrefs, savePrefs } from '../api/prefs.js'
 import { useScenario, getScenario, SEASONS, useScenarioDays } from '../lib/scenario.js'
-import { refreshCached, fetchSchedules } from '../api/forecastData.js'
+import { cached, fetchSchedules, SCHEDULES_REFRESHED } from '../api/forecastData.js'
 import { PREFS_SAVED } from '../api/prefs.js'
 import { useDemoEnabled, getDemo, togglePlay } from '../lib/demoClock.js'
 import {
-  SHIFT_IDS, defaultCond, recommendCond, recCond, followsRec, fromPrefs, toPrefs, condKey, estimate, rowsOf,
-  startsFromRows, checkCond, durOf, latestStart, hardOk, inDefault, nameOf, hm,
+  SHIFT_IDS, defaultCond, recommendCond, recCond, followsRec, fromPrefs, toPrefs, condKey, estimate, estimateWithRec,
+  recClash, rowsOf, startsFromRows, checkCond, durOf, latestStart, hardOk, inDefault, nameOf, hm,
 } from '../lib/deviceJobs.js'
 import { tomorrow, fmtDate, pad2 } from '../lib/format.js'
 import { useTheme } from '../lib/theme.js'
@@ -42,6 +42,7 @@ const OBJECTIVE = {
   descPlan: '電池在離峰與太陽能充足時充電、尖峰時放電，電費最低',
 }
 const HOURS = Array.from({ length: 24 }, (_, h) => h)
+const STALL_MS = 3 * 60 * 1000 // 送出後 3 分鐘都沒有任何一天重排好，就不再等（和整月檢視相同）
 const md = (d) => (d ? `${+d.slice(5, 7)}/${+d.slice(8, 10)}` : '')
 const parseDay = (s) => {
   const [y, m, d] = s.split('-').map(Number)
@@ -68,7 +69,10 @@ export default function Planning() {
   const { next: planDay } = useScenarioDays()
   const [cond, setCond] = useState(null) // 隔日各設備的條件（lib/deviceJobs.js）
   const [sent, setSent] = useState('') // 已送出（或雲端讀到）的條件，判斷有沒有改過
-  const loaded = useRef(null) // 載入時的 { cond, starts, source, plan, rec }：「復原更改」與電費比較用
+  // 基準 { cond, starts, source, plan, rec, recCost }：載入時的，送出後換成送出的那一份。「復原更改」回到這裡、
+  // 電費「改之前」和這裡比。recCost 是日前排程另外算的「三台都照建議」電費（MILP 設備和電池一起排；沒有是 null）
+  const loaded = useRef(null)
+  const [justSent, setJustSent] = useState(false) // 剛送出、本機還沒重排好（重新載入就清掉）
   const [est, setEst] = useState(null) // 各設備預估幾點開（第幾格；不跑是 null）
   const [estSource, setEstSource] = useState('price') // schedule＝日前排程（MILP）、price＝依電價估
   const [rec, setRec] = useState(null) // 建議時間：三台都照建議時各設備幾點開（第幾格）
@@ -76,6 +80,8 @@ export default function Planning() {
   const [cmp, setCmp] = useState(null) // { recCost, diffs }：照建議排的電費、指定時間比建議時間多花多少
   const [sending, setSending] = useState(false)
   const [prefsMsg, setPrefsMsg] = useState('')
+  const planRef = useRef(null) // 最新一次重算的結果（送出時記成基準；重算是非同步的）
+  planRef.current = plan
 
   // 展示模式播放中進到這頁先暫停：拖甘特圖時隔日不會跟著播放換掉，調整完到上方按 ▶ 繼續
   useEffect(() => {
@@ -83,29 +89,53 @@ export default function Planning() {
   }, [])
   const [reload, setReload] = useState(0)
   const planStamp = useRef(null)
-  const [awaiting, setAwaiting] = useState(null) // 存下新時段後，等本機把隔日照這一版設定重排
+  // 送出後，等本機把隔日照這一版設定重排：{ stamp＝這次設定的版本, day＝送出的那天（null＝整個換掉） }
+  const [awaiting, setAwaiting] = useState(null)
+  // 本機從送出的那天起重排同一個月（電量一天接一天）：隔日在這個範圍內才等；換到別天（之前、別的月）不會換新，不等
+  const waitHere = Boolean(awaiting && planDay
+    && (!awaiting.day || (planDay.slice(0, 7) === awaiting.day.slice(0, 7) && planDay >= awaiting.day)))
 
-  // 存下新時段後本機會先重排隔日：每 5 秒重讀排程，隔日那份換成新設定就重新載入這頁的規劃
   useEffect(() => {
-    const onSaved = (e) => e.detail?.stamp && setAwaiting(e.detail.stamp)
+    const onSaved = (e) => e.detail?.stamp && setAwaiting({ stamp: e.detail.stamp, day: e.detail.from ?? null })
     window.addEventListener(PREFS_SAVED, onSaved)
     return () => window.removeEventListener(PREFS_SAVED, onSaved)
   }, [])
+  // 不自己輪詢：整月檢視重算期間每 5 秒重讀排程、版面（Layout）在本機重算時每 10 秒重讀，讀到都會發
+  // SCHEDULES_REFRESHED；隔日那份換成新設定就重新載入這頁的規劃。3 分鐘都沒有任何一天換新就不等了
   useEffect(() => {
-    if (!awaiting) return undefined
+    if (!waitHere) return undefined
     let on = true
-    const t0 = Date.now()
-    const tick = async () => {
-      if (Date.now() - t0 > 3 * 60 * 1000) { setAwaiting(null); return } // 3 分鐘沒動靜就不等了
-      const s = await refreshCached('schedule', fetchSchedules).catch(() => null)
-      if (!on || s?.byDate?.[planDay]?.prefs_stamp !== awaiting) return
-      setAwaiting(null)
-      setReload((n) => n + 1)
+    let timer = null
+    let seen = null
+    const arm = () => {
+      clearTimeout(timer)
+      timer = setTimeout(() => on && setAwaiting(null), STALL_MS)
     }
-    const id = setInterval(tick, 5000)
-    tick()
-    return () => { on = false; clearInterval(id) }
-  }, [awaiting, planDay])
+    const done = (s) => s?.byDate?.[planDay]?.prefs_stamp === awaiting.stamp
+    const onRefreshed = (e) => {
+      if (!on) return
+      if (done(e.detail)) {
+        setAwaiting(null)
+        setReload((n) => n + 1)
+        return
+      }
+      // 有別的日子換新（本機還在算）就重新計時
+      const sig = Object.values(e.detail?.byDate ?? {}).map((x) => x.prefs_stamp).join()
+      if (sig !== seen) {
+        seen = sig
+        arm()
+      }
+    }
+    window.addEventListener(SCHEDULES_REFRESHED, onRefreshed)
+    arm()
+    // 換到已經重排好的日子：快取裡的排程已是新的（這次載入就是新設定），不用再等
+    cached('schedule', fetchSchedules).then((s) => on && done(s) && setAwaiting(null)).catch(() => {})
+    return () => {
+      on = false
+      clearTimeout(timer)
+      window.removeEventListener(SCHEDULES_REFRESHED, onRefreshed)
+    }
+  }, [waitHere, awaiting, planDay])
 
   // 進頁面即取得隔日的規劃與條件；切換情境、換天、本機重排好時重新載入，沒送出的更改一併清掉
   useEffect(() => {
@@ -113,6 +143,7 @@ export default function Planning() {
     if (!planDay) return undefined // 展示模式播到月底，沒有隔日可以規劃
     setComputing(true)
     setPrefsMsg('')
+    setJustSent(false)
     ;(async () => {
       const p = await fetchPlanning(planDay)
       if (!on || !p) return
@@ -123,18 +154,20 @@ export default function Planning() {
         if (!on) return
         c = fromPrefs(d.devices)
       }
-      // 預估時間：展示模式有日前排程就用排程的（MILP 把設備和電池一起排）；平常模式或沒有排程時依電價估
       const fromPlan = demoOn && p.planSource !== 'sim'
-      const starts = fromPlan ? startsFromRows(p.schedule) : estimate(c, p.price)
       // 建議時間：展示模式用日前排程另外算的（三台都照建議的 MILP 解）；平常模式或沒有時依電價估
       const recPlan = fromPlan && p.recommended?.start_slot
       const recStarts = recPlan
         ? Object.fromEntries(SHIFT_IDS.map((id) => [id, p.recommended.start_slot[id] ?? null]))
         : estimate(recommendCond(), p.price)
+      const recCost = recPlan && Number.isFinite(p.recommended.cost) ? +p.recommended.cost.toFixed(1) : null
+      // 預估時間：展示模式有日前排程就用排程的（MILP 把設備和電池一起排）；平常模式或沒有排程時，
+      // 照建議的用建議時間、其他依電價估（和改條件時同一套）
+      const starts = fromPlan ? startsFromRows(p.schedule) : estimateWithRec(c, p.price, recStarts)
       const rows = { ...p.schedule, ...rowsOf(starts) }
       const cur = fromPlan ? p : await recomputeSchedule(rows, planDay)
       if (!on) return
-      loaded.current = { cond: c, starts, source: fromPlan ? 'schedule' : 'price', plan: cur, rec: recStarts }
+      loaded.current = { cond: c, starts, source: fromPlan ? 'schedule' : 'price', plan: cur, rec: recStarts, recCost }
       setCond(c)
       setSent(condKey(c))
       setEst(starts)
@@ -148,22 +181,23 @@ export default function Planning() {
     return () => { on = false }
   }, [season, reload, planDay, demoOn])
 
-  /** 套用新的條件：條件沒變的設備沿用載入時的預估（展示模式是排程排的），照建議的用建議時間，
+  /** 套用新的條件：條件沒變的設備沿用基準的預估（展示模式是排程排的），照建議的用建議時間
+      （洗衣機、烘衣機只有一台照建議時，和另一台的條件接得上才用；接不上的原因顯示在那台底下），
       其他依電價估；再重算電費 */
   const apply = (c) => {
     const base = loaded.current
     if (!base || !schedule || !plan) return
     const same = (ids) => ids.every((id) => JSON.stringify(c[id]) === JSON.stringify(base.cond[id]))
-    const starts = estimate(c, plan.price)
-    // 洗衣機、烘衣機有先後：兩台都照建議（或另一台不開）才直接用建議時間，否則照上面依電價估的
-    const pair = ['washer', 'dryer'].every((id) => followsRec(c, id) || c[id].mode === 'off')
-    for (const id of SHIFT_IDS) {
-      if (base.rec?.[id] != null && followsRec(c, id) && (id === 'dishwasher' || pair)) starts[id] = base.rec[id]
-    }
-    if (same(['dishwasher'])) starts.dishwasher = base.starts.dishwasher
-    if (same(['washer', 'dryer'])) Object.assign(starts, { washer: base.starts.washer, dryer: base.starts.dryer })
-    const rows = { ...schedule, ...rowsOf(starts) }
+    let starts = estimateWithRec(c, plan.price, base.rec)
     const all = same(SHIFT_IDS)
+    if (!all && SHIFT_IDS.every((id) => followsRec(c, id) && base.rec?.[id] != null)) {
+      starts = { ...base.rec } // 三台都照建議：就是建議時間本身（三台一起排的解），沒改的那台也不沿用基準的預估
+    } else {
+      if (same(['dishwasher'])) starts.dishwasher = base.starts.dishwasher
+      if (same(['washer', 'dryer'])) Object.assign(starts, { washer: base.starts.washer, dryer: base.starts.dryer })
+    }
+    const rows = { ...schedule, ...rowsOf(starts) }
+    if (cond && condKey(c) !== condKey(cond)) setPrefsMsg('') // 條件改了：上一次「已送出」的訊息不再適用
     setCond(c)
     setEst(starts)
     setEstSource(all ? base.source : 'price')
@@ -178,24 +212,29 @@ export default function Planning() {
   const follow = (id) => apply({ ...cond, [id]: recCond(id) })
   const undo = () => loaded.current && apply(loaded.current.cond)
   const dirty = Boolean(cond) && condKey(cond) !== sent
-  const problems = useMemo(() => (cond ? checkCond(cond) : []), [cond])
+  // 條件的問題（⛔ 擋送出、⚠️ 提醒），加上照建議的設備為什麼預估時間不是建議時間
+  const problems = useMemo(() => (cond
+    ? [...checkCond(cond), ...Object.entries(recClash(cond, rec)).map(([devId, text]) => ({ devId, level: 'warn', text }))]
+    : []), [cond, rec])
 
   // 照建議排的電費，以及指定時間的設備比建議時間多花多少。都用 recomputeSchedule 算，
-  // 和上面「預估電費」同一套算法（展示模式電池照原排程），比起來才公平
+  // 和上面「預估電費」同一套算法（展示模式電池照原排程），比起來才公平。
+  // 照建議排的電費有日前排程另外算的 MILP 解（設備和電池一起排）就用那個，不另外試算
   useEffect(() => {
     if (!schedule || !cond || !rec || !planDay) return undefined
     let on = true
     const moved = SHIFT_IDS.filter((id) => cond[id].mode === 'fixed' && rec[id] != null && est?.[id] != null && est[id] !== rec[id])
+    const milp = loaded.current?.recCost ?? null
     ;(async () => {
       const cur = await recomputeSchedule(schedule, planDay)
-      const all = await recomputeSchedule({ ...schedule, ...rowsOf(rec) }, planDay)
+      const all = milp == null ? await recomputeSchedule({ ...schedule, ...rowsOf(rec) }, planDay) : null
       const diffs = {}
       for (const id of moved) {
         const alt = await recomputeSchedule({ ...schedule, [id]: rowsOf({ [id]: rec[id] })[id] }, planDay)
         const d = +(cur.summary.optimizedCost - alt.summary.optimizedCost).toFixed(1)
         diffs[id] = Math.abs(d) < 0.05 ? 0 : d
       }
-      if (on) setCmp({ recCost: all.summary.optimizedCost, diffs })
+      if (on) setCmp({ recCost: all?.summary.optimizedCost ?? null, diffs })
     })().catch(() => on && setCmp(null))
     return () => { on = false }
   }, [schedule, cond, rec, est, planDay])
@@ -203,11 +242,17 @@ export default function Planning() {
   /** 送出明天的排法：只管那一天；本機從隔日起重排（電量一天接一天，之後幾天也會變），今天以前不動 */
   const submit = async () => {
     if (!cond) return
+    const c = cond
+    const starts = est
+    const source = estSource
     setSending(true)
-    const r = await savePrefs(toPrefs(cond), planDay)
+    const r = await savePrefs(toPrefs(c), planDay)
     setSending(false)
     if (r.saved === 'cloud') {
-      setSent(condKey(cond))
+      setSent(condKey(c))
+      // 送出的條件成為新的基準：「復原更改」回到送出的條件，電費「改之前」也和送出的比
+      if (loaded.current) loaded.current = { ...loaded.current, cond: c, starts, source, plan: planRef.current ?? loaded.current.plan }
+      setJustSent(true)
       setPrefsMsg(`已送出。只排 ${md(planDay)} 這一天；本機排程程式重排 ${md(planDay)} 以後的日子（電量一天接一天）、今天以前不動，最下方整月檢視看得到一天一天更新。`)
     } else {
       setPrefsMsg(`沒有送出：${r.error ?? '未設定雲端金鑰'}`)
@@ -338,20 +383,29 @@ export default function Planning() {
   }, [plan, theme])
 
   const s = plan?.summary
+  // 電費是試算：有日前排程時電池照原排程，只換設備時間（排程還沒照這個條件重排）；送出後由排程把設備和電池一起重排
+  const trial = Boolean(plan && plan.planSource !== 'sim' && estSource !== 'schedule')
+  const followAll = Boolean(cond) && SHIFT_IDS.every((id) => followsRec(cond, id)) // 三台都照建議
+  const milpRec = loaded.current?.recCost ?? null
   // 改了條件後，電費和改之前（載入時／已送出的）差多少
   const base = loaded.current?.plan?.summary
   const costDiff = s && base ? +(s.optimizedCost - base.optimizedCost).toFixed(1) : null
-  const costDiffText = costDiff == null || !dirty
+  const diffWord = costDiff == null ? ''
+    : costDiff === 0 ? '和改之前相同' : `比改之前${costDiff > 0 ? '多' : '少'} ${Math.abs(costDiff)} 元`
+  // 三台都照建議：試算的電池沒跟著設備重排，會比 MILP 一起排的貴，直接比會變成「照建議反而多花」；改成說送出後重排約多少
+  const costDiffText = !dirty || costDiff == null
     ? ''
-    : costDiff === 0
-    ? '和改之前相同'
-    : `比改之前${costDiff > 0 ? '多' : '少'} ${Math.abs(costDiff)} 元`
+    : trial && followAll && milpRec != null
+    ? `電池照原排程試算・送出後重排約 ${milpRec} 元（改之前 ${base.optimizedCost}）`
+    : trial
+    ? `${diffWord}（電池照原排程試算）`
+    : diffWord
 
   if (!planDay) {
     return (
       <>
         <Panel>
-          <p className="hint">展示模式播到月底了，沒有隔日可以調整。到上方展示列換一天，或按 ⟲ 從月初重播。</p>
+          <p className="hint">展示模式播到月底了，沒有隔日可以調整。到上方展示列換一天，或按 ▶ 從月初重播。</p>
         </Panel>
         {demoOn && <MonthView />}
       </>
@@ -392,12 +446,12 @@ export default function Planning() {
             <div style={{ fontWeight: 700, marginBottom: 8 }}>
               {demoOn && planDay ? `${fmtDate(parseDay(planDay))}・展示中` : fmtDate(planDate)}
             </div>
-            {awaiting && <div className="hint" role="status" style={{ marginBottom: 8 }}>⏳ 本機正在照新設定重排隔日…</div>}
+            {waitHere && <div className="hint" role="status" style={{ marginBottom: 8 }}>⏳ 本機正在照新設定重排隔日…</div>}
             <button
               className="btn primary"
               onClick={undo}
               disabled={computing || !dirty}
-              title={dirty ? '捨棄還沒送出的更改，回到載入時的條件' : '條件沒有改過'}
+              title={dirty ? '捨棄還沒送出的更改，回到上次送出（沒送出過就是載入時）的條件' : '條件沒有改過'}
             >
               ↺ 復原更改
             </button>
@@ -435,12 +489,15 @@ export default function Planning() {
         estSource={estSource}
         rec={rec}
         recSource={recSource}
-        recCost={cmp?.recCost ?? null}
+        recCost={milpRec ?? cmp?.recCost ?? null}
+        recTrial={milpRec == null && Boolean(plan && plan.planSource !== 'sim')}
         curCost={s?.optimizedCost ?? null}
+        curTrial={trial}
         diffs={cmp?.diffs}
         date={planDay}
         cloud={demoOn}
         dirty={dirty}
+        sent={justSent}
         sending={sending}
         msg={prefsMsg}
         problems={problems}
@@ -549,7 +606,7 @@ export default function Planning() {
         )}
       </Panel>
 
-      {/* 展示模式才顯示整個展示月的日前排程與實時運轉；存下新時段後看得到隔日以後一天一天換成新設定 */}
+      {/* 展示模式才顯示整個展示月的日前排程與實時運轉；送出後看得到隔日以後一天一天換成新設定 */}
       {demoOn && <MonthView />}
     </>
   )

@@ -13,6 +13,7 @@
                同季節、同一個星期幾那天的資料。日期照真實日期，往回最多一年。
      展示模式  fetchDayActual()／fetchDailyActual()：資料庫的實時運轉紀錄（排程組 MILP 每 15 分鐘重排、
                逐秒控制的結果），只有兩個展示月；日期是展示月 1 日到展示時鐘的昨天。
+               展示月最後一天播到最後一格（23:45 以後，播完整月也會停在這裡）時，月底這天也列入。
    只收已經結束的日子（到昨天為止）——和電費帳單一樣，今天要到 24:00 才結算。
    ============================================================ */
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -22,13 +23,13 @@ import Tile from '../components/Tile.jsx'
 import WeatherStrip from '../components/WeatherStrip.jsx'
 import { fetchDailyUsage, fetchDaySim, fetchDayActual, fetchDailyActual, fetchPlanVsActual, ymd, parseYmd, addDays } from '../api/client.js'
 import { useDataRevision } from '../hooks/useDataRevision.js'
-import { useDemoEnabled } from '../lib/demoClock.js'
+import { useDemoEnabled, useDemoSlot } from '../lib/demoClock.js'
 import { useScenarioDays } from '../lib/scenario.js'
 import { COLORS, DEVICE_COLORS, BATTERY, SLOTS_PER_DAY, slotToTime } from '../lib/constants.js'
 import { TIER_LABEL, isSummer } from '../lib/tou.js'
 import { nowTaipei } from '../lib/time.js'
 import { useTheme, getTheme, setTheme } from '../lib/theme.js'
-import { toCsv, downloadCsv, printReport } from '../lib/exportFile.js'
+import { toCsv, downloadCsv, printReport, fitChartsOnPrint } from '../lib/exportFile.js'
 import { dayRecord } from '../lib/dayRecord.js'
 import { useIsAdmin } from '../lib/auth.js'
 import { SHIFTABLE_RULES } from '../lib/simulate.js'
@@ -69,6 +70,11 @@ const diffText = (d, unit, digits = 1) =>
 /** 千分位＋固定小數位（區間統計一年份會到上萬度，沒有千分位很難讀） */
 const fmt = (v, d) => v.toLocaleString('zh-TW', { minimumFractionDigits: d, maximumFractionDigits: d })
 const weekdayOf = (s) => WEEK[parseYmd(s).getDay()]
+/** 'YYYY-MM-DD' 夾在 lo～hi 之間（這種格式的字串直接比大小就是比日期） */
+const clampYmd = (s, lo, hi) => (s < lo ? lo : s > hi ? hi : s)
+/** 區間統計的預設：「昨天」所在那個月的 1 號到昨天。
+    今天是 1 號時昨天屬於上個月，就會自然顯示整個上月，不會出現空區間 */
+const thisMonthOf = (y) => ({ from: ymd(new Date(y.getFullYear(), y.getMonth(), 1)), to: ymd(y) })
 
 // 列印時白紙上要看得清楚：夜間模式先切到日間，印完再切回來（不寫入使用者的偏好）
 function printInLight() {
@@ -81,28 +87,57 @@ function printInLight() {
 
 export default function History() {
   const demoOn = useDemoEnabled()
-  const { today } = useScenarioDays() // 展示模式下跟著播放走
-  // 平常：真實日期往回一年；展示模式：展示月 1 日到展示時鐘的昨天（讀實時運轉紀錄）
+  const { today, next } = useScenarioDays() // 展示模式下跟著播放走；月底沒有隔日（next 是 null）
+  // 展示時鐘的「今天」最多到月底那天，只列到昨天的話 7/31、1/31 永遠看不到，整月合計也少一天。
+  // 月底這天播到最後一格（23:45 以後；整月播完會停在 23:59:59）就當作已經結束，一起列入。
+  // 只看格數（useDemoSlot 進到下一格才重畫），不必每 0.1 秒跟著時鐘重畫整頁
+  const demoSlot = useDemoSlot()
+  const monthDone = demoOn && !!today && !next && demoSlot >= SLOTS_PER_DAY - 1
+  // 平常：真實日期往回一年；展示模式：展示月 1 日到展示時鐘的昨天（月底播完則到月底，讀實時運轉紀錄）。
+  // 下面沿用 yesterday 這個名字，指的是「可以看的最後一天」
   const [yesterday, minDay] = useMemo(() => {
     if (demoOn && today) {
       const t = parseYmd(today)
-      return [addDays(t, -1), new Date(t.getFullYear(), t.getMonth(), 1)]
+      return [monthDone ? t : addDays(t, -1), new Date(t.getFullYear(), t.getMonth(), 1)]
     }
     const y = addDays(nowTaipei(), -1)
     return [y, addDays(y, -364)]
-  }, [demoOn, today])
+  }, [demoOn, today, monthDone])
   const [tab, setTab] = useState('day')
   const [day, setDay] = useState(() => ymd(yesterday))
+  // 區間統計的起訖與彙整單位放在這一層：點某天進單日紀錄再切回來，自己選的區間還在
+  const [range, setRange] = useState(() => thisMonthOf(yesterday))
+  const [unit, setUnit] = useState('day')
   // 切換模式、或展示時鐘換天時：原本看的就是「昨天」（沒有自己選別天）就跟著換到新的昨天；
-  // 選的日期超出範圍也拉回昨天；其他情況保留使用者選的那天
+  // 選的日期超出範圍也拉回昨天；其他情況保留使用者選的那天。
+  // 區間統計同樣處理：結束日原本是昨天就跟著換，起訖都夾回範圍（展示日往回調時，不會列出「昨天」之後的日子）；
+  // 平常↔展示、或換了展示月，區間回到預設的本月
+  const scope = demoOn ? `demo-${ymd(minDay)}` : 'real'
+  const prevScope = useRef(scope)
   const prevYesterday = useRef(ymd(yesterday))
   useEffect(() => {
     const y = ymd(yesterday)
+    const lo = ymd(minDay)
     const was = prevYesterday.current
     prevYesterday.current = y
-    setDay((d) => (d === was || d > y || d < ymd(minDay) ? y : d))
-  }, [yesterday, minDay])
+    setDay((d) => (d === was || d > y || d < lo ? y : d))
+    if (prevScope.current !== scope) {
+      prevScope.current = scope
+      setRange(thisMonthOf(yesterday))
+      setUnit('day')
+    } else {
+      setRange(({ from, to }) => ({ from: clampYmd(from, lo, y), to: to === was ? y : clampYmd(to, lo, y) }))
+    }
+  }, [yesterday, minDay]) // eslint-disable-line react-hooks/exhaustive-deps
+  // 列印（按鈕或 Ctrl+P）時圖表照紙張寬度重畫，印完畫回螢幕寬度
+  useEffect(() => fitChartsOnPrint(), [])
   const empty = yesterday < minDay // 展示月第一天：還沒有過去的日子
+  // 區間統計右上的說明：展示月月底那天還沒播完時，說明整月合計要等它播完
+  const lastNote = monthDone
+    ? '展示月已播到月底：整月都已結算'
+    : demoOn && !next
+      ? '只列到昨天：月底這天播到最後一格（23:45）就會列入'
+      : '只列到昨天：今天要到 24:00 才結算'
 
   return (
     <div className="history">
@@ -122,10 +157,15 @@ export default function History() {
         <DayView date={day} setDate={setDay} yesterday={yesterday} minDay={minDay} actual={demoOn} />
       ) : (
         <RangeView
-          key={demoOn ? `demo-${ymd(minDay)}` : 'real'}
+          key={scope}
           actual={demoOn}
           yesterday={yesterday}
           minDay={minDay}
+          range={range}
+          setRange={setRange}
+          unit={unit}
+          setUnit={setUnit}
+          note={lastNote}
           onPickDay={(d) => {
             setDay(d)
             setTab('day')
@@ -362,7 +402,7 @@ function DayView({ date, setDate, yesterday, minDay, actual }) {
         <div className="history-bar">
           <div className="day-nav">
             <button className="btn" onClick={() => step(-1)} disabled={atFirst} aria-label="前一天" title="前一天（鍵盤 ←）">◀</button>
-            <input type="date" className="date-input" aria-label="紀錄日期" value={date} min={ymd(minDay)} max={ymd(yesterday)} onChange={(e) => e.target.value && setDate(e.target.value)} />
+            <DateInput aria-label="紀錄日期" value={date} min={ymd(minDay)} max={ymd(yesterday)} onChange={setDate} />
             <button className="btn" onClick={() => step(1)} disabled={atLast} aria-label="後一天" title="後一天（鍵盤 →）">▶</button>
             <strong className="day-nav-wd">週{weekdayOf(date)}</strong>
             {w && (
@@ -564,6 +604,40 @@ function DayView({ date, setDate, yesterday, minDay, actual }) {
   )
 }
 
+/**
+ * 日期欄。瀏覽器的 min／max 只管日曆選單，擋不住直接用鍵盤打：原本打出範圍外的日期（未來、展示日之後）
+ * 會直接去讀那天，年份打到一半（0002-07-20、0201-07-20…）每按一鍵就讀一次、閃出錯誤訊息。
+ *   - 打完整的日期才交出去（onChange），範圍外的夾回最近的可選日（例如只能到 07/19 時打 07/25 → 07/19）
+ *   - 還沒打完的（清掉某一段、年份不到四位數）只留在欄位裡，不去讀資料；離開欄位時恢復成目前的日期
+ */
+function DateInput({ value, min, max, onChange, ...rest }) {
+  // 欄位上正在打的內容：受控元件要跟著使用者打的字走，否則 React 會把沒打完的年份蓋回去，年份就打不進去
+  const [draft, setDraft] = useState(value)
+  useEffect(() => setDraft(value), [value])
+  const change = (v) => {
+    if (!/^[1-9]\d{3}-\d{2}-\d{2}$/.test(v)) {
+      setDraft(v)
+      return
+    }
+    const ok = clampYmd(v, min, max)
+    setDraft(ok)
+    if (ok !== value) onChange(ok)
+  }
+  return (
+    <input
+      type="date"
+      className="date-input"
+      value={draft}
+      min={min}
+      max={max}
+      title={`可選 ${min} ～ ${max}`}
+      onChange={(e) => change(e.target.value)}
+      onBlur={() => setDraft(value)}
+      {...rest}
+    />
+  )
+}
+
 /** 紀錄讀取或計算失敗時的說明（取代一直轉圈的載入畫面） */
 function LoadError({ message }) {
   return (
@@ -700,15 +774,10 @@ function groupRows(rows, unit) {
 }
 const total = (rows) => Object.fromEntries(FIELDS.map((f) => [f, rows.reduce((a, r) => a + r[f], 0)]))
 
-function RangeView({ yesterday, minDay, onPickDay, actual }) {
+/* 起訖（range）與彙整單位（unit）由上層保存：切到單日紀錄時這個元件會卸載，切回來還是原本選的區間 */
+function RangeView({ yesterday, minDay, range, setRange, unit, setUnit, note, onPickDay, actual }) {
   const theme = useTheme()
-  const [from, setFrom] = useState(() => {
-    // 預設「昨天所在的那個月，從 1 號到昨天」。
-    // 今天是 1 號時昨天屬於上個月，就會自然顯示整個上月，不會出現空區間
-    return ymd(new Date(yesterday.getFullYear(), yesterday.getMonth(), 1))
-  })
-  const [to, setTo] = useState(() => ymd(yesterday))
-  const [unit, setUnit] = useState('day')
+  const { from, to } = range
   const [data, setData] = useState(null)
   const [loadError, setLoadError] = useState(null)
   const admin = useIsAdmin()
@@ -722,20 +791,27 @@ function RangeView({ yesterday, minDay, onPickDay, actual }) {
       .then((d) => on && setData(d))
       .catch((e) => on && setLoadError(e?.message ?? String(e)))
     return () => { on = false }
-  }, [from, to, rev]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [from, to, rev, actual])
 
   const rows = data?.rows ?? []
   const groups = useMemo(() => groupRows(rows, unit), [rows, unit])
   const sum = useMemo(() => total(rows), [rows])
 
-  const quick = (kind) => {
-    const y = yesterday
-    const set = (a, b) => { setFrom(ymd(a < minDay ? minDay : a)); setTo(ymd(b)) }
-    if (kind === 'thisMonth') set(new Date(y.getFullYear(), y.getMonth(), 1), y)
-    if (kind === 'lastMonth') set(new Date(y.getFullYear(), y.getMonth() - 1, 1), new Date(y.getFullYear(), y.getMonth(), 0))
-    if (kind === '7') set(addDays(y, -6), y)
-    if (kind === '30') set(addDays(y, -29), y)
-    if (kind === 'year') { set(addDays(y, -364), y); setUnit('month') }
+  // 快速選擇：起訖兩端都夾在可選範圍內（展示模式只有展示月 1 日到昨天），夾完開始日一定不晚於結束日。
+  // 整段都在範圍以前的（展示模式的「上個月」）不列出來，免得按了只剩 1 號一天
+  const lo = ymd(minDay)
+  const hi = ymd(yesterday)
+  const y = yesterday
+  const QUICK = [
+    { key: 'thisMonth', label: '本月', a: new Date(y.getFullYear(), y.getMonth(), 1), b: y },
+    { key: 'lastMonth', label: '上個月', a: new Date(y.getFullYear(), y.getMonth() - 1, 1), b: new Date(y.getFullYear(), y.getMonth(), 0) },
+    { key: '7', label: '近 7 天', a: addDays(y, -6), b: y },
+    { key: '30', label: '近 30 天', a: addDays(y, -29), b: y },
+    { key: 'year', label: '近 12 個月', a: addDays(y, -364), b: y, unit: 'month' },
+  ].filter((q) => ymd(q.b) >= lo)
+  const quick = (q) => {
+    setRange({ from: clampYmd(ymd(q.a), lo, hi), to: clampYmd(ymd(q.b), lo, hi) })
+    if (q.unit) setUnit(q.unit)
   }
 
   /* 原本是「kWh 長條＋電費折線」共用一張圖、左右兩個 y 軸：兩把尺各自縮放，
@@ -827,6 +903,8 @@ function RangeView({ yesterday, minDay, onPickDay, actual }) {
 
   const unitLabel = UNITS.find((u) => u.key === unit).label
   const savePct = sum.baseline > 0 ? (sum.savings / sum.baseline) * 100 : 0
+  // 日均：區間裡沒有任何一天有紀錄時不能除以 0（原本會顯示 NaN）
+  const perDay = (v) => (rows.length ? (v / rows.length).toFixed(1) : '—')
 
   return (
     <>
@@ -843,12 +921,12 @@ function RangeView({ yesterday, minDay, onPickDay, actual }) {
           <div className="history-filters">
             <label className="field">
               <span>開始</span>
-              <input type="date" className="date-input" value={from} min={ymd(minDay)} max={ymd(yesterday)} onChange={(e) => e.target.value && setFrom(e.target.value)} />
+              <DateInput value={from} min={lo} max={hi} onChange={(v) => setRange((r) => ({ ...r, from: v }))} />
             </label>
             <span className="dim">～</span>
             <label className="field">
               <span>結束</span>
-              <input type="date" className="date-input" value={to} min={ymd(minDay)} max={ymd(yesterday)} onChange={(e) => e.target.value && setTo(e.target.value)} />
+              <DateInput value={to} min={lo} max={hi} onChange={(v) => setRange((r) => ({ ...r, to: v }))} />
             </label>
             <div className="seg" role="group" aria-label="彙整單位">
               {UNITS.map((u) => (
@@ -866,12 +944,10 @@ function RangeView({ yesterday, minDay, onPickDay, actual }) {
         </div>
         <div className="quick-ranges">
           <span className="dim">快速選擇：</span>
-          <button onClick={() => quick('thisMonth')}>本月</button>
-          <button onClick={() => quick('lastMonth')}>上個月</button>
-          <button onClick={() => quick('7')}>近 7 天</button>
-          <button onClick={() => quick('30')}>近 30 天</button>
-          <button onClick={() => quick('year')}>近 12 個月</button>
-          <span className="dim" style={{ marginLeft: 'auto' }}>只列到昨天：今天要到 24:00 才結算</span>
+          {QUICK.map((q) => (
+            <button key={q.key} onClick={() => quick(q)}>{q.label}</button>
+          ))}
+          <span className="dim" style={{ marginLeft: 'auto' }}>{note}</span>
         </div>
       </Panel>
 
@@ -882,10 +958,10 @@ function RangeView({ yesterday, minDay, onPickDay, actual }) {
       ) : (
         <>
           <div className="grid cols-6 mt-16">
-            <Tile label="區間用電" value={fmt(sum.loadKwh, 1)} unit="kWh" sub={`${rows.length} 天，日均 ${(sum.loadKwh / rows.length).toFixed(1)} kWh`} color={COLORS.load} />
+            <Tile label="區間用電" value={fmt(sum.loadKwh, 1)} unit="kWh" sub={`${rows.length} 天，日均 ${perDay(sum.loadKwh)} kWh`} color={COLORS.load} />
             <Tile label="太陽能發電" value={fmt(sum.pvKwh, 1)} unit="kWh" color={COLORS.solar} />
             <Tile label="向電網購電" value={fmt(sum.gridKwh, 1)} unit="kWh" color={COLORS.grid} />
-            <Tile label="電費" value={Math.round(sum.cost).toLocaleString()} unit="元" sub={`日均 ${(sum.cost / rows.length).toFixed(1)} 元`} />
+            <Tile label="電費" value={Math.round(sum.cost).toLocaleString()} unit="元" sub={`日均 ${perDay(sum.cost)} 元`} />
             <Tile label="不裝 HEMS 的電費" value={Math.round(sum.baseline).toLocaleString()} unit="元" sub="無太陽能、無電池，全部向台電購買" />
             <Tile label="省下電費" value={Math.round(sum.savings).toLocaleString()} unit="元" sub={`省 ${savePct.toFixed(1)}%`} color={COLORS.save} />
           </div>

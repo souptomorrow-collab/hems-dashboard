@@ -28,7 +28,7 @@
 
    所有函式都回傳 Promise。
    ============================================================ */
-import { liveSnapshot, simulateDay, simulateWithSchedule, pack } from '../lib/simulate.js'
+import { liveSnapshot, simulateDay, simulateWithSchedule, pack, buildSchedule, powerAndLoadFromSchedule } from '../lib/simulate.js'
 import { nowTaipei } from '../lib/time.js'
 import { simulateWeather, weatherFromEra5 } from '../lib/weather.js'
 import { fetchDayAheadForecast, fetchWeatherData, fetchSchedules, fetchOperation, fetchPlans, cached, refreshCached, getJson } from './forecastData.js'
@@ -248,6 +248,8 @@ async function scenarioInputs(atSlot = null, day = null) {
     pv: d.pv,
     weather: era5For(await weatherData(), d.targetDate),
     plan,
+    op, // 那天的實時運轉紀錄（展示模式、站在某一格時才有），demoDay 用
+    date: d.targetDate,
   }
 }
 
@@ -413,42 +415,52 @@ async function operationDays() {
   return (await cached('operation', fetchOperation))?.byDate ?? {}
 }
 
+/** 逐格的負載、太陽能（未削減）、電池（正＝充電）、棄光、SOC → 能量流與當日合計（交給 pack 組成單日結構）。
+    拆法見上：太陽能扣掉棄光先供負載；充電時剩下的太陽能先充、不夠由電網充；放電時電池先供負載，其餘由電網補 */
+function flowsOf(L, PV, B, C, soc, price) {
+  const flows = { pvToLoad: [], pvToBatt: [], pvToGrid: [], battToLoad: [], gridToLoad: [], gridToBatt: [], socPct: [] }
+  const tot = { tPv: 0, tLoad: 0, tGridImport: 0, tCharge: 0, tDischarge: 0, tReverse: 0, optCost: 0, baseCost: 0 }
+  const r3 = (v) => +v.toFixed(3)
+  for (let s = 0; s < SLOTS_PER_DAY; s++) {
+    const used = Math.max(0, PV[s] - C[s])
+    let p2l
+    let p2b = 0
+    let b2l = 0
+    let g2b = 0
+    if (B[s] >= 0) {
+      p2l = Math.min(used, L[s])
+      p2b = Math.min(used - p2l, B[s])
+      g2b = B[s] - p2b
+    } else {
+      b2l = -B[s]
+      p2l = Math.min(used, Math.max(0, L[s] - b2l))
+    }
+    const g2l = Math.max(0, L[s] - p2l - b2l)
+    flows.pvToLoad.push(r3(p2l)); flows.pvToBatt.push(r3(p2b)); flows.pvToGrid.push(r3(C[s]))
+    flows.battToLoad.push(r3(b2l)); flows.gridToLoad.push(r3(g2l)); flows.gridToBatt.push(r3(g2b))
+    flows.socPct.push(soc[s])
+    const buy = (g2l + g2b) * SLOT_HOURS
+    tot.tPv += PV[s] * SLOT_HOURS; tot.tLoad += L[s] * SLOT_HOURS; tot.tGridImport += buy
+    tot.tCharge += Math.max(0, B[s]) * SLOT_HOURS; tot.tDischarge += b2l * SLOT_HOURS; tot.tReverse += C[s] * SLOT_HOURS
+    tot.optCost += buy * price[s]; tot.baseCost += L[s] * SLOT_HOURS * price[s]
+  }
+  return { flows, tot }
+}
+
+/** 實時運轉紀錄每格的購電（由能量流拆出，和 actualOn 相同） */
+function actualGrid(op, price) {
+  const { flows } = flowsOf(op.load_kw, op.pv_kw, op.batt_kw, op.curtail_kw, op.soc_pct, price)
+  return flows.gridToLoad.map((v, i) => +(v + flows.gridToBatt[i]).toFixed(3))
+}
+
 function actualOn(dateStr, day, wx) {
   const hit = actualCache.get(dateStr)
   if (hit && hit.stamp === day.prefs_stamp) return hit.res
   const t = parseYmd(dateStr)
   const price = getPriceSlots(t)
   const tier = getTierSlots(t)
-  const flows = { pvToLoad: [], pvToBatt: [], pvToGrid: [], battToLoad: [], gridToLoad: [], gridToBatt: [], socPct: [] }
-  const tot = { tPv: 0, tLoad: 0, tGridImport: 0, tCharge: 0, tDischarge: 0, tReverse: 0, optCost: 0, baseCost: 0 }
   const r3 = (v) => +v.toFixed(3)
-  for (let s = 0; s < SLOTS_PER_DAY; s++) {
-    const L = day.load_kw[s]
-    const PV = day.pv_kw[s]
-    const B = day.batt_kw[s]
-    const C = day.curtail_kw[s]
-    const used = Math.max(0, PV - C)
-    let p2l
-    let p2b = 0
-    let b2l = 0
-    let g2b = 0
-    if (B >= 0) {
-      p2l = Math.min(used, L)
-      p2b = Math.min(used - p2l, B)
-      g2b = B - p2b
-    } else {
-      b2l = -B
-      p2l = Math.min(used, Math.max(0, L - b2l))
-    }
-    const g2l = Math.max(0, L - p2l - b2l)
-    flows.pvToLoad.push(r3(p2l)); flows.pvToBatt.push(r3(p2b)); flows.pvToGrid.push(r3(C))
-    flows.battToLoad.push(r3(b2l)); flows.gridToLoad.push(r3(g2l)); flows.gridToBatt.push(r3(g2b))
-    flows.socPct.push(day.soc_pct[s])
-    const buy = (g2l + g2b) * SLOT_HOURS
-    tot.tPv += PV * SLOT_HOURS; tot.tLoad += L * SLOT_HOURS; tot.tGridImport += buy
-    tot.tCharge += Math.max(0, B) * SLOT_HOURS; tot.tDischarge += b2l * SLOT_HOURS; tot.tReverse += C * SLOT_HOURS
-    tot.optCost += buy * price[s]; tot.baseCost += L * SLOT_HOURS * price[s]
-  }
+  const { flows, tot } = flowsOf(day.load_kw, day.pv_kw, day.batt_kw, day.curtail_kw, day.soc_pct, price)
   const sim = pack(t, day.pv_kw, day.load_kw, price, tier, flows, tot)
   // 設備：可轉移設備照每格在跑的紀錄乘額定功率；不可轉移負載沒有分項，整筆算「未分項」
   const on = (id) => (day.devices?.[id] ?? []).slice(0, SLOTS_PER_DAY).map(Boolean)
@@ -522,7 +534,8 @@ export async function fetchPlanVsActual(dateStr) {
   return {
     date: dateStr, tier,
     plan: side(plan.load_kw, plan.pv_kw, plan.grid_buy_kw, plan.batt_kw, plan.soc_pct),
-    actual: side(op.load_kw, op.pv_kw, op.grid_kw, op.batt_kw, op.soc_pct),
+    // 實際購電用和上方卡片（actualOn）同一套能量流拆法，同一頁的同一個數字才不會差 0.1
+    actual: side(op.load_kw, op.pv_kw, actualGrid(op, price), op.batt_kw, op.soc_pct),
   }
 }
 
@@ -551,18 +564,66 @@ export function pvForecastMeta() {
 
 /** 主頁面即時快照（太陽能/電池/負載/電網/SOC/省電費…） */
 export async function fetchLive(now = nowTaipei(), atSlot = null) {
-  const { season, fixed, pv, weather, plan } = await scenarioInputs(atSlot)
+  const inp = await scenarioInputs(atSlot)
+  const { season, fixed, pv, weather, plan } = inp
   const at = scenarioNow(now, season)
+  const day = atSlot == null ? null : await demoDay(inp, atSlot)
   await delay(60)
-  return { ...liveSnapshot(at, fixed, pv, weather ?? simulateWeather(at), plan, routineFor(at)), season }
+  return { ...liveSnapshot(at, fixed, pv, weather ?? simulateWeather(at), plan, routineFor(at), day), season }
 }
 
 /** 今日整日（主頁面的 24h 趨勢圖、最佳化結果） */
 export async function fetchToday(now = nowTaipei(), atSlot = null) {
-  const { season, fixed, pv, weather, plan } = await scenarioInputs(atSlot)
+  const inp = await scenarioInputs(atSlot)
+  const { season, fixed, pv, weather, plan } = inp
   const at = scenarioNow(now, season)
+  const day = atSlot == null ? null : await demoDay(inp, atSlot)
   await delay(80)
-  return { ...simulateDay(at, weather ?? simulateWeather(at), fixed, pv, plan, routineFor(at)), season }
+  return { ...(day ?? simulateDay(at, weather ?? simulateWeather(at), fixed, pv, plan, routineFor(at))), season }
+}
+
+/**
+ * 展示模式站在第 atSlot 格的「今天」：已經過去的格子（含這一格）照實時運轉紀錄（/operation），
+ * 之後的格子照實時運轉層在這一格重排的計畫（/plans，和「未來 24 小時」同一份）。
+ * 負載、太陽能、電池、SOC、購電都是實時層的數字，和歷史紀錄、秒級重播、未來 24 小時一致；
+ * 不再把前一晚的日前排程套在實際負載上推算（那樣 SOC 會和實際差到 18%，跨午夜還會跳）。
+ * 不是展示模式、或那天沒有實時紀錄／這一格的計畫時回 null，呼叫端照舊用日前排程推算。
+ */
+async function demoDay(inp, atSlot) {
+  const { op, plan, weather, date } = inp
+  if (!op || !date) return null
+  const s = Math.max(0, Math.min(SLOTS_PER_DAY - 1, atSlot))
+  const p = (await plansFor(date).catch(() => null))?.bySlot?.[s]
+  if (!p) return null
+  const L = [], PV = [], B = [], C = [], SOC = []
+  for (let i = 0; i < SLOTS_PER_DAY; i++) {
+    if (i <= s) {
+      L.push(op.load_kw[i]); PV.push(op.pv_kw[i]); B.push(op.batt_kw[i]); C.push(op.curtail_kw[i]); SOC.push(op.soc_pct[i])
+    } else {
+      const j = i - s                                   // 計畫從第 s 格起算
+      L.push(p.load_kw[j]); PV.push(p.pv_kw[j]); B.push(p.batt_kw[j]); SOC.push(p.soc_pct[j])
+      // 計畫裡用不到的太陽能＝預計削減（購電＋用到的太陽能＝負載＋電池淨充電）
+      C.push(+Math.max(0, p.pv_kw[j] - Math.max(0, p.load_kw[j] + p.batt_kw[j] - p.grid_buy_kw[j])).toFixed(3))
+    }
+  }
+  const t = parseYmd(date)
+  const price = getPriceSlots(t)
+  const { flows, tot } = flowsOf(L, PV, B, C, SOC, price)
+  const day = pack(t, PV, L, price, getTierSlots(t), flows, tot)
+  // 各設備（頁面二）：可轉移設備照實際／預計開機（plan.devices 已由 devicesAt 換過），
+  // 不可轉移負載＝總負載扣掉可轉移設備，依模擬作息按比例拆到各設備（顯示用，同日前排程那條路）
+  const wx = weather ?? simulateWeather(t)
+  const schedule = buildSchedule(t, wx, false)
+  for (const [id, on] of Object.entries(plan?.devices ?? {})) {
+    if (Array.isArray(schedule[id]) && on?.length === SLOTS_PER_DAY) schedule[id] = on.map(Boolean)
+  }
+  const shiftKw = L.map((_, i) => DEVICES.filter((d) => d.category === 'shiftable')
+    .reduce((a, d) => a + (schedule[d.id][i] ? d.ratedW / 1000 : 0), 0))
+  const { power, fixed, shiftable } = powerAndLoadFromSchedule(schedule, wx, L.map((v, i) => Math.max(0, v - shiftKw[i])))
+  return {
+    ...day, schedule, devicePower: power, fixedLoad: fixed, shiftableLoad: shiftable, weather: wx,
+    loadSource: 'rf', pvSource: 'lstm', planSource: 'actual', planDate: date,
+  }
 }
 
 /* ------------------------------------------------------------

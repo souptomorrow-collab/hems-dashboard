@@ -20,6 +20,7 @@ import {
   seekDemo,
   seekDemoDay,
   setSpeed,
+  atMonthEnd,
   SPEEDS,
 } from '../lib/demoClock.js'
 import { SLOTS_PER_DAY, slotToTime } from '../lib/constants.js'
@@ -41,8 +42,10 @@ const hms = (s) => `${p2(Math.floor(s / 3600))}:${p2(Math.floor(s / 60) % 60)}:$
 const WATCH_URL = 'hems-watch://start'
 
 /* monthOnly：用電規劃頁不需要時段的進度條與速度（隔日規劃不看今天播到幾點），
-   只留日期、暫停／繼續；進到那頁時播放會先暫停，拖甘特圖時隔日才不會跟著換掉 */
-export default function DemoBar({ monthOnly = false, history = false }) {
+   只留日期、暫停／繼續；進到那頁時播放會先暫停，拖甘特圖時隔日才不會跟著換掉
+   compact：系統資訊頁用的精簡版，只在展示中出現：結束、暫停／繼續、目前播到哪（頁首時鐘照展示時間在走，
+   這頁卻沒有控制列的話，講系統設定時停不下來）。換天、拖時段、快捷鍵都回主頁面操作 */
+export default function DemoBar({ monthOnly = false, history = false, compact = false }) {
   const demo = useDemoClock()
   const speed = SPEEDS.find((s) => s.key === demo.speed) ?? SPEEDS[0]
   const { season } = useScenario()
@@ -103,7 +106,7 @@ export default function DemoBar({ monthOnly = false, history = false }) {
   // 展示時用鍵盤操作，口試講解時不必回頭找滑鼠：
   // 空白鍵暫停／繼續、← → 前後一格（按住 Shift 一次一小時）、PageUp／PageDown 前後一天、Home 回到月初
   useEffect(() => {
-    if (!demo.enabled || monthOnly) return
+    if (!demo.enabled || monthOnly || compact) return
     const onKey = (e) => {
       if (e.altKey || e.ctrlKey || e.metaKey) return
       const tag = e.target?.tagName
@@ -122,7 +125,25 @@ export default function DemoBar({ monthOnly = false, history = false }) {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [demo.enabled, monthOnly])
+  }, [demo.enabled, monthOnly, compact])
+
+  // 日期欄：只接受展示月裡完整的日期。原本只取「日」那兩位，打 2010-08-05 會直接跳到 7/5；
+  // 在欄位裡改年或月（日期其實沒變）也會把時間重設到 00:00。月外的日期不動、提示幾秒，欄位回到播放中的那天
+  const [dayNote, setDayNote] = useState('')
+  useEffect(() => {
+    if (!dayNote) return undefined
+    const id = setTimeout(() => setDayNote(''), 4000)
+    return () => clearTimeout(id)
+  }, [dayNote])
+  const pickDay = (value) => {
+    if (!value) return
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || value < monthStart || value > monthEnd) {
+      setDayNote(`只能選 ${md(monthStart)}～${md(monthEnd)}`)
+      return
+    }
+    setDayNote('')
+    if (value !== today) seekDemoDay(+value.slice(8, 10) - 1) // 同一天（改了一段又改回來）不重設時間
+  }
 
   // 播放中的日期：可以直接選一天跳過去，或前後一天
   const dayPicker = (
@@ -136,18 +157,25 @@ export default function DemoBar({ monthOnly = false, history = false }) {
           value={today}
           min={monthStart}
           max={monthEnd}
-          onChange={(e) => e.target.value && seekDemoDay(+e.target.value.slice(8, 10) - 1)}
+          onChange={(e) => pickDay(e.target.value)}
         />
       </label>
       <span className="demo-wk">（{wk(today)}）</span>
       <button className="demo-btn" onClick={() => seekDemoDay(demo.day + 1)} disabled={demo.day >= days - 1} title="後一天">›</button>
+      <span className="demo-day-note" role="status">{dayNote}</span>
     </div>
   )
+  // 播完整個月會停在月底最後一秒；這時按 ▶（或空白鍵）從月初重播（見 demoClock.js 的 togglePlay）
+  const ended = !demo.playing && atMonthEnd(demo)
   const playBtn = (
-    <button className="demo-btn" onClick={togglePlay} title={demo.playing ? '暫停' : '繼續'}>
+    <button className="demo-btn" onClick={togglePlay} title={demo.playing ? '暫停' : ended ? '播完了：從月初重播' : '繼續'}>
       {demo.playing ? '⏸' : '▶'}
     </button>
   )
+  const clockText = demo.speed <= 300 ? hms(demo.sec) : slotToTime(demo.slot)
+
+  // 系統資訊頁的精簡版只在展示中出現（Layout 也只在展示中放），結束展示的那一刻就收起來
+  if (compact && !demo.enabled) return null
 
   return (
     <div className={`demo-bar ${demo.enabled ? 'on' : ''}`}>
@@ -164,13 +192,26 @@ export default function DemoBar({ monthOnly = false, history = false }) {
           {`目前是今天、全部模擬。開啟後換成專題的實際資料：從 ${md(monthStart)} 起一天一天播完 ${month}`
             + '（RF／LSTM 預測、MILP 排程、實時運轉），今天跟著播放走、能調整的隔日也跟著走'}
         </span>
+      ) : compact ? (
+        <>
+          {playBtn}
+          <div className="demo-time">
+            <strong>{clockText}</strong>
+            <span className="muted">{md(today)}（{wk(today)}）</span>
+          </div>
+          <span className="hint demo-note">
+            {ended
+              ? '播完整個月了：按 ▶ 從月初重播'
+              : `${demo.playing ? '展示播放中' : '展示已暫停'}：頁首的時鐘與電價照展示時間走，本頁的系統設定不受影響・換天、拖時段請回主頁面`}
+          </span>
+        </>
       ) : monthOnly ? (
         <>
           {playBtn}
           {dayPicker}
           <span className="hint demo-note">
             {history
-              ? `今天 ${md(today)}，歷史紀錄是展示月到昨天為止的實時運轉結果・按 ‹ › 換天`
+              ? `今天 ${md(today)}，歷史紀錄是展示月到昨天為止的實時運轉結果（月底播到 23:45 以後含當天）・按 ‹ › 換天`
               : <>{next ? `今天 ${md(today)}，只能調整隔日 ${md(next)}` : '播到月底了，沒有隔日可以調整'}
                 ・進到這頁會先暫停，調整完按 ▶ 繼續</>}
           </span>
@@ -185,7 +226,7 @@ export default function DemoBar({ monthOnly = false, history = false }) {
           {dayPicker}
 
           <div className="demo-time">
-            <strong>{demo.speed <= 300 ? hms(demo.sec) : slotToTime(demo.slot)}</strong>
+            <strong>{clockText}</strong>
             <span className="muted">
               第 {demo.slot + 1} / {SLOTS_PER_DAY} 格
             </span>
@@ -214,7 +255,11 @@ export default function DemoBar({ monthOnly = false, history = false }) {
             ))}
           </div>
 
-          <span className="hint demo-note">{speed.hint}・空白鍵暫停、← → 前後一格、PageUp／PageDown 前後一天</span>
+          <span className="hint demo-note">
+            {ended
+              ? '播完整個月了：按 ▶ 或空白鍵從月初重播'
+              : `${speed.hint}・空白鍵暫停、← → 前後一格、PageUp／PageDown 前後一天`}
+          </span>
         </>
       )}
       {watchChip}

@@ -200,7 +200,10 @@ export default function System() {
               </tbody>
             </table>
           </div>
-          <p className="hint prose mt-16">{'週六、週日全天離峰（未計入國定假日）。'}</p>
+          <p className="hint prose mt-16">
+            {'週六、週日與國定假日（台電的離峰日）全天離峰；排程程式用同一份假日表。'}
+            {'假日表只收錄資料集的年份 2006～2011（src/lib/holidays.js）。'}
+          </p>
         </Panel>
       </div>
 
