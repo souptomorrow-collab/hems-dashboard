@@ -90,8 +90,8 @@ function fixedOn(id, slot, summer, weather) {
 function devicePowerWhenOn(dev, slot, weather) {
   let p = dev.ratedW / 1000
   if (dev.id === 'fridge') {
-    // 900 W 是壓縮機額定；換算成 6~10% 的等效工作週期（平均約 76 W，一天約 1.8 度，接近一般家用冰箱）
-    p *= 0.06 + 0.04 * Math.abs(Math.sin(slot))
+    // 壓縮機間歇運轉：40~60% 的等效工作週期（平均約 65 W，一天約 1.6 度，接近一般家用冰箱）
+    p *= 0.4 + 0.2 * Math.abs(Math.sin(slot))
   } else if (dev.id === 'ac') {
     const t = weather?.tempSlots?.[slot] ?? 28
     const f = Math.max(0.45, Math.min(1.0, (t - 24) / 9 + 0.55)) // 越熱功率越高，額定為上限

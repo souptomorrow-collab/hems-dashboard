@@ -40,19 +40,19 @@ export const BATTERY = {
 // category: 'shiftable' 可轉移 / 'fixed' 不可轉移
 // ratedW: 額定功率 (瓦)
 export const DEVICES = [
-  // 可轉移（額定功率採用 Dinh et al., IEEE Access 2020, Table 4；運轉時間依台灣家庭作息設定）
-  { id: 'washer', name: '洗衣機', category: 'shiftable', ratedW: 800, icon: '🧺' },
-  { id: 'dryer', name: '烘衣機', category: 'shiftable', ratedW: 700, icon: '🌀' },
-  { id: 'dishwasher', name: '洗碗機', category: 'shiftable', ratedW: 200, icon: '🍽️' },
-  // 不可轉移（同樣採用文獻之額定功率；冰箱為壓縮機額定，實際功率見 simulate.js 的工作週期）
-  { id: 'computer', name: '電腦', category: 'fixed', ratedW: 200, icon: '💻' },
-  { id: 'security', name: '監控設備', category: 'fixed', ratedW: 100, icon: '📹' },
-  { id: 'microwave', name: '微波爐', category: 'fixed', ratedW: 500, icon: '🍱' },
-  // capW：分配預測總量時的上限。冰箱 24 小時開著，用額定 900 W 當上限會被塞進一整天的電
-  { id: 'fridge', name: '冰箱', category: 'fixed', ratedW: 900, capW: 90, icon: '🧊' },
-  { id: 'tv', name: '電視', category: 'fixed', ratedW: 200, icon: '📺' },
-  { id: 'lighting', name: '照明設備', category: 'fixed', ratedW: 100, icon: '💡' },
-  { id: 'ac', name: '冷氣機', category: 'fixed', ratedW: 1300, icon: '❄️' },
+  // 台灣市售家電的消耗功率（和資料庫 meta.devices 相同）：多數取自台電資料之「常用電器耗電瓦數概估表」，
+  // 洗碗機、微波爐取 Panasonic 台灣機型規格，監控設備取 4 路主機＋4 支攝影機；運轉時間依台灣家庭作息設定
+  { id: 'washer', name: '洗衣機', category: 'shiftable', ratedW: 420, icon: '🧺' }, // 8 公斤
+  { id: 'dryer', name: '烘衣機', category: 'shiftable', ratedW: 1200, icon: '🌀' },
+  { id: 'dishwasher', name: '洗碗機', category: 'shiftable', ratedW: 1180, icon: '🍽️' }, // NP-TH4WHR1TW
+  // 不可轉移（實際用電由負載預測涵蓋，這裡只用來把總量拆到各設備顯示；冰箱的工作週期見 simulate.js）
+  { id: 'computer', name: '電腦', category: 'fixed', ratedW: 370, icon: '💻' }, // 主機 250＋螢幕 120
+  { id: 'security', name: '監控設備', category: 'fixed', ratedW: 72, icon: '📹' }, // 主機 24＋攝影機 12×4
+  { id: 'microwave', name: '微波爐', category: 'fixed', ratedW: 1400, icon: '🍱' }, // NN-ST34NB 消耗電功率
+  { id: 'fridge', name: '冰箱', category: 'fixed', ratedW: 130, icon: '🧊' }, // 320 公升
+  { id: 'tv', name: '電視', category: 'fixed', ratedW: 105, icon: '📺' }, // 液晶電視
+  { id: 'lighting', name: '照明設備', category: 'fixed', ratedW: 100, icon: '💡' }, // 日光燈 25 W×4
+  { id: 'ac', name: '冷氣機', category: 'fixed', ratedW: 900, icon: '❄️' }, // 1 噸
   // 熱水器：本情境設定為瓦斯熱水器（資料集的電熱水器佔整戶 35.5%，遠高於台灣家庭平均 9.55%），不耗電，所以不在用電設備清單裡
 ]
 
