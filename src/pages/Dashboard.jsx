@@ -433,8 +433,8 @@ export default function Dashboard() {
             : '即時運轉：今天 00:00 到現在的太陽能、負載、電網、電池功率與 SOC'} />
       </Panel>
 
-      {/* 秒級重播：資料集的秒級資料（跟著網站部署，不經過資料庫），只在展示模式出現 */}
-      {demo.enabled && (
+      {/* 秒級重播（管理員）：資料集的秒級資料（跟著網站部署，不經過資料庫）；一般模式跟著真實時間、展示模式跟著展示時鐘 */}
+      {admin && (
         <div className="mt-16">
           <SecondReplay />
         </div>

@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Panel from './Panel'
 import EChart from './EChart'
 import { cached, getJson, fetchSchedules, fetchOperation } from '../api/forecastData'
 import { useScenario, useScenarioDays } from '../lib/scenario.js'
 import { useDemoClock, seekDemoSec } from '../lib/demoClock.js'
+import { nowTaipei } from '../lib/time.js'
 import { useTheme } from '../lib/theme.js'
 import { baseTooltip, valueYAxis, AXIS_TEXT, SPLIT_LINE } from '../lib/charts.js'
 import { useMediaQuery } from '../hooks/useMediaQuery.js'
@@ -19,13 +20,13 @@ import { DEVICES } from '../lib/constants.js'
    15 分鐘的計畫值仍然來自資料庫（排程），兩者在畫面上疊在一起看——
    看得到實時層在兩次排程之間怎麼跟著實際負載走。
 
-   展示模式開著時，重播跟著展示時鐘走（日期固定在展示日、時刻就是展示時鐘的時刻），
-   速度在上方的展示列調：1 分鐘＝1 秒時一格要 15 秒，看得到實時層逐秒怎麼跟著實際負載修正。
+   重播一律跟著時鐘走，日期固定在「今天」（展示月的日子）：
+     一般模式＝真實時間，每秒前進一秒（一般模式本來就是展示月的即時版）；
+     展示模式＝展示時鐘的時刻，速度在上方的展示列調：1 分鐘＝1 秒時一格要 15 秒，看得到實時層逐秒怎麼跟著實際負載修正。
 
    ★ 分鐘級以上是實測，分鐘之內是合成；太陽能連 15 分鐘平均都是日射量換算，不是實測出力。 */
 
-const SPEEDS = [1, 60, 300, 900]          // 1 秒＝1 秒 / 1 分 / 5 分 / 15 分
-// 兩個展示月：情境切到哪一季，就只能選那個月；預設停在展示日
+// 兩個展示月：情境切到哪一季，就是那個月
 const MONTHS = {
   summer: { month: '2010-07', days: 31, show: '2010-07-19' },
   non_summer: { month: '2010-01', days: 31, show: '2010-01-11' },
@@ -33,7 +34,8 @@ const MONTHS = {
 const WINDOW_S = 900                      // 畫面上顯示最近 15 分鐘
 const RATED_KW = Object.fromEntries(
   DEVICES.filter((d) => d.category === 'shiftable').map((d) => [d.id, d.ratedW / 1000]))
-const TICK_MS = 100                       // 每 0.1 秒推進一次，播放才順
+/** 一般模式的「現在」是當天第幾秒（真實時間） */
+const secOfDay = (t = nowTaipei()) => t.getHours() * 3600 + t.getMinutes() * 60 + t.getSeconds()
 
 const hhmmss = (s) =>
   `${String((s / 3600) | 0).padStart(2, '0')}:${String(((s / 60) | 0) % 60).padStart(2, '0')}`
@@ -43,28 +45,24 @@ export default function SecondReplay() {
   const { season } = useScenario()
   const theme = useTheme() // 主題一換，圖表的座標軸、圖例顏色跟著換
   const range = MONTHS[season] ?? MONTHS.summer
-  const { today: home } = useScenarioDays() // 平常停在展示日；展示模式下跟著播放的那一天
-  const [picked, setDay] = useState(home)
+  const { today: day } = useScenarioDays() // 一般模式＝今天對到的展示日；展示模式＝播放中的那一天
   const [data, setData] = useState(null)
   const [plan, setPlan] = useState(null)
   const [op, setOp] = useState(null)        // 實時層實際做了什麼（actual_operation）
   const [err, setErr] = useState(null)
-  const [ownSec, setSec] = useState(0)
-  // 展示模式：跟著展示時鐘（展示日、展示時鐘的時刻），自己的播放鈕與日期都停用
+  // 時刻：展示模式跟著展示時鐘；一般模式跟著真實時間，每秒更新
   const demo = useDemoClock()
-  const locked = demo.enabled
-  const day = locked ? home : picked
-  const sec = locked ? demo.sec : ownSec
-  const [speed, setSpeed] = useState(60)
-  const [playing, setPlaying] = useState(false)
-  const carry = useRef(0)                 // 不足 1 秒的餘數，換速度時不會跳動
-
-  // 切換情境就回到那一季的展示日
-  useEffect(() => { setDay(home) }, [home])
+  const [liveSec, setLiveSec] = useState(secOfDay)
+  useEffect(() => {
+    if (demo.enabled) return undefined
+    const id = setInterval(() => setLiveSec(secOfDay()), 1000)
+    return () => clearInterval(id)
+  }, [demo.enabled])
+  const sec = demo.enabled ? demo.sec : liveSec
 
   useEffect(() => {
     let on = true
-    setData(null); setPlan(null); setOp(null); setErr(null); setSec(0); setPlaying(false)
+    setData(null); setPlan(null); setOp(null); setErr(null)
     cached(`realtime_${day}`, () => getJson(`realtime/${day}.json`))
       .then((d) => {
         if (!on) return
@@ -81,18 +79,6 @@ export default function SecondReplay() {
       .catch((e) => on && setErr(e.message))
     return () => { on = false }
   }, [day])
-
-  useEffect(() => {
-    if (!playing || !data || locked) return undefined
-    const id = setInterval(() => {
-      carry.current += (speed * TICK_MS) / 1000
-      const step = Math.floor(carry.current)
-      if (!step) return
-      carry.current -= step
-      setSec((s) => (s + step) % data.n)
-    }, TICK_MS)
-    return () => clearInterval(id)
-  }, [playing, speed, data])
 
   // 可轉移設備每一格的功率：實時層實際開機的時間（op.devices）× 額定功率；沒有實時紀錄才用日前排程的預估。
   // 秒級檔只有不可轉移負載，設備照額定功率加上去，和實時運轉的負載（本來就含設備）才對得上
@@ -192,9 +178,8 @@ export default function SecondReplay() {
         value={day}
         min={`${range.month}-01`}
         max={`${range.month}-${String(range.days).padStart(2, '0')}`}
-        onChange={(e) => e.target.value && setDay(e.target.value)}
-        disabled={locked}
-        title={locked ? '展示模式下固定在展示日' : undefined}
+        disabled
+        title="跟著時鐘，固定在今天"
       />
     </label>
   )
@@ -207,22 +192,6 @@ export default function SecondReplay() {
       right={
         <div className="replay-ctl">
           {picker}
-          {locked ? null : (
-            <>
-              <button className="btn" onClick={() => setPlaying((p) => !p)}>
-                {playing ? '暫停' : '播放'}
-              </button>
-              {SPEEDS.map((v) => (
-                <button
-                  key={v}
-                  className={`btn ${v === speed ? 'on' : ''}`}
-                  onClick={() => setSpeed(v)}
-                >
-                  {v}×
-                </button>
-              ))}
-            </>
-          )}
         </div>
       }
     >
@@ -252,8 +221,9 @@ export default function SecondReplay() {
         type="range"
         min={0}
         max={data.n - 1}
-        value={sec}
-        onChange={(e) => (locked ? seekDemoSec(Number(e.target.value)) : setSec(Number(e.target.value)))}
+        value={Math.min(sec, data.n - 1)}
+        onChange={(e) => seekDemoSec(Number(e.target.value))}
+        disabled={!demo.enabled} // 一般模式是真實時間，不能拖
         style={{ width: '100%' }}
         aria-label="重播進度"
       />
