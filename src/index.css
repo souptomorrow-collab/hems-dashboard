@@ -902,6 +902,10 @@ h1, h2, h3, h4 {
   min-width: 760px;
   font-size: 12px;
 }
+/* 用電規劃：甘特圖緊接在供需圖下面、時間軸對齊（設備欄寬與右邊留白由 Planning.jsx 設定） */
+.gantt.aligned { margin-top: 4px; }
+.gantt.aligned td.dev-name { padding: 6px 8px; overflow: hidden; text-overflow: ellipsis; }
+.plan-delta { margin: 10px 0 0; font-weight: 700; }
 .gantt th, .gantt td {
   border: 1px solid var(--border);
   text-align: center;

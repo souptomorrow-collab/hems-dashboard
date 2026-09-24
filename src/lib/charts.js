@@ -144,14 +144,14 @@ export const SOC_EXTRA_HEIGHT = SOC_H + SOC_GAP
 export const socExtraHeight = (socH) => socH + SOC_GAP
 
 // 右邊留 32px：SOC 小圖右端有 90%／15% 參考線標籤，24px 會切掉「%」的右半邊
-export function powerSocLayout({ right = 32, boundaryGap, socH = SOC_H } = {}) {
+export function powerSocLayout({ left = baseGrid.left, right = 32, boundaryGap, socH = SOC_H } = {}) {
   // boundaryGap 沒指定就不要傳：slotXAxis 會把 undefined 蓋上去，類別軸就變回預設的留邊
   const bg = boundaryGap == null ? {} : { boundaryGap }
   return {
     axisPointer: { link: [{ xAxisIndex: 'all' }] },
     grid: [
-      { left: baseGrid.left, right, top: baseGrid.top, bottom: baseGrid.bottom + socH + SOC_GAP },
-      { left: baseGrid.left, right, height: socH, bottom: baseGrid.bottom },
+      { left, right, top: baseGrid.top, bottom: baseGrid.bottom + socH + SOC_GAP },
+      { left, right, height: socH, bottom: baseGrid.bottom },
     ],
     xAxis: [
       slotXAxis({ gridIndex: 0, ...bg, axisLabel: { show: false } }),
@@ -165,13 +165,14 @@ export function powerSocLayout({ right = 32, boundaryGap, socH = SOC_H } = {}) {
  * 功率標 kW（放電畫成負值長條，但數字寫正的）、SOC 標 %，SOC 排最後。
  */
 export function powerSocFormatter(ps) {
+  const isSoc = (p) => p.seriesName.endsWith('SOC') // 「SOC」「調整前 SOC」都是 %
   const list = [...ps]
     .filter((p) => p.value != null)
-    .sort((a, b) => (a.seriesName === 'SOC') - (b.seriesName === 'SOC'))
+    .sort((a, b) => isSoc(a) - isSoc(b))
   if (!list.length) return ''
   return `${list[0].axisValueLabel}<br/>` + list.map((p) => {
     const v = +p.value
-    const text = p.seriesName === 'SOC'
+    const text = isSoc(p)
       ? `${Math.round(v)}%`
       : `${(p.seriesName.includes('放電') ? Math.abs(v) : v).toFixed(2)} kW`
     return `${p.marker}${p.seriesName}: ${text}`
@@ -186,7 +187,7 @@ export function withSocLabel(o, label) {
   const fmt = o.tooltip?.formatter
   return {
     ...o,
-    legend: o.legend && { ...o.legend, formatter: (n) => (n === 'SOC' ? label : n) },
+    legend: o.legend && { ...o.legend, formatter: (n) => n.replaceAll('SOC', label) },
     yAxis: Array.isArray(o.yAxis) ? o.yAxis.map((ax) => (ax?.name === 'SOC' ? { ...ax, name: label } : ax)) : o.yAxis,
     tooltip: typeof fmt === 'function'
       ? { ...o.tooltip, formatter: (...args) => String(fmt(...args) ?? '').replaceAll('SOC', label) }

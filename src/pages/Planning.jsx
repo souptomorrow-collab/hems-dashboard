@@ -24,6 +24,7 @@ import {
   baseLegend,
   touMarkArea,
   bgSeries,
+  AXIS_TEXT,
   socLabel,
   withSocLabel,
   powerSocLayout,
@@ -36,6 +37,10 @@ import {
 import { PLAN_SOC_H, rollingOption } from '../lib/planChart.js'
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h)
+// 甘特圖的設備欄寬＝上面那張圖的左邊界、兩者右邊留一樣寬：圖和甘特圖的時間軸上下對齊，
+// 拖到哪個時段，正上方就是那段的供需變化
+const TL_LEFT = 104
+const TL_RIGHT = 40
 const SHIFTABLE = DEVICES.filter((d) => d.category === 'shiftable') // 甘特圖只列可轉移設備
 const STALL_MS = 3 * 60 * 1000 // 送出後 3 分鐘都沒有任何一天重排好，就不再等
 const md = (d) => (d ? `${+d.slice(5, 7)}/${+d.slice(8, 10)}` : '')
@@ -337,8 +342,20 @@ export default function Planning() {
   }
 
   // ---- 電力供需與電池調度（隔日） ----
+  // 調整前＝載入時（或上次送出）的那一份；條件改過才疊上去比
+  const base = loaded.current?.plan ?? null
+  const changed = Boolean(plan && base && plan !== base && cond && loaded.current
+    && condKey(cond) !== condKey(loaded.current.cond))
   const supplyOption = useMemo(() => {
     if (!plan) return {}
+    const ghost = changed
+      ? [
+          { name: '調整前負載', type: 'line', symbol: 'none', smooth: true, z: 1,
+            lineStyle: { width: 1.5, color: AXIS_TEXT, type: 'dotted' }, itemStyle: { color: AXIS_TEXT }, data: base.load },
+          { name: '調整前 SOC', type: 'line', xAxisIndex: 1, yAxisIndex: 1, symbol: 'none', smooth: true,
+            lineStyle: { width: 1.5, color: AXIS_TEXT, type: 'dotted' }, itemStyle: { color: AXIS_TEXT }, data: base.socPct },
+        ]
+      : []
     return withSocLabel({
       tooltip: { ...baseTooltip, formatter: powerSocFormatter },
       color: ['#ffb020', '#f97316', '#3b82f6', TEXT_MAIN, COLORS.battery],
@@ -351,9 +368,10 @@ export default function Planning() {
           { name: '電網供電', icon: 'roundRect' },
           '總負載',
           'SOC',
+          ...ghost.map((g) => g.name),
         ],
       },
-      ...powerSocLayout(),
+      ...powerSocLayout({ left: TL_LEFT, right: TL_RIGHT, boundaryGap: true }),
       yAxis: [valueYAxis('kW'), socYAxis()],
       series: [
         { name: '太陽能供電', type: 'line', stack: 'sup', symbol: 'none', lineStyle: { width: 0 },
@@ -369,9 +387,11 @@ export default function Planning() {
         // 背景電價掛在隱形系列上：圖例關掉太陽能供電或 SOC 也還在
         bgSeries({ markArea: touMarkArea(plan.tier, plan.price) }),
         bgSeries({ markArea: touMarkArea(plan.tier, plan.price, undefined, { label: false }), soc: true }),
+        ...ghost,
       ],
     }, socName)
-  }, [plan, theme, socName])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plan, theme, socName, changed])
 
   // ---- 未來 24 小時預測與排程（和主頁面同一張） ----
   const hasRolling = Boolean(rolling && rolling.source !== 'none' && rolling.season === season)
@@ -389,32 +409,20 @@ export default function Planning() {
     )
   }
 
+  // 摘要和調整前比：電費、購電差多少（條件改過才列）
+  const bs = changed ? base?.summary : null
+  const delta = (a, b, unit) => {
+    const d = Math.round((+a - +b) * 10) / 10
+    return d === 0 ? '不變' : `${d > 0 ? '多' : '少'} ${Math.abs(d).toFixed(1)} ${unit}`
+  }
+  const deltaText = bs && s
+    ? `和調整前比：電費${delta(s.optimizedCost, bs.optimizedCost, '元')}、向電網購電${delta(s.gridImportKwh, bs.gridImportKwh, '度')}（圖上的虛線是調整前）`
+    : null
+
   return (
     <>
-      {/* 結果摘要（隔日） */}
-      <div className="grid cols-6">
-        <Tile label="預估電費" value={s ? s.optimizedCost : '—'} unit="元" />
-        <Tile label="預估省電費" value={s ? s.savings : '—'} unit="元" color={COLORS.save} />
-        <Tile label="太陽能自用率" value={s ? s.selfUseRate : '—'} unit="%" color={COLORS.solar} />
-        <Tile label="向電網購電" value={s ? s.gridImportKwh : '—'} unit="度" color={COLORS.grid} />
-        <Tile label="太陽能充電" value={s ? s.pvToBattKwh : '—'} unit="度" color={COLORS.battery} />
-        <Tile label="電池放電量" value={s ? s.dischargeKwh : '—'} unit="度" color={COLORS.discharge} />
-      </div>
-
-      {/* 供需調度 */}
-      <Panel title={`電力供需與電池調度（${md(planDay)}）`} className="mt-16">
-        <EChart option={supplyOption} height={330 + SOC_EXTRA_HEIGHT} label="隔日電力供需：太陽能、電池、電網供電堆疊與 SOC" />
-      </Panel>
-
-      {/* 未來 24 小時預測與排程（實時運轉層每 15 分鐘重排的計畫） */}
-      <Panel title="未來 24 小時預測與排程" className="mt-16">
-        {hasRolling
-          ? <EChart option={next24Option} height={380 + socExtraHeight(PLAN_SOC_H)}
-              label={`未來 24 小時預測與排程：從現在起 24 小時的太陽能、負載、電網、電池功率與${socName}`} />
-          : <div className="skeleton" style={{ height: 380 + socExtraHeight(PLAN_SOC_H) }} />}
-      </Panel>
-
-      {/* 用戶規劃：可轉移設備的條件（常駐排程／明日排程；在下面的甘特圖上拖動＝指定時間） */}
+      {/* 用戶規劃：可轉移設備的條件（常駐排程／明日排程；在下面的甘特圖上拖動＝指定時間）。
+          調整的結果緊接在下面（摘要、供需圖、甘特圖），改了馬上看得到 */}
       <DevicePrefs
         cond={cond}
         est={est}
@@ -440,19 +448,38 @@ export default function Planning() {
         onSubmit={submit}
       />
 
-      {/* 可轉移設備運行時段甘特 */}
+      {/* 調整的結果：摘要＋供需圖＋甘特圖（圖和甘特圖的時間軸上下對齊；條件改過時虛線是調整前） */}
       <Panel
-        title="各設備運行時段"
+        title={`電力供需與電池調度（${md(planDay)}）`}
         right={(dragHint || notice)
           ? <span className="hint plan-notice" role="status" aria-live="polite">{dragHint || notice}</span>
           : null}
         className="mt-16"
       >
+        <div className="grid cols-6">
+          <Tile label="預估電費" value={s ? s.optimizedCost : '—'} unit="元" />
+          <Tile label="預估省電費" value={s ? s.savings : '—'} unit="元" color={COLORS.save} />
+          <Tile label="太陽能自用率" value={s ? s.selfUseRate : '—'} unit="%" color={COLORS.solar} />
+          <Tile label="向電網購電" value={s ? s.gridImportKwh : '—'} unit="度" color={COLORS.grid} />
+          <Tile label="太陽能充電" value={s ? s.pvToBattKwh : '—'} unit="度" color={COLORS.battery} />
+          <Tile label="電池放電量" value={s ? s.dischargeKwh : '—'} unit="度" color={COLORS.discharge} />
+        </div>
+        {deltaText && <p className="plan-delta" role="status">{deltaText}</p>}
+        <div className="mt-16">
+          <EChart option={supplyOption} height={300 + SOC_EXTRA_HEIGHT}
+            label={`隔日電力供需：太陽能、電池、電網供電堆疊與${socName}`} />
+        </div>
         {schedule && plan ? (
           <>
-            {/* 手機上表格比螢幕寬、要左右捲動：tabIndex 讓鍵盤也能選到這個區塊再用方向鍵捲 */}
-            <div className="gantt" tabIndex={0} role="region" aria-label="各設備運行時段表，可左右捲動">
-              <table>
+            {/* 手機上表格比螢幕寬、要左右捲動：tabIndex 讓鍵盤也能選到這個區塊再用方向鍵捲。
+                設備欄寬與右邊留白和上面的圖一樣，時間軸才對得齊 */}
+            <div className="gantt aligned" tabIndex={0} role="region" aria-label="各設備運行時段表，可左右捲動"
+              style={{ paddingRight: TL_RIGHT }}>
+              <table style={{ tableLayout: 'fixed' }}>
+                <colgroup>
+                  <col style={{ width: TL_LEFT }} />
+                  {Array.from({ length: 96 }, (_, i) => <col key={i} />)}
+                </colgroup>
                 <thead>
                   <tr>
                     <th className="dev-name" style={{ textAlign: 'left' }}>設備</th>
@@ -516,6 +543,14 @@ export default function Planning() {
         ) : (
           <div className="skeleton" style={{ height: 200 }} />
         )}
+      </Panel>
+
+      {/* 未來 24 小時預測與排程（實時運轉層每 15 分鐘重排的計畫；和主頁面同一張，不受上面的調整影響） */}
+      <Panel title="未來 24 小時預測與排程" className="mt-16">
+        {hasRolling
+          ? <EChart option={next24Option} height={380 + socExtraHeight(PLAN_SOC_H)}
+              label={`未來 24 小時預測與排程：從現在起 24 小時的太陽能、負載、電網、電池功率與${socName}`} />
+          : <div className="skeleton" style={{ height: 380 + socExtraHeight(PLAN_SOC_H) }} />}
       </Panel>
     </>
   )
