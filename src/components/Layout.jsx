@@ -7,7 +7,7 @@ import { LOCATION } from '../lib/time.js'
 import { useTheme, toggleTheme } from '../lib/theme.js'
 import DemoBar from './DemoBar.jsx'
 import ErrorBoundary from './ErrorBoundary.jsx'
-import { useScenario, setSeason, SEASONS, DEFAULT_SEASON } from '../lib/scenario.js'
+import { useScenario, useScenarioDays, setSeason, SEASONS, DEFAULT_SEASON } from '../lib/scenario.js'
 import { getDemo, stopDemo, useDemoEnabled } from '../lib/demoClock.js'
 import { useAuth, logout } from '../lib/auth.js'
 import { pingDemo } from '../api/prefs.js'
@@ -79,13 +79,15 @@ export default function Layout() {
   const theme = useTheme()
   const [collapsed, setCollapsed] = useState(readCollapsed)
 
-  // 展示模式開著：每分鐘告訴本機的待命程式「還在展示」，它就會叫起、留著排程監看（在哪台電腦開網頁都一樣）
-  // 平常模式和展示模式看的是同一份資料：住戶在用電規劃按「重排」也要有人重算，所以網頁開著就一直通知
+  // 網頁開著就每分鐘告訴本機的待命程式「有人在用」，它就會叫起、留著排程監看（在哪台電腦開網頁都一樣）。
+  // 平常模式和展示模式看的是同一份資料：住戶在用電規劃按「重排」也要有人重算，所以網頁開著就一直通知。
+  // 一併告訴它現在的隔日（換天就馬上送）：隔日還是舊設定算的，它就只補算那一天
+  const { next: nextDay } = useScenarioDays()
   useEffect(() => {
-    pingDemo()
-    const id = setInterval(pingDemo, 60000)
+    pingDemo(nextDay)
+    const id = setInterval(() => pingDemo(nextDay), 60000)
     return () => clearInterval(id)
-  }, [])
+  }, [nextDay])
 
   // 使用者改了隔日設定，本機從隔日起逐日重算，算完一天就寫回資料庫一天。
   // 各頁（主頁面、用電規劃、歷史紀錄）都靠這裡：本機在重算時每 10 秒重讀

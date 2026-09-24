@@ -140,13 +140,18 @@ export async function savePrefs(devices, from = null, mode = 'day') {
   }
 }
 
-/** 展示模式開著：告訴本機的待命程式（device_plan/scripts/demo_agent.py）有人在展示，
-    它會叫起排程監看；網頁在展示模式下每分鐘送一次，停了 30 分鐘它就把監看程式關掉。
-    不管在哪一台電腦打開網頁都有效（這台電腦要開著、有跑待命程式）。回傳有沒有送成功 */
-export async function pingDemo() {
+/** 網頁開著：告訴本機的待命程式（device_plan/scripts/demo_agent.py）有人在用，它會叫起排程監看；
+    網頁每分鐘送一次，停了 30 分鐘它就把監看程式關掉。不管在哪一台電腦打開網頁都有效（這台電腦要開著、有跑待命程式）。
+    nextDay＝網頁現在的隔日：隔日還是舊設定算的，排程監看就只補算那一天（實務上每天只排隔日；月底沒有隔日給 null）。
+    回傳有沒有送成功 */
+export async function pingDemo(nextDay = null) {
   if (!canSave) return false
   try {
-    await call('/wake', { method: 'POST', headers: { 'X-Api-Key': KEY } })
+    await call('/wake', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Api-Key': KEY },
+      body: JSON.stringify(nextDay ? { next_day: nextDay } : {}),
+    })
     return true
   } catch (e) {
     console.warn('展示訊號送不出去：', e.message)

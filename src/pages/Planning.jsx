@@ -160,6 +160,9 @@ export default function Planning() {
       setSchedule(rows)
       setPlan(cur)
       setComputing(false)
+      // 隔日的排程還不是目前這一版設定算的（例如常駐排程之後的日子剛輪到當隔日）：本機會只補算這一天，
+      // 和送出後一樣等它算好再重新載入
+      if (fromPlan && d.stamp && p.planStamp && p.planStamp !== d.stamp) setAwaiting({ stamp: d.stamp, day: planDay })
     })()
     return () => { on = false }
   }, [season, reload, planDay])
