@@ -23,7 +23,7 @@ import { simulateWeather } from './weather.js'
 export function pvForecastKw(date, weather = simulateWeather(date)) {
   const rng = mulberry32(seedFromDate(date) + 7)
   const summer = isSummer(date)
-  const peakKw = summer ? 4.6 : 3.6 // 系統晴空尖峰發電
+  const peakKw = summer ? 2.5 : 2.0 // 系統晴空尖峰發電（3.5 kW、全年 PR 0.72；2026-09-30 由 5.5 kW 改為 3.5 kW）
 
   // 台北（約 25°N）的季節日照：夏至約 13.4h、冬至約 10.6h
   const doy = dayOfYear(date)
