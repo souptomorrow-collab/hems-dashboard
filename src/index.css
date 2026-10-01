@@ -1871,7 +1871,7 @@ body {
   }
 }
 
-/* 秒級重播 */
+/* 實時控制（每秒），原「秒級重播」 */
 .replay-ctl { display: flex; gap: 6px; }
 .replay-ctl .btn { padding: 3px 10px; font-size: 12px; }
 .replay-ctl .btn.on { background: var(--accent-solid); color: #fff; border-color: transparent; }
@@ -1900,11 +1900,11 @@ body {
 .btn.btn-armed { border-color: var(--t-peak); color: var(--t-peak); }
 @media (max-width: 640px) { .prefs-row { grid-template-columns: 1fr; gap: 4px; } }
 
-/* 秒級重播：選哪一天 */
+/* 實時控制（每秒）：選哪一天 */
 .replay-day input { padding: 4px 8px; font-size: 13px; border: 1px solid var(--border); border-radius: 6px;
   background: var(--bg-panel-2); color: var(--text); font-variant-numeric: tabular-nums; }
 /* 瀏覽器內建的日曆圖示、日期選單與滑桿軌道跟著主題換色（同 .date-input）：
-   原本夜間模式下展示列日期欄的日曆圖示是黑的、秒級重播的滑桿軌道是白的 */
+   原本夜間模式下展示列日期欄的日曆圖示是黑的、實時控制（每秒）的滑桿軌道是白的 */
 .demo-day input,
 .replay-day input,
 input[type="range"] { color-scheme: dark; }

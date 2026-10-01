@@ -669,7 +669,7 @@ export function liveSnapshot(
      每一步都夾在 0 以上，放電與太陽能都不會被減成負值。 */
   let curtailKw = 0
   if (exact) {
-    // 實時運轉紀錄：負載、太陽能、棄光、購電都照紀錄（和歷史紀錄、秒級重播同一組數字）
+    // 實時運轉紀錄：負載、太陽能、棄光、購電都照紀錄（和歷史紀錄、實時控制（每秒）同一組數字）
     return {
       ...snapshotRest(day, slot, now, devices),
       pvKw: r2(day.pv[slot] - day.pvToGrid[slot]),
